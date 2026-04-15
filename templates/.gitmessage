@@ -1,0 +1,36 @@
+
+# <type>(<scope>): <description>           [72 chars max ←――――――――――――|]
+#
+# ――――――――――――――――――――――――――――――――――――――――
+# Body (optional): explain WHY, not what.
+# Wrap at 72 characters.
+#
+#
+#
+# ――――――――――――――――――――――――――――――――――――――――
+# Footer (optional):
+# BREAKING CHANGE: <description>
+# Refs: GH-42
+# Fixes: GH-108
+# Co-authored-by: Name <email>
+#
+# ――――――――――――――――――――――――――――――――――――――――
+# Allowed types:
+#   feat      New feature                        → MINOR
+#   fix       Bug fix                            → PATCH
+#   docs      Documentation only
+#   style     Formatting (no logic change)
+#   refactor  Restructuring (no behavior change)
+#   perf      Performance improvement            → PATCH
+#   test      Add or modify tests
+#   build     Build system / dependencies
+#   ci        CI/CD configuration
+#   chore     Maintenance (no src/test change)
+#   revert    Revert a previous commit
+#
+# Rules:
+#   ✓ Imperative present tense (add, fix, remove)
+#   ✓ No capital after colon
+#   ✓ No period at end
+#   ✓ 72 chars max for subject line
+#   ✓ Breaking change → add ! after type AND BREAKING CHANGE footer
