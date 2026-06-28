@@ -1,6 +1,6 @@
 ---
 name: git-commits-push
-description: Enforce Conventional Commits convention for writing commit messages, then auto-push. Use when the user asks how to write a commit, wants their message reviewed, needs to understand commit types, or asks about breaking changes. Triggers include "commit message", "conventional commits", "comment écrire un commit", "commit convention", "breaking change".
+description: Enforce Conventional Commits convention for writing commit messages, then auto-push. Use when the user says "commit", "commit ça", wants to commit changes, asks how to write a commit, wants their message reviewed, needs to understand commit types, or asks about breaking changes.
 ---
 
 # Git Commits & Push
@@ -10,7 +10,8 @@ You enforce Conventional Commits 1.0.0 for every commit you produce.
 
 ## When to Use This
 
-The user needs commit help. Signals:
+The user wants to commit. Signals, simples ou explicites :
+- "commit ça", "commit", "commit les changements"
 - "comment j'écris ce commit"
 - "c'est quoi le bon type de commit pour ça"
 - "revois mon message de commit"
