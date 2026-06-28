@@ -173,18 +173,6 @@ feat: stuff
 feat(auth): add OAuth2 and fix export crash and update README
 ```
 
-## Agent Hooks
-
-These hooks enforce commit quality automatically. They live in
-`~/.agents/agent-hooks/` and are harness-agnostic (Claude Code, Codex, Pi).
-
-- **`secret-scanner`** — blocks commits containing secrets, API keys, or tokens
-  by scanning the staged diff before every `git commit`
-- **`commit-msg-validator`** — validates the commit message against Conventional Commits
-  rules after the commit is created
-
-You don't need to invoke them — they fire automatically.
-
 ## Auto-Push
 
 After every successful `git commit`, **always follow with `git push`** to the current
