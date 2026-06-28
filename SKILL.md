@@ -6,7 +6,8 @@ description: Enforce Conventional Commits convention for writing commit messages
 # Git Commits & Push
 
 Messages de commit clairs, consistants et parseables — Conventional Commits 1.0.0.
-**Après chaque commit, push automatiquement** vers le remote (sauf indication contraire de l'utilisateur).
+**Après chaque commit, push automatiquement** vers le remote (sauf indication contraire
+de l'utilisateur).
 
 ## Trigger
 
@@ -55,8 +56,6 @@ Trois parties : **subject line** (obligatoire), **body** (optionnel), **footer**
 | `ci` | Configuration CI/CD |
 | `chore` | Tâches de maintenance qui ne touchent ni le source ni les tests |
 | `revert` | Revert d'un commit précédent |
-
-Pour l'impact de chaque type sur le numéro de version → voir skill `semver-convention`.
 
 ### Aide à la décision
 
@@ -174,23 +173,10 @@ feat: stuff
 feat(auth): add OAuth2 and fix export crash and update README
 ```
 
-## Commit Template
-
-Installer le template dans `templates/.gitmessage` localement :
-
-```bash
-git config --local commit.template .gitmessage
-```
-
-## Automation
-
-La validation des messages de commit passe par les **hooks Claude Code** (`~/.claude/settings.json`), pas par un hook manager.
-
-La détection de secrets est assurée par le hook Claude Code `secret-scanner` (`PreToolUse` → `Bash`), qui scanne le diff staged avant chaque `git commit` et bloque si un secret est détecté.
-
 ## Auto-push
 
-Après chaque `git commit` réussi, **toujours enchaîner avec `git push`** vers la branche courante du remote.
+Après chaque `git commit` réussi, **toujours enchaîner avec `git push`** vers la branche
+courante du remote.
 
 - Si la branche n'a pas d'upstream → `git push -u origin <branch>`
 - Si la branche a déjà un upstream → `git push`
@@ -199,10 +185,13 @@ Après chaque `git commit` réussi, **toujours enchaîner avec `git push`** vers
 
 ## Guidelines
 
-- **Ne jamais committer du code qui ne passe pas les tests** — lancer les tests avant tout commit. Si un test échoue, corriger avant de committer. Aucune exception.
-- **Ne jamais committer de secrets, clés API, tokens ou mots de passe** — le hook `secret-scanner` bloque automatiquement le commit si un secret est détecté dans le diff staged. Utiliser `.gitignore` et/ou `.env` pour les données sensibles.
+- **Ne jamais committer du code qui ne passe pas les tests** — lancer les tests avant
+  tout commit. Si un test échoue, corriger avant de committer.
+- **Ne jamais committer de secrets, clés API, tokens ou mots de passe** — vérifier
+  le diff avant de committer. Utiliser `.gitignore` et/ou `.env` pour les données sensibles.
 - **Toujours vérifier le message de commit** contre toutes les règles avant de valider
 - **Suggérer le bon type** quand l'utilisateur décrit ce qu'il a changé
 - **Réécrire les messages vagues** en messages spécifiques — proposer une alternative concrète
 - **Signaler les commits multi-concerns** et suggérer de les split
-- **Ne jamais générer un message de commit sans comprendre le changement** — demander ce qui a changé si c'est pas clair
+- **Ne jamais générer un message de commit sans comprendre le changement** — demander
+  ce qui a changé si c'est pas clair
