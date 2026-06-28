@@ -72,8 +72,6 @@ When you hesitate:
 - "J'ai changé la config CI" → `ci`
 - "J'ai nettoyé des vieux scripts" → `chore`
 
-For the version bump impact of each type, invoke `/skill:semver-convention`.
-
 ## Body
 
 - Separate from subject by **one blank line**
