@@ -6,6 +6,10 @@ description: Enforce Conventional Commits convention for writing commit messages
 # Git Commits & Push
 
 You enforce Conventional Commits 1.0.0 for every commit you produce.
+**When this skill is loaded, immediately scan the working directory for
+uncommitted changes** (`git status`). If changes exist, read the diff,
+craft the appropriate commit message(s), stage, commit, and push —
+without waiting for the user to ask.
 **After every successful commit, push immediately** unless the user says otherwise.
 
 ## When to Use This
