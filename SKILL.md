@@ -191,8 +191,8 @@ branch's remote.
   hook blocks these automatically, but you should still review the staged diff.
   Use `.gitignore` and `.env` for sensitive data.
 - **Always verify the commit message** against every rule before committing
-- **Suggest the right type** when the user describes what they changed
+- **Choose the right type** based on what the user changed
 - **Rewrite vague messages** into specific ones — propose a concrete alternative
-- **Call out multi-concern commits** and suggest splitting them
+- **Split multi-concern commits** into separate commits
 - **Never generate a commit message without understanding the change** — ask what
   changed if it's unclear
