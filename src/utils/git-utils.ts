@@ -104,7 +104,7 @@ export function findGitDirectoriesRecursively(root: string): string[] {
 			return;
 		}
 
-		const hasGit = entries.some((e) => e.isDirectory() && e.name === ".git");
+		const hasGit = entries.some((e) => e.name === ".git");
 		if (hasGit) {
 			results.push(dir);
 			// Do not recurse further — no nested git repos
