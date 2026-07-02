@@ -11,8 +11,8 @@ import type { RepositoryInfo, Settings } from "../types.ts";
 import {
 	computeRepoId,
 	findGitDirectoriesRecursively,
+	getWorktrees,
 	hasLocalChanges,
-	hasUnpushedCommits,
 	isDetachedHead,
 } from "../utils/git-utils.ts";
 
@@ -48,7 +48,18 @@ export async function runDiscovery(settings: Settings): Promise<RepositoryInfo[]
 			continue;
 		}
 
+		// Expand discovered repositories with their git worktrees
+		const allRepos: string[] = [];
 		for (const repoPath of repos) {
+			try {
+				const worktrees = getWorktrees(repoPath);
+				allRepos.push(...worktrees);
+			} catch {
+				allRepos.push(repoPath);
+			}
+		}
+
+		for (const repoPath of allRepos) {
 			if (seen.has(repoPath)) {
 				continue;
 			}

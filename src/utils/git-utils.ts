@@ -126,3 +126,23 @@ export function findGitDirectoriesRecursively(root: string): string[] {
 
 	return results;
 }
+
+/**
+ * Get all worktrees associated with a repository path.
+ * Returns absolute paths to the worktrees (including the main repository itself).
+ */
+export function getWorktrees(repoPath: string): string[] {
+	try {
+		const stdout = gitExec("worktree list --porcelain", repoPath);
+		const lines = stdout.split("\n");
+		const worktrees: string[] = [];
+		for (const line of lines) {
+			if (line.startsWith("worktree ")) {
+				worktrees.push(line.slice(9).trim());
+			}
+		}
+		return worktrees.length > 0 ? worktrees : [repoPath];
+	} catch {
+		return [repoPath];
+	}
+}
