@@ -4,6 +4,7 @@
  */
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { OrchestratorConfig } from "turnlock";
 import { definePhase, runOrchestrator } from "turnlock";
@@ -61,6 +62,7 @@ const config: OrchestratorConfig<GlobalState> = {
 	initialState: { repos: {} },
 	resumeCommand: (runId) =>
 		`bun run src/entrypoints/turnlock-orchestrator.ts --run-id ${runId} --resume`,
+	runDirRoot: path.join(os.homedir(), ".turnlock", "runs"),
 	stateSchema,
 	phases: {
 		"discovery-and-validation": definePhase(async (state, io) => {
