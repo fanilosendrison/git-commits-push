@@ -1,0 +1,11 @@
+{
+	"searchPaths": [
+		"~/Developper/Projects/dotagents"
+	],
+	"provider": "openai",
+	"model": "gpt-5.4-mini",
+	"temperature": 0.2,
+	"systemPromptPath": "../../system-prompt.md",
+	"autoPush": false,
+	"skipTests": false
+}

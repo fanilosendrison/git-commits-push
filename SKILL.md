@@ -4,5 +4,5 @@ description: Enforce Conventional Commits convention for writing commit messages
 ---
 
 ```bash
-cd /Users/famillesendrison/.agents/skills/git-commits-push-TL && bun run start
+cd /Users/famillesendrison/.agents/skills/git-commits-push && bun run start
 ```
