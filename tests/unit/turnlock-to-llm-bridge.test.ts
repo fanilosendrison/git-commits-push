@@ -191,7 +191,7 @@ describe("turnlock-to-llm-bridge", () => {
 			expect(resultData.commits[0].commit.description).toBe("mock openai commit");
 
 			// Verify execSync resume command was executed
-			expect(lastExecCmd).toBe("resume-cmd --test");
+			expect(lastExecCmd!).toBe("resume-cmd --test");
 		});
 
 		test("writes failure results on execution errors", async () => {
@@ -272,10 +272,10 @@ describe("turnlock-to-llm-bridge", () => {
 			
 			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => {});
 			
-			expect(lastUserPrompt).toContain("FEEDBACK FROM PREVIOUS FAILED ATTEMPT");
-			expect(lastUserPrompt).toContain("BAD COMMIT");
-			expect(lastUserPrompt).toContain("- Error 1");
-			expect(lastUserPrompt).toContain("- Error 2");
+			expect(lastUserPrompt!).toContain("FEEDBACK FROM PREVIOUS FAILED ATTEMPT");
+			expect(lastUserPrompt!).toContain("BAD COMMIT");
+			expect(lastUserPrompt!).toContain("- Error 1");
+			expect(lastUserPrompt!).toContain("- Error 2");
 		});
 	});
 });
