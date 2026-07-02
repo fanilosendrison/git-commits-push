@@ -131,6 +131,14 @@ const config: OrchestratorConfig<GlobalState> = {
 					"[orchestrator] No repositories passed validation. Exiting.\n",
 				);
 				printReport(nextRepos);
+				const hasFailedRepo = Object.values(nextRepos).some(
+					(r) => r.status === "FAILED",
+				);
+				if (hasFailedRepo) {
+					return io.fail(
+						new Error("No repositories passed validation. Check report for details."),
+					);
+				}
 				return io.done({});
 			}
 
@@ -292,6 +300,15 @@ const config: OrchestratorConfig<GlobalState> = {
 
 			// Phase 5: Reporting
 			printReport(nextRepos);
+
+			const hasFailedRepo = Object.values(nextRepos).some(
+				(r) => r.status === "FAILED",
+			);
+			if (hasFailedRepo) {
+				return io.fail(
+					new Error("One or more repositories failed to publish commits. Check report."),
+				);
+			}
 
 			return io.done({});
 		}),
