@@ -65,9 +65,9 @@ import {
 	parseSerializedValue,
 	invokeLlm,
 	handleTurnlockDelegation,
-} from "../../src/entrypoints/turnlock-pi-wrapper.ts";
+} from "../../src/entrypoints/turnlock-to-llm-bridge.ts";
 
-describe("turnlock-pi-wrapper", () => {
+describe("turnlock-to-llm-bridge", () => {
 	describe("parseSerializedValue", () => {
 		test("removes surrounding double quotes", () => {
 			expect(parseSerializedValue('"hello"')).toBe("hello");

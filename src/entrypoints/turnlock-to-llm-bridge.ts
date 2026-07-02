@@ -1,5 +1,5 @@
 /**
- * src/turnlock-pi-wrapper.ts — Pi environment wrapper.
+ * src/turnlock-to-llm-bridge.ts — LLM environment bridge.
  * Intercepts @@TURNLOCK@@ DELEGATE protocol blocks from stdout of turnlock-orchestrator.ts,
  * runs the parallel LLM inferences using @fanilosendrison/llm-runtime,
  * and resumes turnlock.

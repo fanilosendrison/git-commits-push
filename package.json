@@ -7,7 +7,7 @@
   "scripts": {
     "test": "bun test",
     "test:run": "bun run src/entrypoints/turnlock-orchestrator.ts",
-    "start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-pi-wrapper.ts",
+    "start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/ tests/"
   },
