@@ -58,7 +58,7 @@ export async function runDiscovery(settings: Settings): Promise<RepositoryInfo[]
 				continue;
 			}
 
-			const isDirty = hasLocalChanges(repoPath) || hasUnpushedCommits(repoPath);
+			const isDirty = hasLocalChanges(repoPath);
 			if (!isDirty) {
 				continue;
 			}
