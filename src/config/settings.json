@@ -1,6 +1,6 @@
 {
 	"searchPaths": [
-		"~/Developper/Projects/dotagents"
+		"~/Developper"
 	],
 	"provider": "openai",
 	"model": "gpt-5.4-mini",
