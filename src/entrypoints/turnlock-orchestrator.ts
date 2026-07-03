@@ -165,7 +165,10 @@ const config: OrchestratorConfig<GlobalState> = {
 			});
 
 			for (const r of validRepos) {
-				nextRepos[r.id].status = "RUNNING";
+				const repoState = nextRepos[r.id];
+				if (repoState) {
+					repoState.status = "RUNNING";
+				}
 			}
 
 			return io.delegateAgentBatch(
@@ -174,7 +177,7 @@ const config: OrchestratorConfig<GlobalState> = {
 					agentType: "git-commit-generator",
 					label: "commit-jobs",
 					jobs,
-					timeout: 600_000,
+					timeout: { perDelegationMs: 600_000 },
 					retry: { maxAttempts: 1, backoffBaseMs: 1000, maxBackoffMs: 30000 },
 				},
 				"commit-and-push",
@@ -245,7 +248,10 @@ const config: OrchestratorConfig<GlobalState> = {
 					if (allErrors.length > 0) {
 						const attempts = repoState.attempts || 0;
 						if (attempts < 1) {
-							nextRepos[result.id].attempts = attempts + 1;
+							const target = nextRepos[result.id];
+							if (target) {
+								target.attempts = attempts + 1;
+							}
 							const diff = execSync("git diff --cached", {
 								cwd: repoState.repository,
 								encoding: "utf-8",
@@ -307,7 +313,7 @@ const config: OrchestratorConfig<GlobalState> = {
 						agentType: "git-commit-generator",
 						label: "commit-jobs-retry",
 						jobs: retryJobs,
-						timeout: 600_000,
+						timeout: { perDelegationMs: 600_000 },
 						retry: { maxAttempts: 1, backoffBaseMs: 1000, maxBackoffMs: 30000 },
 					},
 					"commit-and-push",
