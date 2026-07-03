@@ -99,14 +99,16 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		findManifest(runsDir);
 
 		expect(manifest).not.toBeNull();
-		const paths = manifest?.jobs.map(
-			(j) => JSON.parse(j.prompt).repository as string,
+		const m = manifest!;
+		const paths = m.jobs.map(
+			(j: { id: string; prompt: string }) =>
+				JSON.parse(j.prompt).repository as string,
 		);
 
 		// repo-clean must be present
-		expect(paths.some((p) => p === repoClean.dir)).toBe(true);
+		expect(paths.some((p: string) => p === repoClean.dir)).toBe(true);
 		// repo-with-secret must be absent
-		expect(paths.some((p) => p === repoWithSecret.dir)).toBe(false);
+		expect(paths.some((p: string) => p === repoWithSecret.dir)).toBe(false);
 	});
 
 	test("I1-04 | no runtime exception is thrown for the clean repo due to the secret repo failure", () => {
