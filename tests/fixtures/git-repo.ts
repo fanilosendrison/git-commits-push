@@ -17,9 +17,16 @@ export class GitRepoFixture {
 
 	/** Initialize a new, isolated git repository */
 	static create(): GitRepoFixture {
-		const dir = fs.mkdtempSync(
+		const unresolvedDir = fs.mkdtempSync(
 			path.join(os.tmpdir(), "git-commits-push-tl-repo-"),
 		);
+		// Canonicalize so `repo.dir` matches the format the orchestrator's discovery
+		// uses internally (via `fs.realpathSync` of search paths and `getWorktrees`
+		// via git). On macOS, `fs.mkdtempSync` returns the unresolved
+		// `/var/folders/...` path while git canonicalizes to `/private/var/folders/...`,
+		// causing path-mismatch failures in tests that compare `repo.dir` against
+		// manifest entries.
+		const dir = fs.realpathSync(unresolvedDir);
 		const fixture = new GitRepoFixture(dir);
 		fixture.exec("git init");
 		fixture.exec("git config user.email test@example.com");

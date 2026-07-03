@@ -103,17 +103,10 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 			(j) => JSON.parse(j.prompt).repository as string,
 		);
 
-		// On macOS, `fs.mkdtempSync(os.tmpdir()...)` returns the unresolved
-		// `/var/folders/...` path, but the discovery code (via `getWorktrees`)
-		// uses git's canonical `/private/var/folders/...` path in the manifest.
-		// Canonicalize the expected paths to match what the manifest contains.
-		const canonicalRepoCleanDir = fs.realpathSync(repoClean.dir);
-		const canonicalRepoWithSecretDir = fs.realpathSync(repoWithSecret.dir);
-
 		// repo-clean must be present
-		expect(paths.some((p) => p === canonicalRepoCleanDir)).toBe(true);
+		expect(paths.some((p) => p === repoClean.dir)).toBe(true);
 		// repo-with-secret must be absent
-		expect(paths.some((p) => p === canonicalRepoWithSecretDir)).toBe(false);
+		expect(paths.some((p) => p === repoWithSecret.dir)).toBe(false);
 	});
 
 	test("I1-04 | no runtime exception is thrown for the clean repo due to the secret repo failure", () => {
