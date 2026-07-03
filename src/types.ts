@@ -22,9 +22,9 @@ export interface RepositoryInfo {
 
 export interface CommitMessage {
 	type: string;
-	scope?: string;
+	scope?: string | undefined;
 	description: string;
-	body?: string;
+	body?: string | undefined;
 	isBreaking: boolean;
 }
 
@@ -74,10 +74,10 @@ export type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
 export interface RepoState {
 	repository: string;
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-	diffHash?: string;
-	commit?: CommitMessage;
-	error?: string;
-	attempts?: number;
+	diffHash?: string | undefined;
+	commits?: CommitPlan[] | undefined;
+	error?: string | undefined;
+	attempts?: number | undefined;
 }
 
 export interface GlobalState {
