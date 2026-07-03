@@ -6,7 +6,12 @@ import type { RepoState } from "../../src/types.ts";
 const SUCCESS_REPO: RepoState = {
 	repository: "/repo/a",
 	status: "SUCCESS",
-	commit: { type: "feat", description: "add feature", isBreaking: false },
+	commits: [
+		{
+			commit: { type: "feat", description: "add feature", isBreaking: false },
+			files: ["file.ts"],
+		},
+	],
 };
 
 const FAILED_REPO: RepoState = {
