@@ -16,8 +16,9 @@ export function generateReport(repos: Record<string, RepoState>): string {
 
 	for (const [id, state] of Object.entries(repos)) {
 		if (state.status === "SUCCESS") {
-			const commitSummary = state.commit
-				? ` — ${state.commit.type}: ${state.commit.description}`
+			const firstCommit = state.commits?.[0]?.commit;
+			const commitSummary = firstCommit
+				? ` — ${firstCommit.type}: ${firstCommit.description}`
 				: "";
 			lines.push(`✅ [${id}] Commit et Push réussis.${commitSummary}`);
 		} else if (state.status === "FAILED") {
