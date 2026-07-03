@@ -127,7 +127,8 @@ describe("A1 — End-to-End Initial Run", () => {
 		// The prompt must be a valid JSON-serialized CommitJobPayload
 		const firstJob = m.jobs[0];
 		expect(firstJob).toBeDefined();
-		const payload = JSON.parse(firstJob?.prompt);
+		if (!firstJob) return;
+		const payload = JSON.parse(firstJob.prompt);
 		expect(payload).toHaveProperty("diff");
 		expect(payload).toHaveProperty("diffHash");
 	});
