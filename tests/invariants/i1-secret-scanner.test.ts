@@ -2,9 +2,9 @@
 // Given: a repo with a secret in staged diff.
 // Expected: that repo is marked FAILED; other parallel repos are unaffected.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
-import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -12,7 +12,10 @@ let repoClean: GitRepoFixture;
 let repoWithSecret: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();
@@ -25,10 +28,16 @@ beforeAll(() => {
 	// repo-with-secret: staged change containing a mock AWS secret
 	repoWithSecret = GitRepoFixture.create();
 	repoWithSecret.commit("initial commit");
-	repoWithSecret.writeAndStage("config.ts", `export const key = "AKIAIOSFODNN7EXAMPLE";\n`);
+	repoWithSecret.writeAndStage(
+		"config.ts",
+		`export const key = "AKIAIOSFODNN7EXAMPLE";\n`,
+	);
 
 	env.writeSettings({
-		searchPaths: [path.dirname(repoClean.dir), path.dirname(repoWithSecret.dir)],
+		searchPaths: [
+			path.dirname(repoClean.dir),
+			path.dirname(repoWithSecret.dir),
+		],
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
@@ -77,7 +86,10 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 				const full = path.join(dir, entry.name);
 				if (entry.isDirectory()) findManifest(full);
-				if (entry.name.startsWith("commit-jobs") && entry.name.endsWith(".json")) {
+				if (
+					entry.name.startsWith("commit-jobs") &&
+					entry.name.endsWith(".json")
+				) {
 					manifest = JSON.parse(fs.readFileSync(full, "utf-8")) as {
 						jobs: { id: string; prompt: string }[];
 					};
@@ -87,12 +99,21 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		findManifest(runsDir);
 
 		expect(manifest).not.toBeNull();
-		const paths = manifest!.jobs.map((j) => JSON.parse(j.prompt).repository as string);
+		const paths = manifest!.jobs.map(
+			(j) => JSON.parse(j.prompt).repository as string,
+		);
+
+		// On macOS, `fs.mkdtempSync(os.tmpdir()...)` returns the unresolved
+		// `/var/folders/...` path, but the discovery code (via `getWorktrees`)
+		// uses git's canonical `/private/var/folders/...` path in the manifest.
+		// Canonicalize the expected paths to match what the manifest contains.
+		const canonicalRepoCleanDir = fs.realpathSync(repoClean.dir);
+		const canonicalRepoWithSecretDir = fs.realpathSync(repoWithSecret.dir);
 
 		// repo-clean must be present
-		expect(paths.some((p) => p === repoClean.dir)).toBe(true);
+		expect(paths.some((p) => p === canonicalRepoCleanDir)).toBe(true);
 		// repo-with-secret must be absent
-		expect(paths.some((p) => p === repoWithSecret.dir)).toBe(false);
+		expect(paths.some((p) => p === canonicalRepoWithSecretDir)).toBe(false);
 	});
 
 	test("I1-04 | no runtime exception is thrown for the clean repo due to the secret repo failure", () => {
