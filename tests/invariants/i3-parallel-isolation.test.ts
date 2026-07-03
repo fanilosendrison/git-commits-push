@@ -114,16 +114,9 @@ describe("I3 — Parallel Validation Isolation", () => {
 		const repoPaths = manifest!.jobs.map(
 			(j) => JSON.parse(j.prompt).repository as string,
 		);
-		// On macOS, `fs.mkdtempSync(os.tmpdir()...)` returns the unresolved
-		// `/var/folders/...` path, but the discovery code (via `getWorktrees`)
-		// uses git's canonical `/private/var/folders/...` path in the manifest.
-		// Canonicalize the expected paths to match what the manifest contains.
-		const canonicalRepoA = fs.realpathSync(repoA.dir);
-		const canonicalRepoC = fs.realpathSync(repoC.dir);
-		const canonicalRepoB = fs.realpathSync(repoB.dir);
-		expect(repoPaths).toContain(canonicalRepoA);
-		expect(repoPaths).toContain(canonicalRepoC);
-		expect(repoPaths).not.toContain(canonicalRepoB);
+		expect(repoPaths).toContain(repoA.dir);
+		expect(repoPaths).toContain(repoC.dir);
+		expect(repoPaths).not.toContain(repoB.dir);
 	});
 
 	test("I3-04 | all three Phase 2 workers start within 500ms of each other (concurrent execution)", () => {
