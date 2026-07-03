@@ -10,6 +10,8 @@
 **Revised**: 2026-07-03 (round 5 — fixes for R57–R66 hostile review findings: 3 critical, 7 high)
 **Revised**: 2026-07-03 (round 6 — algorithmic fixes for R73–R75: worktree data loss, dirty staging on retry failure, path normalization gap)
 **Revised**: 2026-07-03 (round 7 — spec discipline cleanup: strip implementation-level details, document the spec/implementation boundary)
+**Revised**: 2026-07-03 (round 8 — escalation channel: ESCALATED terminal state, EscalationContext, executeCommits re-invocation)
+**Revised**: 2026-07-04 (round 9 — fix LLM bridge error prefix mismatch with actual code: classifyLLMFailure signatures now match `LLM Fatal Error:` instead of the assumed `[git-commits-push-tl bridge]` prefix)
 
 ---
 
@@ -186,6 +188,31 @@ This revision closes the architectural hole identified during design review: the
 | Test U-GE-47 | Escalation re-invocation scenario | Validates the new behavior end-to-end |
 
 The LLM sees **the same system prompt and the same feedback rendering** as today. No changes to the bridge, the system prompt, or the LLM-facing surface. Round 8 only changes what happens at the boundaries: an `ESCALATED` terminal state and an `escalationHint` input. The LLM treats both the same way it treats a mid-loop retry today.
+
+---
+
+## Round 9 changes (LLM bridge error prefix mismatch)
+
+This revision corrects an **implementation/spec drift** discovered during pre-implementation verification: the R7/R27 `classifyLLMFailure` signatures were written against an *assumed* bridge output format that does not match the actual bridge implementation. Without this fix, the entire LLM-side classification path would be dead code at runtime (every LLM-side failure would hit the "unknown" branch → `null` → fail-closed, regardless of the structural intent).
+
+| Review ID | Severity | Discovered during | Fix location | Summary |
+|---|---|---|---|---|
+| (new) | Critical | Pre-implementation verification | §Phase 4 (`classifyLLMFailure`), §7.4c (U-GE-34–U-GE-37) | The plan assumed the bridge would emit structured errors prefixed with `[git-commits-push-tl bridge]` (e.g., `[git-commits-push-tl bridge] JSON parse failed`). The actual bridge (`turnlock-to-llm-bridge.ts` line 209) wraps every LLM-side failure in a single generic format: `LLM Fatal Error: <errMsg>`. The plan's signature list would NEVER match production output. Fix: changed `LLM_BRIDGE_ERROR_PREFIX` to `"LLM Fatal Error:"`; collapsed `LLM_FATAL_SIGNATURES` to `[LLM_BRIDGE_ERROR_PREFIX]` (currently the only signature in production); kept the `"validation rejected"` branch as a documented extension point for future bridge evolution (the current bridge does not emit it because validation happens in the orchestrator after success). |
+
+**What changed:**
+
+| Before | After |
+|---|---|
+| `LLM_BRIDGE_ERROR_PREFIX = "[git-commits-push-tl bridge]"` | `LLM_BRIDGE_ERROR_PREFIX = "LLM Fatal Error:"` |
+| 7-element `LLM_FATAL_SIGNATURES` list (assumed bridge subtypes) | Single-element list: `[LLM_BRIDGE_ERROR_PREFIX]` (matches real bridge output) |
+| `"[git-commits-push-tl bridge] validation rejected"` substring match | `"validation rejected"` substring match (prefix-free; future-proof) |
+| U-GE-34 asserted the `[git-commits-push-tl bridge] validation rejected` prefix | U-GE-34 now asserts `"validation rejected"` (no prefix) — documents the extension-point contract for future bridge evolution |
+| U-GE-35/36 asserted `[git-commits-push-tl bridge] JSON parse failed` and `[git-commits-push-tl bridge] network timeout` | U-GE-35/36 now assert `"LLM Fatal Error: ..."` and `"LLM Fatal Error: network timeout"` (matches real bridge output) |
+| U-GE-37 assumed prefix-based unknown detection | U-GE-37 unchanged in intent: unknown strings (no `LLM Fatal Error:` prefix) return `null` |
+
+**Rationale for keeping the "validation rejected" branch as documented extension point:** The current bridge does not emit `"validation rejected"` because validation happens AFTER the bridge returns success (in the orchestrator's `commit-and-push` phase via `validateCommitMessage`). If the bridge ever evolves to do post-generation validation (e.g., to catch malformed JSON shapes that pass parsing but fail semantic checks), the contract is already in place: substring `"validation rejected"` routes to the validation budget. The test U-GE-34 documents this contract so future maintainers don't accidentally remove the branch thinking it's dead code.
+
+**Verification needed at implementation time:** Run the bridge manually (or via integration test) and capture a real `result.error` value. Assert it starts with `"LLM Fatal Error:"`. If the bridge ever changes its error format, update `LLM_BRIDGE_ERROR_PREFIX` and `LLM_FATAL_SIGNATURES` together — they are coupled by spec discipline (the signatures are scoped to known bridge strings only, per R27).
 
 ---
 
@@ -818,25 +845,29 @@ const MAX_FEEDBACK_TOTAL_BYTES = 64 * 1024;
 
 // R7 + R27 fix: classify LLM-side failures (result.success === false) by inspecting the
 // error string. Hardcoding "git" burned the wrong budget for JSON parse failures and
-// network timeouts. The signatures are taken from the bridge's failure surface and
-// MUST be reviewed whenever the bridge changes its error format. R27 adds: the
+// network timeouts. The signatures match the bridge's current failure surface
+// (turnlock-to-llm-bridge.ts wraps every LLM-side failure with `LLM Fatal Error: <msg>`)
+// and MUST be reviewed whenever the bridge changes its error format. R27 adds: the
 // signature list is scoped to known LLM bridge error strings only; generic terms
 // like "SyntaxError" or "JSON.parse" are flagged as too broad (they match
-// unrelated subsystem errors) and split into bridge-prefixed markers below.
-const LLM_BRIDGE_ERROR_PREFIX = "[git-commits-push-tl bridge]";
+// unrelated subsystem errors) and excluded below.
+const LLM_BRIDGE_ERROR_PREFIX = "LLM Fatal Error:";
 const LLM_FATAL_SIGNATURES = [
-    `${LLM_BRIDGE_ERROR_PREFIX} LLM Fatal Error`,
-    `${LLM_BRIDGE_ERROR_PREFIX} expected a non-empty JSON array`,
-    `${LLM_BRIDGE_ERROR_PREFIX} JSON parse failed`,
-    `${LLM_BRIDGE_ERROR_PREFIX} network timeout`,
-    `${LLM_BRIDGE_ERROR_PREFIX} network reset`,
-    `${LLM_BRIDGE_ERROR_PREFIX} network unreachable`,
-    `${LLM_BRIDGE_ERROR_PREFIX} provider aborted`,
+    // The bridge currently emits a single error format for all LLM-side failures
+    // (one generic try/catch wraps everything into `LLM Fatal Error: <errMsg>`).
+    // If the bridge evolves to emit more specific subtypes (network timeout,
+    // JSON parse failed, etc.), add them here as MORE-SPECIFIC signatures first
+    // (substring matching: first match wins).
+    LLM_BRIDGE_ERROR_PREFIX,
 ];
 function classifyLLMFailure(error: string): FeedbackError["kind"] | null {
-    // Validation-style complaint from the LLM (rejected by the validator
-    // post-generation) goes to the validation budget.
-    if (error.includes(`${LLM_BRIDGE_ERROR_PREFIX} validation rejected`)) {
+    // Documented extension point: if the bridge evolves to emit a structured
+    // "validation rejected" path (post-generation validation in the bridge
+    // rather than in the orchestrator's commit-and-push phase), route it to
+    // the validation budget here. The current bridge does NOT emit such a
+    // path — all validation happens in the orchestrator AFTER the bridge
+    // returns success — so this branch is reserved for future evolution.
+    if (error.includes("validation rejected")) {
         return "validation";
     }
     for (const sig of LLM_FATAL_SIGNATURES) {
@@ -1841,10 +1872,10 @@ Pure unit tests for `classifyLLMFailure` and the `result.success === false` bran
 
 | Test ID | Asserts |
 |---|---|
-| U-GE-34 | LLM bridge prefix `"[git-commits-push-tl bridge] validation rejected"` → `classifyLLMFailure` returns `"validation"`; the phase body bumps the `validation` counter and queues a retry (R7 + R27 fix). |
-| U-GE-35 | LLM bridge prefix `"[git-commits-push-tl bridge] JSON parse failed"` → `classifyLLMFailure` returns `null`; the phase body marks the repo FAILED with `error: "LLM fatal error: ..."` and no retry (R7 + R27 fail-closed default). |
-| U-GE-36 | LLM bridge prefix `"[git-commits-push-tl bridge] network timeout"` → `classifyLLMFailure` returns `null`; same as U-GE-35 (R7 + R27). |
-| U-GE-37 | Unknown error string (no bridge prefix, no signature match) → `classifyLLMFailure` returns `null`; same as U-GE-35. Covers R27's "fail-closed by default" contract for unrecognized failure modes. |
+| U-GE-34 | Error string contains `"validation rejected"` → `classifyLLMFailure` returns `"validation"`; the phase body bumps the `validation` counter and queues a retry (R7 + R27 fix). **Documented extension point**: the current bridge does not emit this string (validation happens in the orchestrator after success); the test asserts the documented contract so future bridge evolution is covered. |
+| U-GE-35 | Error string starts with `"LLM Fatal Error:"` (current bridge format) → `classifyLLMFailure` returns `null`; the phase body marks the repo FAILED with `error: "LLM fatal error: ..."` and no retry (R7 + R27 fail-closed default). Covers real bridge output: `"LLM Fatal Error: Unexpected token..."`, `"LLM Fatal Error: LLM returned an invalid response..."`, etc. |
+| U-GE-36 | Error string `"LLM Fatal Error: network timeout"` (subtype) → `classifyLLMFailure` returns `null`; same as U-GE-35 (R7 + R27). Asserts that future more-specific signatures (added BEFORE the prefix in `LLM_FATAL_SIGNATURES`) override the prefix match. |
+| U-GE-37 | Unknown error string (no `"LLM Fatal Error:"` prefix, no signature match) → `classifyLLMFailure` returns `null`; same as U-GE-35. Covers R27's "fail-closed by default" contract for unrecognized failure modes. |
 
 #### 7.4d Empty-plans success tests
 
