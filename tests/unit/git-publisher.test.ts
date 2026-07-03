@@ -4,13 +4,13 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { extractDiff } from "../../src/utils/git-utils.ts";
 import {
 	executeCommitAndPush,
 	executeMultiCommitAndPush,
 	formatConventionalCommit,
 } from "../../src/modules/git-publisher.ts";
 import type { CommitMessage, CommitPlan, Settings } from "../../src/types.ts";
+import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 
 // ─── Pure function tests (no git I/O) ────────────────────────────────────────
@@ -152,17 +152,44 @@ describe("U-GE-08 | executeCommitAndPush — autoPush false → no push attempt"
 	});
 	afterAll(() => repo.dispose());
 
-	test("succeeds without network call when autoPush is false", async () => {
+	test("does not invoke git push and does not set upstream tracking", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
 		const commit: CommitMessage = {
 			type: "fix",
 			description: "silent fix",
 			isBreaking: false,
 		};
-		// No network call expected — would fail immediately if push attempted
 		await expect(
 			executeCommitAndPush(repo.dir, commit, diffHash, NO_PUSH_SETTINGS),
 		).resolves.toBeUndefined();
+
+		// Strong assertion: even though `origin` is configured, no upstream tracking
+		// should be set on the local branch. `git push -u` would set both
+		// `branch.<name>.remote` and `branch.<name>.merge`; `git push` alone doesn't
+		// touch them. If the publisher ignored autoPush=false and called push (or
+		// push -u), at least one of these would be populated.
+		const branch = spawnSync("git", ["branch", "--show-current"], {
+			cwd: repo.dir,
+			encoding: "utf-8",
+		}).stdout.trim();
+		const remote = spawnSync(
+			"git",
+			["config", "--get", `branch.${branch}.remote`],
+			{
+				cwd: repo.dir,
+				encoding: "utf-8",
+			},
+		).stdout.trim();
+		const merge = spawnSync(
+			"git",
+			["config", "--get", `branch.${branch}.merge`],
+			{
+				cwd: repo.dir,
+				encoding: "utf-8",
+			},
+		).stdout.trim();
+		expect(remote).toBe("");
+		expect(merge).toBe("");
 	});
 });
 
@@ -175,7 +202,7 @@ describe("U-GE-09 | executeCommitAndPush — no remote → push skipped silently
 	});
 	afterAll(() => repo.dispose());
 
-	test("resolves without error even when autoPush is true and no remote exists", async () => {
+	test("does not throw and does not attempt any push variant when no remote is configured", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
 		const commit: CommitMessage = {
 			type: "docs",
@@ -185,6 +212,16 @@ describe("U-GE-09 | executeCommitAndPush — no remote → push skipped silently
 		await expect(
 			executeCommitAndPush(repo.dir, commit, diffHash, AUTO_PUSH_SETTINGS),
 		).resolves.toBeUndefined();
+
+		// Strong assertion: still no remote configured (the publisher's no-remote
+		// check should return BEFORE attempting any push command, including the
+		// fallback `push -u origin <branch>` which would otherwise throw on missing
+		// origin).
+		const remotes = spawnSync("git", ["remote"], {
+			cwd: repo.dir,
+			encoding: "utf-8",
+		}).stdout.trim();
+		expect(remotes).toBe("");
 	});
 });
 
@@ -270,15 +307,28 @@ describe("U-GE-12 | executeMultiCommitAndPush — two files → two distinct com
 		const { diffHash } = await extractDiff(repo.dir);
 		const plans: CommitPlan[] = [
 			{
-				commit: { type: "feat", description: "add api module", isBreaking: false },
+				commit: {
+					type: "feat",
+					description: "add api module",
+					isBreaking: false,
+				},
 				files: ["api.ts"],
 			},
 			{
-				commit: { type: "ci", description: "add ci workflow", isBreaking: false },
+				commit: {
+					type: "ci",
+					description: "add ci workflow",
+					isBreaking: false,
+				},
 				files: ["ci.yml"],
 			},
 		];
-		await executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS);
+		await executeMultiCommitAndPush(
+			repo.dir,
+			plans,
+			diffHash,
+			NO_PUSH_SETTINGS,
+		);
 
 		const log = spawnSync("git", ["log", "--oneline", "-2"], {
 			cwd: repo.dir,
@@ -302,7 +352,11 @@ describe("U-GE-13 | executeMultiCommitAndPush — hallucinated file → throws",
 		const { diffHash } = await extractDiff(repo.dir);
 		const plans: CommitPlan[] = [
 			{
-				commit: { type: "feat", description: "add real file", isBreaking: false },
+				commit: {
+					type: "feat",
+					description: "add real file",
+					isBreaking: false,
+				},
 				files: ["real.ts", "ghost.ts"], // ghost.ts does not exist
 			},
 		];
@@ -329,11 +383,19 @@ describe("U-GE-14 | executeMultiCommitAndPush — diffHash mismatch → throws b
 			},
 		];
 		await expect(
-			executeMultiCommitAndPush(repo.dir, plans, "wrong-hash-00000000", NO_PUSH_SETTINGS),
+			executeMultiCommitAndPush(
+				repo.dir,
+				plans,
+				"wrong-hash-00000000",
+				NO_PUSH_SETTINGS,
+			),
 		).rejects.toThrow("DiffHash mismatch");
 
 		// No commit should have been created beyond "initial"
-		const log = spawnSync("git", ["log", "--oneline"], { cwd: repo.dir, encoding: "utf-8" });
+		const log = spawnSync("git", ["log", "--oneline"], {
+			cwd: repo.dir,
+			encoding: "utf-8",
+		});
 		expect(log.stdout.trim().split("\n").length).toBe(1);
 	});
 });
@@ -365,7 +427,10 @@ describe("U-GE-15 | executeMultiCommitAndPush — duplicate file across plans �
 		).rejects.toThrow(/shared\.ts.*multiple plans|Fat Commit/i);
 
 		// No commit should have been created — guard fires before git reset
-		const log = spawnSync("git", ["log", "--oneline"], { cwd: repo.dir, encoding: "utf-8" });
+		const log = spawnSync("git", ["log", "--oneline"], {
+			cwd: repo.dir,
+			encoding: "utf-8",
+		});
 		expect(log.stdout.trim().split("\n").length).toBe(1);
 	});
 });
