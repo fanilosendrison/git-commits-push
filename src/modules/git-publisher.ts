@@ -138,7 +138,9 @@ export async function executeMultiCommitAndPush(
 	settings: Settings,
 ): Promise<void> {
 	if (plans.length === 0) {
-		throw new Error("executeMultiCommitAndPush: received an empty plans array.");
+		throw new Error(
+			"executeMultiCommitAndPush: received an empty plans array.",
+		);
 	}
 
 	// Guard: detect duplicate files across plans before touching git.
@@ -149,7 +151,7 @@ export async function executeMultiCommitAndPush(
 			if (seen.has(file)) {
 				throw new Error(
 					`Invalid commit plan: file "${file}" appears in multiple plans. ` +
-					`Files that contain multiple concerns must be grouped into a single Fat Commit plan.`,
+						`Files that contain multiple concerns must be grouped into a single Fat Commit plan.`,
 				);
 			}
 			seen.add(file);
@@ -163,9 +165,14 @@ export async function executeMultiCommitAndPush(
 		stdio: ["pipe", "pipe", "pipe"],
 		env: GIT_ENV,
 	});
-	const currentHash = crypto.createHash("sha256").update(currentDiff).digest("hex");
+	const currentHash = crypto
+		.createHash("sha256")
+		.update(currentDiff)
+		.digest("hex");
 	if (currentHash !== expectedDiffHash) {
-		throw new Error("DiffHash mismatch: The staged diff changed during LLM inference.");
+		throw new Error(
+			"DiffHash mismatch: The staged diff changed during LLM inference.",
+		);
 	}
 
 	// 2. Unstage everything so we can re-stage file-by-file
@@ -173,7 +180,10 @@ export async function executeMultiCommitAndPush(
 
 	// 3. Commit each plan
 	for (const plan of plans) {
-		gitExec(`add -- ${plan.files.map((f) => JSON.stringify(f)).join(" ")}`, repoPath);
+		gitExec(
+			`add -- ${plan.files.map((f) => JSON.stringify(f)).join(" ")}`,
+			repoPath,
+		);
 
 		const message = formatConventionalCommit(plan.commit);
 		const tempMsgPath = path.join(os.tmpdir(), `commit-msg-${Date.now()}.txt`);
@@ -181,7 +191,11 @@ export async function executeMultiCommitAndPush(
 		try {
 			gitExec(`commit --file=${tempMsgPath} --no-verify`, repoPath);
 		} finally {
-			try { fs.unlinkSync(tempMsgPath); } catch { /* best-effort */ }
+			try {
+				fs.unlinkSync(tempMsgPath);
+			} catch {
+				/* best-effort */
+			}
 		}
 	}
 

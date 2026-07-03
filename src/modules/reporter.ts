@@ -12,11 +12,7 @@ import type { RepoState } from "../types.ts";
  * Pure function — no side effects, no I/O.
  */
 export function generateReport(repos: Record<string, RepoState>): string {
-	const lines: string[] = [
-		"",
-		"=== TURNLOCK EXECUTION REPORT ===",
-		"",
-	];
+	const lines: string[] = ["", "=== TURNLOCK EXECUTION REPORT ===", ""];
 
 	for (const [id, state] of Object.entries(repos)) {
 		if (state.status === "SUCCESS") {

@@ -2,10 +2,11 @@
  * src/git-utils.ts — Shared git utility functions.
  * Pure wrappers around git subcommands with stable return types.
  */
+
+import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
 
 /** Execute a git command in the given directory, return trimmed stdout. Throws on non-zero exit. */
 function gitExec(args: string, repoPath: string): string {
@@ -21,7 +22,9 @@ function gitExec(args: string, repoPath: string): string {
  * Extract the staged diff and compute its SHA-256 hash.
  * Used by Phase 2 (validation) and Phase 4 (race-condition check).
  */
-export function extractDiff(repoPath: string): Promise<{ diff: string; diffHash: string }> {
+export function extractDiff(
+	repoPath: string,
+): Promise<{ diff: string; diffHash: string }> {
 	const diff = execSync("git diff --cached", {
 		cwd: repoPath,
 		encoding: "utf-8",
@@ -37,8 +40,14 @@ export function extractDiff(repoPath: string): Promise<{ diff: string; diffHash:
  * Uses SHA-256 of the real (symlink-resolved) absolute path.
  */
 export function computeRepoId(repoPath: string): Promise<string> {
-	const realPath = fs.existsSync(repoPath) ? fs.realpathSync(repoPath) : repoPath;
-	const id = crypto.createHash("sha256").update(realPath).digest("hex").slice(0, 16);
+	const realPath = fs.existsSync(repoPath)
+		? fs.realpathSync(repoPath)
+		: repoPath;
+	const id = crypto
+		.createHash("sha256")
+		.update(realPath)
+		.digest("hex")
+		.slice(0, 16);
 	return Promise.resolve(id);
 }
 

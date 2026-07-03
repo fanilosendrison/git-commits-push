@@ -178,7 +178,9 @@ export async function handleTurnlockDelegation(
 				);
 				const commits: CommitPlan[] = JSON.parse(llmResponse);
 				if (!Array.isArray(commits) || commits.length === 0) {
-					throw new Error("LLM returned an invalid response: expected a non-empty JSON array of commit plans.");
+					throw new Error(
+						"LLM returned an invalid response: expected a non-empty JSON array of commit plans.",
+					);
 				}
 
 				// Ensure directory for result exists

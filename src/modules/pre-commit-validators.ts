@@ -11,10 +11,11 @@
  * Integration note: the Turnlock orchestrator (turnlock-orchestrator.ts) must
  * instantiate this module with the real scanner once it is available.
  */
+
+import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
 import type { RepositoryInfo, Settings } from "../types.ts";
 
 // ─── Secret Scanner Adapter ──────────────────────────────────────────────────
@@ -32,12 +33,17 @@ export type SecretScanner = (diffContent: string) => Promise<ScanResult>;
  * Dynamically imports the scanner from the agent-enforcers directory since
  * it is a standalone script, not an npm package.
  */
-const defaultScanner: SecretScanner = async (diff: string): Promise<ScanResult> => {
-	const scannerPath = path.resolve(__dirname, "../../../../agent-enforcers/secret-scanner/src/core/scanner.ts");
+const defaultScanner: SecretScanner = async (
+	diff: string,
+): Promise<ScanResult> => {
+	const scannerPath = path.resolve(
+		__dirname,
+		"../../../../agent-enforcers/secret-scanner/src/core/scanner.ts",
+	);
 	if (!fs.existsSync(scannerPath)) {
 		throw new Error(
 			`secret-scanner is not installed or not found at ${scannerPath}. ` +
-			"Provide a custom scanner via the scanner parameter.",
+				"Provide a custom scanner via the scanner parameter.",
 		);
 	}
 
@@ -49,10 +55,14 @@ const defaultScanner: SecretScanner = async (diff: string): Promise<ScanResult> 
 		return {
 			hasSecrets: !result.clean,
 			matchCount: result.findings?.length ?? 0,
-			details: result.findings?.map((f: any) => `${f.name} at line ${f.lineNumber}`).join(", "),
+			details: result.findings
+				?.map((f: any) => `${f.name} at line ${f.lineNumber}`)
+				.join(", "),
 		};
 	} catch (err) {
-		throw new Error(`Failed to execute secret-scanner at ${scannerPath}: ${err instanceof Error ? err.message : String(err)}`);
+		throw new Error(
+			`Failed to execute secret-scanner at ${scannerPath}: ${err instanceof Error ? err.message : String(err)}`,
+		);
 	}
 };
 
@@ -93,8 +103,10 @@ export async function runTestCascade(repoPath: string): Promise<void> {
 	const pkgPath = path.join(repoPath, "package.json");
 	if (fs.existsSync(pkgPath)) {
 		try {
-			const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { scripts?: Record<string, string> };
-			if (pkg.scripts?.["test"]) {
+			const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
+				scripts?: Record<string, string>;
+			};
+			if (pkg.scripts?.test) {
 				if (
 					fs.existsSync(path.join(repoPath, "bun.lock")) ||
 					fs.existsSync(path.join(repoPath, "bun.lockb"))
@@ -190,7 +202,9 @@ export async function processRepoValidationAndDiff(
 	// 4. Security scan — fail closed (DC-SECRET-SCANNER §3)
 	const scanResult = await scanner(diff);
 	if (scanResult.hasSecrets) {
-		throw new Error(`Security Exception: Secret detected in diff. ${scanResult.details ?? ""}`);
+		throw new Error(
+			`Security Exception: Secret detected in diff. ${scanResult.details ?? ""}`,
+		);
 	}
 
 	return { diff, diffHash };

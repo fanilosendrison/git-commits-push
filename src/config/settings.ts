@@ -18,7 +18,9 @@ const REQUIRED_FIELDS: Array<keyof Settings> = [
 ];
 
 export function readSettings(skillDir: string): Settings {
-	const settingsPath = process.env.TURNLOCK_SKILL_SETTINGS_PATH || path.join(skillDir, "settings.json");
+	const settingsPath =
+		process.env.TURNLOCK_SKILL_SETTINGS_PATH ||
+		path.join(skillDir, "settings.json");
 
 	if (!fs.existsSync(settingsPath)) {
 		throw new Error(`settings.json not found at: ${settingsPath}`);
@@ -28,7 +30,9 @@ export function readSettings(skillDir: string): Settings {
 	try {
 		raw = fs.readFileSync(settingsPath, "utf-8");
 	} catch (err) {
-		throw new Error(`Failed to read settings.json: ${err instanceof Error ? err.message : String(err)}`);
+		throw new Error(
+			`Failed to read settings.json: ${err instanceof Error ? err.message : String(err)}`,
+		);
 	}
 
 	let parsed: unknown;
@@ -51,12 +55,14 @@ export function readSettings(skillDir: string): Settings {
 	}
 
 	return {
-		searchPaths: Array.isArray(obj["searchPaths"]) ? (obj["searchPaths"] as string[]) : [],
-		provider: obj["provider"] as string,
-		model: obj["model"] as string,
-		temperature: obj["temperature"] as number,
-		systemPromptPath: obj["systemPromptPath"] as string,
-		autoPush: Boolean(obj["autoPush"]),
-		skipTests: Boolean(obj["skipTests"]),
+		searchPaths: Array.isArray(obj.searchPaths)
+			? (obj.searchPaths as string[])
+			: [],
+		provider: obj.provider as string,
+		model: obj.model as string,
+		temperature: obj.temperature as number,
+		systemPromptPath: obj.systemPromptPath as string,
+		autoPush: Boolean(obj.autoPush),
+		skipTests: Boolean(obj.skipTests),
 	};
 }

@@ -4,10 +4,11 @@
  * Implements NIB-M-AUTH-RESOLVER §3.
  * Reads from ENV, then ~/.pi/agent/auth.json, and supports dynamic command execution.
  */
+
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
 
 export async function resolveAuthToken(provider: string): Promise<string> {
 	const envKey = `${provider.toUpperCase()}_API_KEY`;
@@ -18,7 +19,11 @@ export async function resolveAuthToken(provider: string): Promise<string> {
 	}
 
 	// 2. Read ~/.agents/agent-credentials.json
-	const authFilePath = path.join(os.homedir(), ".agents", "agent-credentials.json");
+	const authFilePath = path.join(
+		os.homedir(),
+		".agents",
+		"agent-credentials.json",
+	);
 	let authData: Record<string, any>;
 	try {
 		const raw = fs.readFileSync(authFilePath, "utf-8");
@@ -39,7 +44,12 @@ export async function resolveAuthToken(provider: string): Promise<string> {
 	let tokenConfigStr: string;
 	if (typeof tokenConfig === "string") {
 		tokenConfigStr = tokenConfig;
-	} else if (typeof tokenConfig === "object" && tokenConfig !== null && "key" in tokenConfig && typeof (tokenConfig as any).key === "string") {
+	} else if (
+		typeof tokenConfig === "object" &&
+		tokenConfig !== null &&
+		"key" in tokenConfig &&
+		typeof (tokenConfig as any).key === "string"
+	) {
 		tokenConfigStr = (tokenConfig as any).key;
 	} else {
 		throw new Error(
@@ -52,7 +62,10 @@ export async function resolveAuthToken(provider: string): Promise<string> {
 	// 3. Dynamic Execution
 	try {
 		// execSync throws if exit code !== 0, which correctly propagates
-		const result = execSync(trimmedConfig, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+		const result = execSync(trimmedConfig, {
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 		return result.trim();
 	} catch (err: any) {
 		throw new Error(

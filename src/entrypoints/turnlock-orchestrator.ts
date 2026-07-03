@@ -9,11 +9,14 @@ import * as path from "node:path";
 import type { OrchestratorConfig } from "turnlock";
 import { definePhase, runOrchestrator } from "turnlock";
 import { z } from "zod";
+import { readSettings } from "../config/settings.ts";
 import { runDiscovery } from "../modules/discovery.ts";
-import { executeMultiCommitAndPush, formatConventionalCommit } from "../modules/git-publisher.ts";
+import {
+	executeMultiCommitAndPush,
+	formatConventionalCommit,
+} from "../modules/git-publisher.ts";
 import { processRepoValidationAndDiff } from "../modules/pre-commit-validators.ts";
 import { printReport } from "../modules/reporter.ts";
-import { readSettings } from "../config/settings.ts";
 import type { CommitJobPayload, GlobalState } from "../types.ts";
 
 const commitMessageSchema = z.object({
@@ -136,7 +139,9 @@ const config: OrchestratorConfig<GlobalState> = {
 				);
 				if (hasFailedRepo) {
 					return io.fail(
-						new Error("No repositories passed validation. Check report for details."),
+						new Error(
+							"No repositories passed validation. Check report for details.",
+						),
 					);
 				}
 				return io.done({});
@@ -182,7 +187,10 @@ const config: OrchestratorConfig<GlobalState> = {
 
 			// Dynamically load the validator
 			let validateCommitMessage: any = null;
-			const validatorPath = path.resolve(__dirname, "../../../../../agent-enforcers/commit-msg-validator/src/core/validator.ts");
+			const validatorPath = path.resolve(
+				__dirname,
+				"../../../../../agent-enforcers/commit-msg-validator/src/core/validator.ts",
+			);
 			if (fs.existsSync(validatorPath)) {
 				const module = await import(validatorPath);
 				validateCommitMessage = module.validateCommitMessage;
@@ -191,11 +199,14 @@ const config: OrchestratorConfig<GlobalState> = {
 			// Try to read system prompt if present, else empty string
 			let systemPrompt = "";
 			try {
-				const promptPath = path.resolve(__dirname, settings.systemPromptPath || "../../system-prompt.md");
+				const promptPath = path.resolve(
+					__dirname,
+					settings.systemPromptPath || "../../system-prompt.md",
+				);
 				if (fs.existsSync(promptPath)) {
 					systemPrompt = fs.readFileSync(promptPath, "utf-8");
 				}
-			} catch (err) {
+			} catch (_err) {
 				// ignore
 			}
 
@@ -235,7 +246,10 @@ const config: OrchestratorConfig<GlobalState> = {
 						const attempts = repoState.attempts || 0;
 						if (attempts < 1) {
 							nextRepos[result.id].attempts = attempts + 1;
-							const diff = execSync("git diff --cached", { cwd: repoState.repository, encoding: "utf-8" }).toString();
+							const diff = execSync("git diff --cached", {
+								cwd: repoState.repository,
+								encoding: "utf-8",
+							}).toString();
 							const payload: CommitJobPayload = {
 								repository: repoState.repository,
 								diff,
@@ -249,13 +263,16 @@ const config: OrchestratorConfig<GlobalState> = {
 									validation_errors: allErrors,
 								},
 							};
-							retryJobs.push({ id: result.id, prompt: JSON.stringify(payload) });
+							retryJobs.push({
+								id: result.id,
+								prompt: JSON.stringify(payload),
+							});
 							continue;
 						} else {
 							nextRepos[result.id] = {
 								...repoState,
 								status: "FAILED",
-								error: "Validation failed after max retries: " + allErrors.join(", "),
+								error: `Validation failed after max retries: ${allErrors.join(", ")}`,
 							};
 							continue;
 						}
@@ -306,7 +323,9 @@ const config: OrchestratorConfig<GlobalState> = {
 			);
 			if (hasFailedRepo) {
 				return io.fail(
-					new Error("One or more repositories failed to publish commits. Check report."),
+					new Error(
+						"One or more repositories failed to publish commits. Check report.",
+					),
 				);
 			}
 
