@@ -2,9 +2,9 @@
 // Given: repo-A (valid), repo-B (failing tests), repo-C (valid).
 // Expected: B is FAILED, A+C are SUCCESS, manifest contains only A+C, all run concurrently.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
-import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -13,7 +13,10 @@ let repoB: GitRepoFixture; // has a failing test suite
 let repoC: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();
@@ -95,7 +98,10 @@ describe("I3 — Parallel Validation Isolation", () => {
 			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 				const full = path.join(dir, entry.name);
 				if (entry.isDirectory()) findManifest(full);
-				if (entry.name.startsWith("commit-jobs") && entry.name.endsWith(".json")) {
+				if (
+					entry.name.startsWith("commit-jobs") &&
+					entry.name.endsWith(".json")
+				) {
 					manifest = JSON.parse(fs.readFileSync(full, "utf-8")) as {
 						jobs: { id: string; prompt: string }[];
 					};
@@ -105,10 +111,19 @@ describe("I3 — Parallel Validation Isolation", () => {
 		findManifest(runsDir);
 		expect(manifest).not.toBeNull();
 
-		const repoPaths = manifest!.jobs.map((j) => JSON.parse(j.prompt).repository as string);
-		expect(repoPaths).toContain(repoA.dir);
-		expect(repoPaths).toContain(repoC.dir);
-		expect(repoPaths).not.toContain(repoB.dir);
+		const repoPaths = manifest!.jobs.map(
+			(j) => JSON.parse(j.prompt).repository as string,
+		);
+		// On macOS, `fs.mkdtempSync(os.tmpdir()...)` returns the unresolved
+		// `/var/folders/...` path, but the discovery code (via `getWorktrees`)
+		// uses git's canonical `/private/var/folders/...` path in the manifest.
+		// Canonicalize the expected paths to match what the manifest contains.
+		const canonicalRepoA = fs.realpathSync(repoA.dir);
+		const canonicalRepoC = fs.realpathSync(repoC.dir);
+		const canonicalRepoB = fs.realpathSync(repoB.dir);
+		expect(repoPaths).toContain(canonicalRepoA);
+		expect(repoPaths).toContain(canonicalRepoC);
+		expect(repoPaths).not.toContain(canonicalRepoB);
 	});
 
 	test("I3-04 | all three Phase 2 workers start within 500ms of each other (concurrent execution)", () => {

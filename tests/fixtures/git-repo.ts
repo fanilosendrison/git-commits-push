@@ -1,7 +1,7 @@
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
 
 /**
  * GitRepoFixture — NIB-T §2
@@ -17,7 +17,9 @@ export class GitRepoFixture {
 
 	/** Initialize a new, isolated git repository */
 	static create(): GitRepoFixture {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "git-commits-push-tl-repo-"));
+		const dir = fs.mkdtempSync(
+			path.join(os.tmpdir(), "git-commits-push-tl-repo-"),
+		);
 		const fixture = new GitRepoFixture(dir);
 		fixture.exec("git init");
 		fixture.exec("git config user.email test@example.com");
@@ -32,7 +34,13 @@ export class GitRepoFixture {
 			fs.writeFileSync(sentinel, "");
 		}
 		this.exec("git add -A");
-		this.exec(`git commit -m "${message}" --allow-empty`);
+		// --no-verify bypasses the user's `core.hooksPath` hooks (commit-msg validator,
+		// pre-commit secret scanner, push enforcer) so test fixtures can set up state
+		// deterministically regardless of the user's local git hook configuration.
+		// The fixture is a TEST primitive, not a real commit — these hooks are not part
+		// of the system under test. The publisher's production code commits go through
+		// the hooks normally (no `--no-verify`) because that's the user's policy.
+		this.exec(`git commit -m "${message}" --allow-empty --no-verify`);
 	}
 
 	/** Write a file and stage it with git add */
@@ -59,6 +67,10 @@ export class GitRepoFixture {
 	}
 
 	private exec(cmd: string): string {
-		return execSync(cmd, { cwd: this.dir, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+		return execSync(cmd, {
+			cwd: this.dir,
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		});
 	}
 }
