@@ -2,23 +2,27 @@
 // and the git-utils helpers it composes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
-import { spawnSync } from "node:child_process";
+import * as path from "node:path";
+import { runDiscovery } from "../../src/modules/discovery.ts";
+import type { Settings } from "../../src/types.ts";
 import {
-	isDetachedHead,
+	computeRepoId,
+	findGitDirectoriesRecursively,
 	hasLocalChanges,
 	hasUnpushedCommits,
-	findGitDirectoriesRecursively,
-	computeRepoId,
+	isDetachedHead,
 } from "../../src/utils/git-utils.ts";
-import { runDiscovery } from "../../src/modules/discovery.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
-import type { Settings } from "../../src/types.ts";
 
 const BASE_SETTINGS: Settings = {
-	searchPaths: [], provider: "anthropic", model: "claude-test",
-	temperature: 0, systemPromptPath: "/dev/null", autoPush: false, skipTests: true,
+	searchPaths: [],
+	provider: "anthropic",
+	model: "claude-test",
+	temperature: 0,
+	systemPromptPath: "/dev/null",
+	autoPush: false,
+	skipTests: true,
 };
 
 // ─── isDetachedHead ──────────────────────────────────────────────────────────
@@ -128,7 +132,9 @@ describe("U-DI-07 | findGitDirectoriesRecursively — stops at first .git (no ne
 		// outer-repo/.git
 		fs.mkdirSync(path.join(tmpRoot, "outer-repo", ".git"), { recursive: true });
 		// outer-repo/inner-repo/.git  → must NOT be returned
-		fs.mkdirSync(path.join(tmpRoot, "outer-repo", "inner-repo", ".git"), { recursive: true });
+		fs.mkdirSync(path.join(tmpRoot, "outer-repo", "inner-repo", ".git"), {
+			recursive: true,
+		});
 	});
 	afterAll(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 

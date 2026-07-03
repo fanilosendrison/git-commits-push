@@ -111,7 +111,7 @@ describe("I3 — Parallel Validation Isolation", () => {
 		findManifest(runsDir);
 		expect(manifest).not.toBeNull();
 
-		const repoPaths = manifest!.jobs.map(
+		const repoPaths = manifest?.jobs.map(
 			(j) => JSON.parse(j.prompt).repository as string,
 		);
 		expect(repoPaths).toContain(repoA.dir);

@@ -1,5 +1,5 @@
 // tests/unit/pi-orch-git-commits-push.test.ts
-import { afterAll, beforeAll, describe, expect, test, mock } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -17,7 +17,18 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 			call: async (args: any) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				lastUserPrompt = args.messages.user;
-				return { content: JSON.stringify([{ commit: { type: "feat", description: "mock openai commit", isBreaking: false }, files: ["src/index.ts"] }]) };
+				return {
+					content: JSON.stringify([
+						{
+							commit: {
+								type: "feat",
+								description: "mock openai commit",
+								isBreaking: false,
+							},
+							files: ["src/index.ts"],
+						},
+					]),
+				};
 			},
 		};
 	},
@@ -26,7 +37,18 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 		return {
 			call: async (args: any) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
-				return { content: JSON.stringify([{ commit: { type: "fix", description: "mock anthropic commit", isBreaking: false }, files: ["src/fix.ts"] }]) };
+				return {
+					content: JSON.stringify([
+						{
+							commit: {
+								type: "fix",
+								description: "mock anthropic commit",
+								isBreaking: false,
+							},
+							files: ["src/fix.ts"],
+						},
+					]),
+				};
 			},
 		};
 	},
@@ -35,7 +57,18 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 		return {
 			call: async (args: any) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
-				return { content: JSON.stringify([{ commit: { type: "docs", description: "mock google commit", isBreaking: false }, files: ["README.md"] }]) };
+				return {
+					content: JSON.stringify([
+						{
+							commit: {
+								type: "docs",
+								description: "mock google commit",
+								isBreaking: false,
+							},
+							files: ["README.md"],
+						},
+					]),
+				};
 			},
 		};
 	},
@@ -44,7 +77,18 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 		return {
 			call: async (args: any) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
-				return { content: JSON.stringify([{ commit: { type: "chore", description: "mock custom commit", isBreaking: false }, files: ["chore.ts"] }]) };
+				return {
+					content: JSON.stringify([
+						{
+							commit: {
+								type: "chore",
+								description: "mock custom commit",
+								isBreaking: false,
+							},
+							files: ["chore.ts"],
+						},
+					]),
+				};
 			},
 		};
 	},
@@ -62,9 +106,9 @@ mock.module(path.resolve(__dirname, "../../src/modules/auth-resolver"), () => ({
 
 // Now import the functions to test
 import {
-	parseSerializedValue,
-	invokeLlm,
 	handleTurnlockDelegation,
+	invokeLlm,
+	parseSerializedValue,
 } from "../../src/entrypoints/turnlock-to-llm-bridge.ts";
 
 describe("turnlock-to-llm-bridge", () => {
@@ -138,7 +182,9 @@ describe("turnlock-to-llm-bridge", () => {
 		let tempDir: string;
 
 		beforeAll(() => {
-			tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "turnlock-wrapper-test-"));
+			tempDir = fs.mkdtempSync(
+				path.join(os.tmpdir(), "turnlock-wrapper-test-"),
+			);
 			tempManifestPath = path.join(tempDir, "manifest.json");
 			tempResultPath = path.join(tempDir, "result.json");
 		});
@@ -178,9 +224,13 @@ describe("turnlock-to-llm-bridge", () => {
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 			lastExecCmd = null;
 
-			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", (cmd) => {
-				lastExecCmd = cmd;
-			});
+			await handleTurnlockDelegation(
+				tempManifestPath,
+				"resume-cmd --test",
+				(cmd) => {
+					lastExecCmd = cmd;
+				},
+			);
 
 			// Verify result file exists and has success payload
 			expect(fs.existsSync(tempResultPath)).toBe(true);
@@ -188,7 +238,9 @@ describe("turnlock-to-llm-bridge", () => {
 			expect(resultData.success).toBe(true);
 			expect(resultData.id).toBe("job-1");
 			expect(resultData.commits[0].commit.type).toBe("feat");
-			expect(resultData.commits[0].commit.description).toBe("mock openai commit");
+			expect(resultData.commits[0].commit.description).toBe(
+				"mock openai commit",
+			);
 
 			// Verify execSync resume command was executed
 			expect(lastExecCmd!).toBe("resume-cmd --test");
@@ -224,9 +276,13 @@ describe("turnlock-to-llm-bridge", () => {
 
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 
-			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", (cmd) => {
-				lastExecCmd = cmd;
-			});
+			await handleTurnlockDelegation(
+				tempManifestPath,
+				"resume-cmd --test",
+				(cmd) => {
+					lastExecCmd = cmd;
+				},
+			);
 
 			expect(fs.existsSync(tempResultPath)).toBe(true);
 			const resultData = JSON.parse(fs.readFileSync(tempResultPath, "utf-8"));
@@ -247,7 +303,7 @@ describe("turnlock-to-llm-bridge", () => {
 				feedback: {
 					previous_commit: "BAD COMMIT",
 					validation_errors: ["Error 1", "Error 2"],
-				}
+				},
 			};
 
 			const manifest = {
@@ -269,10 +325,16 @@ describe("turnlock-to-llm-bridge", () => {
 
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 			lastUserPrompt = null;
-			
-			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => {});
-			
-			expect(lastUserPrompt!).toContain("FEEDBACK FROM PREVIOUS FAILED ATTEMPT");
+
+			await handleTurnlockDelegation(
+				tempManifestPath,
+				"resume-cmd --test",
+				() => {},
+			);
+
+			expect(lastUserPrompt!).toContain(
+				"FEEDBACK FROM PREVIOUS FAILED ATTEMPT",
+			);
 			expect(lastUserPrompt!).toContain("BAD COMMIT");
 			expect(lastUserPrompt!).toContain("- Error 1");
 			expect(lastUserPrompt!).toContain("- Error 2");

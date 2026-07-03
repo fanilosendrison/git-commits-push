@@ -2,21 +2,25 @@
 // Given: a push where git would normally prompt for credentials.
 // Expected: push fails immediately (no hang), failure recorded in report.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as path from "node:path";
+import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
-import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoFakeRemote: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 let repoId: string;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 // Use an HTTPS URL that would require interactive credentials
-const UNREACHABLE_HTTPS_REMOTE = "https://github.com/nonexistent-org/nonexistent-repo-xyz.git";
+const UNREACHABLE_HTTPS_REMOTE =
+	"https://github.com/nonexistent-org/nonexistent-repo-xyz.git";
 
 beforeAll(async () => {
 	env = MockTurnlockEnvironment.create();
@@ -86,7 +90,7 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 					...process.env,
 					GIT_TERMINAL_PROMPT: "0", // explicitly set — matches Global Invariant I1
 					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
 				},
 				encoding: "utf-8",
 				timeout: 10_000, // fail-safe: bun will kill if it hangs

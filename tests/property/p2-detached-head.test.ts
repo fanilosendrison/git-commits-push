@@ -1,14 +1,17 @@
 // NIB-T — Test P2: Detached HEAD Exclusion (Phase 1)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as path from "node:path";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
 let repoDetached: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();

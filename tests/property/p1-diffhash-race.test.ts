@@ -1,19 +1,23 @@
 // NIB-T — Test P1: DiffHash Race Condition Prevention (Phase 4)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as path from "node:path";
+import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
-import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoDirty: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 let repoId: string;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
-const STALE_DIFF_HASH = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+const STALE_DIFF_HASH =
+	"sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
 beforeAll(async () => {
 	env = MockTurnlockEnvironment.create();
@@ -53,7 +57,11 @@ beforeAll(async () => {
 		id: repoId,
 		commits: [
 			{
-				commit: { type: "feat", description: "add x constant", isBreaking: false },
+				commit: {
+					type: "feat",
+					description: "add x constant",
+					isBreaking: false,
+				},
 				files: ["change.ts"],
 			},
 		],
@@ -77,7 +85,7 @@ describe("P1 — DiffHash Race Condition Prevention", () => {
 				env: {
 					...process.env,
 					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
 				},
 				encoding: "utf-8",
 			},

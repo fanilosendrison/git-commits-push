@@ -8,7 +8,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { GlobalState, CommitJobResult } from "../../src/types.ts";
+import type { CommitJobResult, GlobalState } from "../../src/types.ts";
 
 interface PendingDelegationRecord {
 	readonly label: string;
@@ -49,7 +49,11 @@ interface StateFile {
  * The manifest written here is a minimal agent-batch manifest compatible with
  * what Turnlock's handle-resume.ts expects to find at pd.manifestPath.
  */
-export function computeStateJson(runDir: string, state: GlobalState, runId: string = "test-run-seeded"): void {
+export function computeStateJson(
+	runDir: string,
+	state: GlobalState,
+	runId: string = "test-run-seeded",
+): void {
 	const now = Date.now();
 	const nowIso = new Date(now).toISOString();
 	const repoIds = Object.keys(state.repos);
@@ -119,17 +123,30 @@ export function computeStateJson(runDir: string, state: GlobalState, runId: stri
 	// But our runDir from tests is the mock env's base dir; Turnlock writes to:
 	// <TURNLOCK_RUN_DIR_ROOT>/git-commits-push-TL/<runId>/state.json
 	// We create that full path here so the resume subprocess finds it.
-	const turnlockRunDir = path.join(runDir, "runs", "git-commits-push-tl", runId);
+	const turnlockRunDir = path.join(
+		runDir,
+		"runs",
+		"git-commits-push-tl",
+		runId,
+	);
 	fs.mkdirSync(turnlockRunDir, { recursive: true });
 	fs.mkdirSync(path.join(turnlockRunDir, "delegations"), { recursive: true });
 	fs.mkdirSync(path.join(turnlockRunDir, "results"), { recursive: true });
 
 	// Copy manifest to the Turnlock run dir location
-	const tlManifestPath = path.join(turnlockRunDir, "delegations", "commit-jobs-0.json");
+	const tlManifestPath = path.join(
+		turnlockRunDir,
+		"delegations",
+		"commit-jobs-0.json",
+	);
 	fs.copyFileSync(manifestPath, tlManifestPath);
 
 	// Rewrite manifest path reference in state to point to TL run dir
-	const tlResultsBatchDir = path.join(turnlockRunDir, "results", "commit-jobs-0");
+	const tlResultsBatchDir = path.join(
+		turnlockRunDir,
+		"results",
+		"commit-jobs-0",
+	);
 	fs.mkdirSync(tlResultsBatchDir, { recursive: true });
 
 	const tlJobs = repoIds.map((id) => ({
@@ -148,7 +165,10 @@ export function computeStateJson(runDir: string, state: GlobalState, runId: stri
 			jobIds: repoIds,
 		},
 	};
-	fs.writeFileSync(path.join(turnlockRunDir, "state.json"), JSON.stringify(finalState, null, 2));
+	fs.writeFileSync(
+		path.join(turnlockRunDir, "state.json"),
+		JSON.stringify(finalState, null, 2),
+	);
 }
 
 /**
@@ -159,7 +179,7 @@ export function writeLLMResultToTurnlockRunDir(
 	mockEnvRunDir: string,
 	jobId: string,
 	result: CommitJobResult,
-	runId: string = "test-run-seeded"
+	runId: string = "test-run-seeded",
 ): void {
 	const resultPath = path.join(
 		mockEnvRunDir,

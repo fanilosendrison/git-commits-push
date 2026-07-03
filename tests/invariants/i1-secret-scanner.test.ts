@@ -99,7 +99,7 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		findManifest(runsDir);
 
 		expect(manifest).not.toBeNull();
-		const paths = manifest!.jobs.map(
+		const paths = manifest?.jobs.map(
 			(j) => JSON.parse(j.prompt).repository as string,
 		);
 

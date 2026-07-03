@@ -1,8 +1,8 @@
 // NIB-T — Test A1: End-to-End Initial Run (Phases 1, 2, 3)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -10,7 +10,10 @@ let repoClean: GitRepoFixture;
 let repoDirty: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();
@@ -103,7 +106,10 @@ describe("A1 — End-to-End Initial Run", () => {
 			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 				const full = path.join(dir, entry.name);
 				if (entry.isDirectory()) findManifest(full);
-				if (entry.name.startsWith("commit-jobs") && entry.name.endsWith(".json")) {
+				if (
+					entry.name.startsWith("commit-jobs") &&
+					entry.name.endsWith(".json")
+				) {
 					manifest = JSON.parse(fs.readFileSync(full, "utf-8"));
 				}
 			}
@@ -111,14 +117,17 @@ describe("A1 — End-to-End Initial Run", () => {
 
 		findManifest(runsDir);
 		expect(manifest).not.toBeNull();
-		const m = manifest as { kind: string; jobs: { id: string; prompt: string }[] };
+		const m = manifest as {
+			kind: string;
+			jobs: { id: string; prompt: string }[];
+		};
 		expect(m.kind).toBe("agent-batch");
 		expect(m.jobs.length).toBeGreaterThan(0);
 
 		// The prompt must be a valid JSON-serialized CommitJobPayload
 		const firstJob = m.jobs[0];
 		expect(firstJob).toBeDefined();
-		const payload = JSON.parse(firstJob!.prompt);
+		const payload = JSON.parse(firstJob?.prompt);
 		expect(payload).toHaveProperty("diff");
 		expect(payload).toHaveProperty("diffHash");
 	});

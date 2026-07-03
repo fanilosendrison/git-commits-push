@@ -1,17 +1,20 @@
 // NIB-T — Test A2: End-to-End Resume Run (Phases 4, 5)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as path from "node:path";
+import type { CommitJobResultSuccess, Settings } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
-import type { CommitJobResultSuccess, Settings } from "../../src/types.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoDirty: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 let repoId: string;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(async () => {
 	env = MockTurnlockEnvironment.create();
@@ -21,8 +24,8 @@ beforeAll(async () => {
 
 	// Compute the diffHash of the current staged state via the helper the production
 	// code will expose. Since this is RED phase, this import will fail.
-	const { diffHash, diff } = await import("../../src/utils/git-utils.ts").then((m) =>
-		m.extractDiff(repoDirty.dir),
+	const { diffHash, diff } = await import("../../src/utils/git-utils.ts").then(
+		(m) => m.extractDiff(repoDirty.dir),
 	);
 
 	repoId = await import("../../src/utils/git-utils.ts").then((m) =>
@@ -42,15 +45,19 @@ beforeAll(async () => {
 	env.writeSettings(settings);
 
 	// Pre-write the state.json that Turnlock would have persisted after Phase 3
-	computeStateJson(env.runDir, {
-		repos: {
-			[repoId]: {
-				repository: repoDirty.dir,
-				status: "SUCCESS",
-				diffHash,
+	computeStateJson(
+		env.runDir,
+		{
+			repos: {
+				[repoId]: {
+					repository: repoDirty.dir,
+					status: "SUCCESS",
+					diffHash,
+				},
 			},
 		},
-	}, "test-run-seeded");
+		"test-run-seeded",
+	);
 
 	// Simulate the LLM wrapper having written a valid result for the job
 	const llmResult: CommitJobResultSuccess = {
@@ -90,7 +97,7 @@ describe("A2 — End-to-End Resume Run", () => {
 				env: {
 					...process.env,
 					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
 				},
 				encoding: "utf-8",
 			},

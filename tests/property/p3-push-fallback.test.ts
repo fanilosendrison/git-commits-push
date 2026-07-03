@@ -2,12 +2,12 @@
 // Given: a repo with a non-'origin' remote and no upstream configured.
 // Expected: push falls back to `git push -u <remote> <branch>` automatically.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
-import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
-import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoSource: GitRepoFixture;
@@ -15,7 +15,10 @@ let repoBare: GitRepoFixture; // acts as the "remote" server
 let env: MockTurnlockEnvironment;
 let repoId: string;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(async () => {
 	env = MockTurnlockEnvironment.create();
@@ -66,7 +69,11 @@ beforeAll(async () => {
 		id: repoId,
 		commits: [
 			{
-				commit: { type: "feat", description: "add z constant", isBreaking: false },
+				commit: {
+					type: "feat",
+					description: "add z constant",
+					isBreaking: false,
+				},
 				files: ["feature.ts"],
 			},
 		],
@@ -92,7 +99,7 @@ describe("P3 — Git Push Upstream Fallback", () => {
 					...process.env,
 					GIT_TERMINAL_PROMPT: "0",
 					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
 				},
 				encoding: "utf-8",
 			},

@@ -2,15 +2,18 @@
 // Given: any full execution of the orchestrator.
 // Expected: stdout contains ONLY valid @@TURNLOCK@@ protocol blocks — no other bytes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as path from "node:path";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
 let repoDirty: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();

@@ -2,18 +2,21 @@
 // Given: a repository with no remotes configured.
 // Expected: the push step is gracefully skipped, repo status = SUCCESS.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as path from "node:path";
+import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
-import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoNoRemote: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 let repoId: string;
 
-const SKILL_ENTRYPOINT = path.resolve(import.meta.dir, "../../src/entrypoints/turnlock-orchestrator.ts");
+const SKILL_ENTRYPOINT = path.resolve(
+	import.meta.dir,
+	"../../src/entrypoints/turnlock-orchestrator.ts",
+);
 
 beforeAll(async () => {
 	env = MockTurnlockEnvironment.create();
@@ -55,7 +58,11 @@ beforeAll(async () => {
 		id: repoId,
 		commits: [
 			{
-				commit: { type: "chore", description: "isolated change", isBreaking: false },
+				commit: {
+					type: "chore",
+					description: "isolated change",
+					isBreaking: false,
+				},
 				files: ["isolated.ts"],
 			},
 		],
@@ -81,7 +88,7 @@ describe("P4 — Git Push Skip No-Remote", () => {
 					...process.env,
 					GIT_TERMINAL_PROMPT: "0",
 					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
 				},
 				encoding: "utf-8",
 			},

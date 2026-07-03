@@ -1,5 +1,5 @@
 // tests/unit/reporter.test.ts — Unit tests for src/modules/reporter.ts
-import { describe, expect, test, mock, spyOn } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { generateReport, printReport } from "../../src/modules/reporter.ts";
 import type { RepoState } from "../../src/types.ts";
 
@@ -24,7 +24,7 @@ describe("U-RE-01 | generateReport — header present", () => {
 
 describe("U-RE-02 | generateReport — SUCCESS line", () => {
 	test("shows ✅ for a SUCCESS repo", () => {
-		const report = generateReport({ "abc123": SUCCESS_REPO });
+		const report = generateReport({ abc123: SUCCESS_REPO });
 		expect(report).toContain("✅");
 		expect(report).toContain("abc123");
 	});
@@ -32,7 +32,7 @@ describe("U-RE-02 | generateReport — SUCCESS line", () => {
 
 describe("U-RE-03 | generateReport — FAILED line", () => {
 	test("shows ❌ for a FAILED repo", () => {
-		const report = generateReport({ "def456": FAILED_REPO });
+		const report = generateReport({ def456: FAILED_REPO });
 		expect(report).toContain("❌");
 		expect(report).toContain("def456");
 	});
@@ -40,17 +40,21 @@ describe("U-RE-03 | generateReport — FAILED line", () => {
 
 describe("U-RE-04 | generateReport — FAILED includes error message", () => {
 	test("includes the error string in the report line", () => {
-		const report = generateReport({ "def456": FAILED_REPO });
+		const report = generateReport({ def456: FAILED_REPO });
 		expect(report).toContain("Tests échoués");
 	});
 });
 
 describe("U-RE-05 | printReport — writes to stderr, not stdout", () => {
 	test("process.stderr.write is called, process.stdout.write is not", () => {
-		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
-		const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
+		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(
+			() => true,
+		);
+		const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(
+			() => true,
+		);
 
-		printReport({ "abc123": SUCCESS_REPO });
+		printReport({ abc123: SUCCESS_REPO });
 
 		expect(stderrSpy).toHaveBeenCalled();
 		expect(stdoutSpy).not.toHaveBeenCalled();
