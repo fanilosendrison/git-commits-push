@@ -1,11 +1,9 @@
 {
-	"searchPaths": [
-		"~/Developper"
-	],
+	"searchPaths": ["~/Developper"],
 	"provider": "openai",
 	"model": "gpt-5.4-mini",
 	"temperature": 0.2,
 	"systemPromptPath": "../../system-prompt.md",
-	"autoPush": false,
+	"autoPush": true,
 	"skipTests": false
 }
