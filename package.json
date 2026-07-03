@@ -1,27 +1,27 @@
 {
-  "name": "git-commits-push-tl",
-  "version": "0.1.0",
-  "description": "Turnlock-orchestrated skill: discover dirty repos, LLM-generate commit messages, commit & push in parallel.",
-  "type": "module",
-  "private": true,
-  "scripts": {
-    "test": "bun test",
-    "test:run": "bun run src/entrypoints/turnlock-orchestrator.ts",
-    "start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check src/ tests/"
-  },
-  "dependencies": {
-    "zod": "^4.3.6",
-    "turnlock": "file:../../../VegaCorp/turnlock",
-    "@fanilosendrison/llm-runtime": "file:../../../VegaCorp/llm-runtime"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.3.11",
-    "@types/bun": "^1.1.0",
-    "typescript": "^5.7.0"
-  },
-  "engines": {
-    "bun": ">=1.1.0"
-  }
+	"name": "git-commits-push-tl",
+	"version": "0.1.0",
+	"description": "Turnlock-orchestrated skill: discover dirty repos, LLM-generate commit messages, commit & push in parallel.",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"test": "bun test",
+		"test:run": "bun run src/entrypoints/turnlock-orchestrator.ts",
+		"start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check src/ tests/"
+	},
+	"dependencies": {
+		"zod": "4.3.6",
+		"turnlock": "file:../../../VegaCorp/turnlock",
+		"@fanilosendrison/llm-runtime": "file:../../../VegaCorp/llm-runtime"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.11",
+		"@types/bun": "^1.1.0",
+		"typescript": "^5.7.0"
+	},
+	"engines": {
+		"bun": ">=1.1.0"
+	}
 }
