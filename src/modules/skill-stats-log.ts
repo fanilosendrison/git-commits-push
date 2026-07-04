@@ -108,6 +108,8 @@ export interface SkillStatsLog {
 		attempt: number;
 		maxAttempts: number;
 		diffHash: string;
+		model: string;
+		thinking: boolean;
 	}): void;
 
 	/** Loop detected for a repo */
@@ -186,6 +188,8 @@ export function createSkillStatsLog(): SkillStatsLog {
 				attempt: params.attempt,
 				maxAttempts: params.maxAttempts,
 				diffHash: params.diffHash,
+				model: params.model,
+				thinking: params.thinking,
 			});
 		},
 

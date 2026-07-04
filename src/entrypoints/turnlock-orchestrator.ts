@@ -410,6 +410,8 @@ const config: OrchestratorConfig<GlobalState> = {
 							attempt: attempts + 1,
 							maxAttempts: MAX_ATTEMPTS_BY_KIND[llmKind],
 							diffHash: repoState.diffHash ?? "",
+							model: settings.model,
+							thinking: settings.thinking ?? false,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
@@ -683,6 +685,8 @@ const config: OrchestratorConfig<GlobalState> = {
 							attempt: attempts + 1,
 							maxAttempts: MAX_ATTEMPTS_BY_KIND[errKind],
 							diffHash: repoState.diffHash ?? "",
+							model: settings.model,
+							thinking: settings.thinking ?? false,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
