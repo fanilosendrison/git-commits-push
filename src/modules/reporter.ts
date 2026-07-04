@@ -81,6 +81,11 @@ export function generateReport(repos: Record<string, RepoState>): string {
 			);
 		}
 
+		// Fallback model escalation
+		if (state.fallbackAttempted) {
+			lines.push(`   ⏫ Modèle de secours utilisé`);
+		}
+
 		// Loop detection
 		if (state.loopDetected) {
 			lines.push(`   ⛔ Boucle détectée (${state.loopDetected.kind})`);
