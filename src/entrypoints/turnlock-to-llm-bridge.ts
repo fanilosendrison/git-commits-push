@@ -256,14 +256,7 @@ export async function handleTurnlockDelegation(
 		console.log(
 			`\n[Pi Wrapper] Retry delegation detected. Processing next cycle...\n`,
 		);
-		// Graceful stop: if the orchestrator exits non-zero (e.g. repo FAILED),
-		// do NOT retry the same delegation — the orchestrator has exhausted its
-		// retry budget and made its decision.
-		try {
-			await handleTurnlockDelegation(nextManifest, nextResume, execFn);
-		} catch {
-			// Orchestrator completed with failures — stop the delegation chain
-		}
+		await handleTurnlockDelegation(nextManifest, nextResume, execFn);
 	}
 }
 
