@@ -17,6 +17,14 @@ import {
 	createOpenAICompatibleAdapter,
 	type ProviderAdapter,
 } from "@fanilosendrison/llm-runtime";
+
+type OpenAICompatibleProvider =
+	| "deepseek"
+	| "mistral"
+	| "groq"
+	| "together"
+	| "ollama";
+
 import { resolveAuthToken } from "../modules/auth-resolver.ts";
 
 export async function invokeLlm(payload: {
@@ -47,7 +55,7 @@ export async function invokeLlm(payload: {
 	} else {
 		adapter = createOpenAICompatibleAdapter({
 			...commonConfig,
-			provider: payload.provider as any,
+			provider: payload.provider as OpenAICompatibleProvider,
 		});
 	}
 
