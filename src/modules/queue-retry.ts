@@ -42,7 +42,7 @@ export const retryJobs: Array<{ id: string; prompt: string }> = [];
  * Plan ref: Phase 4 constants
  */
 export const MAX_ATTEMPTS_BY_KIND: Record<FeedbackError["kind"], number> = {
-	validation: 10,
+	validation: 2,
 	structural: 1,
 	race: 1,
 	git: 1,
