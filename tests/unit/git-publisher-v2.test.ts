@@ -395,6 +395,66 @@ describe("classifyTransient", () => {
 	});
 });
 
+// ── U-GE-16: Mid-loop failure with context.committedShas (R59) ───────────
+
+describe("U-GE-16 | mid-loop failure preserves committed SHAs in context", () => {
+	test("plan 1 commits, plan 2 ghost file → context carries landed SHA", async () => {
+		const repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.writeAndStage("a.ts", "export const a = 1;\n");
+		repo.writeAndStage("c.ts", "export const c = 1;\n");
+
+		const { diffHash } = await extractDiff(repo.dir);
+		const plans: CommitPlan[] = [
+			{
+				commit: { type: "feat", description: "add a", isBreaking: false },
+				files: ["a.ts"],
+			},
+			{
+				commit: { type: "feat", description: "add b", isBreaking: false },
+				files: ["ghost.ts"], // doesn't exist → nonexistent-file at index 1
+			},
+			{
+				commit: { type: "feat", description: "add c", isBreaking: false },
+				files: ["c.ts"],
+			},
+		];
+
+		let caught: unknown;
+		try {
+			await executeMultiCommitAndPush(
+				repo.dir,
+				plans,
+				diffHash,
+				NO_PUSH_SETTINGS,
+			);
+		} catch (err) {
+			caught = err;
+		}
+
+		expect(caught).toBeInstanceOf(CommitPlanError);
+		if (caught instanceof CommitPlanError) {
+			expect(caught.kind).toBe("nonexistent-file");
+			// R59: context captures plan 1's landed commit
+			expect(caught.context?.committedShas).toHaveLength(1);
+			expect(caught.context?.committedShas[0]?.files).toEqual(["a.ts"]);
+			expect(caught.context?.pendingFiles).toContain("c.ts");
+			expect(caught.context?.pendingFiles).not.toContain("a.ts");
+			// ghost.ts from the failed plan IS in pendingFiles (planned but not committed)
+			expect(caught.context?.pendingFiles).toContain("ghost.ts");
+		}
+
+		// Verify plan 1's commit landed in git history
+		const log = execSync("git log --oneline", {
+			cwd: repo.dir,
+			encoding: "utf-8",
+		});
+		expect(log).toContain("add a");
+
+		repo.dispose();
+	});
+});
+
 // ── Empty plans → CommitPlanError("empty-plans") ───────────────────────────
 
 describe("empty plans → CommitPlanError(empty-plans)", () => {
