@@ -262,6 +262,7 @@ const config: OrchestratorConfig<GlobalState> = {
 					model: settings.model,
 					temperature: settings.temperature,
 					systemPrompt,
+					thinking: settings.thinking,
 				};
 				return {
 					id: r.id,

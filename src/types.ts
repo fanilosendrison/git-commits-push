@@ -15,6 +15,7 @@ export interface Settings {
 	skipTests: boolean;
 	fallbackProvider?: string;
 	fallbackModel?: string;
+	thinking?: boolean;
 }
 
 export interface RepositoryInfo {
@@ -122,6 +123,8 @@ export interface CommitJobPayload {
 	 * (Phase 2 — Feedback interface).
 	 */
 	feedback?: Feedback;
+	/** Enable thinking/reasoning for supported providers (e.g. DeepSeek) */
+	thinking?: boolean;
 }
 
 /** Written by the Pi wrapper to each job's resultPath on success */

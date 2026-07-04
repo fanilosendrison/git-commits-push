@@ -240,6 +240,7 @@ export function queueRetry(
 		temperature: settings.temperature,
 		systemPrompt,
 		feedback,
+		thinking: settings.thinking,
 	};
 
 	// 7. Log and push

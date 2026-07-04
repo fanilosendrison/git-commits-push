@@ -65,6 +65,7 @@ export async function invokeLlm(payload: {
 			user: payload.userPrompt,
 		}),
 		temperature: payload.temperature,
+		...(payload.thinking ? { thinking: true, reasoningEffort: "high" } : {}),
 	});
 
 	return response.content;
