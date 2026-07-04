@@ -7,7 +7,7 @@
  *   - R58: top-level diffHash field
  *   - R62: loopDetected field
  *   - New fields: committedShas, originalHead, feedbackHistory, lastPlanHash
- *   - Status includes "ESCALATED"
+ *   - Status: PENDING, RUNNING, SUCCESS, FAILED
  */
 
 import { describe, expect, test } from "bun:test";
@@ -62,7 +62,7 @@ const stateSchema = z.object({
 		z.string(),
 		z.object({
 			repository: z.string(),
-			status: z.enum(["PENDING", "RUNNING", "ESCALATED", "SUCCESS", "FAILED"]),
+			status: z.enum(["PENDING", "RUNNING", "SUCCESS", "FAILED"]),
 			diffHash: z.string().optional(),
 			commits: z.array(commitPlanSchema).optional(),
 			error: z.string().optional(),
@@ -143,21 +143,9 @@ describe("stateSchema accepts valid state", () => {
 	});
 });
 
-// ── Status includes ESCALATED ────────────────────────────────────────────────
+// ── Status validation ────────────────────────────────────────────────────
 
 describe("stateSchema status field", () => {
-	test("accepts ESCALATED status", () => {
-		const result = stateSchema.safeParse({
-			repos: {
-				"repo-1": {
-					repository: "/path",
-					status: "ESCALATED",
-				},
-			},
-		});
-		expect(result.success).toBe(true);
-	});
-
 	test("rejects invalid status", () => {
 		const result = stateSchema.safeParse({
 			repos: {

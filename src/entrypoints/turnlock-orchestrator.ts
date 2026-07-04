@@ -97,14 +97,12 @@ const attemptsSchema = z.preprocess(
 		.optional(),
 );
 
-// R58 fix: top-level diffHash field for the reset loop
 const stateSchema = z.object({
-	diffHash: z.string().optional(),
 	repos: z.record(
 		z.string(),
 		z.object({
 			repository: z.string(),
-			status: z.enum(["PENDING", "RUNNING", "ESCALATED", "SUCCESS", "FAILED"]),
+			status: z.enum(["PENDING", "RUNNING", "SUCCESS", "FAILED"]),
 			diffHash: z.string().optional(),
 			commits: z.array(commitPlanSchema).optional(),
 			error: z.string().optional(),

@@ -97,48 +97,6 @@ export interface Feedback {
  */
 export type AttemptsByKind = Partial<Record<FeedbackError["kind"], number>>;
 
-// ── EscalationContext (Round 8) ──────────────────────────────────────────
-
-/**
- * Structured context emitted when the retry loop is exhausted (status: ESCALATED).
- * The parent agent reads this and decides what to do next.
- * Plan ref: Phase 2.5 — Escalation types
- */
-export interface EscalationContext {
-	repository: string;
-	diffHash: string;
-	lastError: FeedbackError;
-	attemptsByKind: AttemptsByKind;
-	committedShas: CommittedSha[];
-	originalHead: string;
-	pendingFiles: string[];
-	feedbackHistory: string[];
-	loopDetected?: { kind: FeedbackError["kind"]; planHash: string };
-	recommendedAction: "git-reset-and-recommit" | "manual-fix-needed" | "unknown";
-}
-
-// ── ExecuteCommitsInput / ExecuteCommitsResult (Round 8) ─────────────────
-
-/**
- * Input to the skill's executeCommits entry point.
- * When escalationHint is provided, the skill uses it as initial feedback
- * with a fresh retry budget (Decision 15).
- */
-export interface ExecuteCommitsInput {
-	repoPath: string;
-	diffHash: string;
-	settings: Settings;
-	escalationHint?: EscalationContext;
-}
-
-/**
- * Three terminal states matching RepoState.status.
- */
-export type ExecuteCommitsResult =
-	| { status: "SUCCESS"; committedShas: CommittedSha[]; originalHead: string }
-	| { status: "FAILED"; error: string }
-	| { status: "ESCALATED"; escalationContext: EscalationContext };
-
 /**
  * Payload embedded as JSON string inside an AgentBatchDelegationRequest job's `prompt` field.
  * See: NIB-S §3 > CommitJobPayload, DC-TURNLOCK §4.
@@ -182,13 +140,7 @@ export type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
 
 export interface RepoState {
 	repository: string;
-	/**
-	 * Round 8: ESCALATED added as a terminal state distinct from FAILED.
-	 * ESCALATED means the retry loop exhausted its budget and emitted an
-	 * escalationContext; the parent agent decides what to do next.
-	 * FAILED means the repo was abandoned (no agent handoff).
-	 */
-	status: "PENDING" | "RUNNING" | "ESCALATED" | "SUCCESS" | "FAILED";
+	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
 	diffHash?: string;
 	/**
 	 * Plural commits. Legacy singular `commit?: CommitMessage` is silently
@@ -228,7 +180,7 @@ export interface RepoState {
  */
 export interface RepoReport {
 	repository: string;
-	status: "PENDING" | "RUNNING" | "ESCALATED" | "SUCCESS" | "FAILED";
+	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
 	error?: string;
 	committedShas: CommittedSha[];
 	attempts: Partial<Record<FeedbackError["kind"], number>>;
@@ -236,12 +188,6 @@ export interface RepoReport {
 	loopDetected?: { kind: FeedbackError["kind"]; planHash: string };
 }
 
-/**
- * Top-level state persisted by Turnlock between phase transitions.
- * diffHash is populated by the diff-capture phase (R58 fix) and used by the
- * reset loop to detect when a repo's diff has changed since last processing.
- */
 export interface GlobalState {
-	diffHash?: string;
 	repos: Record<string, RepoState>;
 }
