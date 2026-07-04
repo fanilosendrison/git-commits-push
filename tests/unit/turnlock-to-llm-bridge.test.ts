@@ -313,7 +313,15 @@ describe("turnlock-to-llm-bridge", () => {
 				systemPrompt: "sys-prompt",
 				feedback: {
 					previous_commit: "BAD COMMIT",
-					validation_errors: ["Error 1", "Error 2"],
+					errors: [
+						{
+							kind: "structural",
+							message: "Error 1",
+							resolution_hint: "Fix the duplicate file.",
+							files: ["shared.ts"],
+						},
+						{ kind: "validation", message: "Error 2" },
+					],
 				},
 			};
 
@@ -345,12 +353,17 @@ describe("turnlock-to-llm-bridge", () => {
 				},
 			);
 
+			// New format: structured errors with [KIND] prefix
 			expect(lastUserPrompt ?? "").toContain(
-				"FEEDBACK FROM PREVIOUS FAILED ATTEMPT",
+				"FEEDBACK FROM PREVIOUS ATTEMPT(S)",
 			);
 			expect(lastUserPrompt ?? "").toContain("BAD COMMIT");
-			expect(lastUserPrompt ?? "").toContain("- Error 1");
-			expect(lastUserPrompt ?? "").toContain("- Error 2");
+			expect(lastUserPrompt ?? "").toContain("[STRUCTURAL] Error 1");
+			expect(lastUserPrompt ?? "").toContain("[VALIDATION] Error 2");
+			expect(lastUserPrompt ?? "").toContain(
+				"→ Resolution: Fix the duplicate file.",
+			);
+			expect(lastUserPrompt ?? "").toContain("→ Affected files: shared.ts");
 		});
 	});
 });
