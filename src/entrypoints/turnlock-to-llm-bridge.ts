@@ -167,12 +167,18 @@ export async function handleTurnlockDelegation(
 				console.log(
 					`[Pi Wrapper] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
 				);
-				let finalUserPrompt = payload.diff;
-				if (payload.feedback) {
-					finalUserPrompt += formatFeedbackBlock(
-						payload.feedback,
-						payload.diff,
-					);
+				let finalUserPrompt: string;
+				if (payload.feedback?.pending_files) {
+					// Partial commit retry: the reconstructed diff is only for pending files,
+					// rendered inside <remaining-diff>. No separate diff prefix needed.
+					finalUserPrompt = formatFeedbackBlock(payload.feedback, payload.diff);
+				} else {
+					// First attempt or validation retry: show the full diff, then feedback
+					// (without duplicating the diff — not shown in <remaining-diff>).
+					finalUserPrompt = payload.diff;
+					if (payload.feedback) {
+						finalUserPrompt += formatFeedbackBlock(payload.feedback);
+					}
 				}
 
 				const llmResponse = await invokeLlm({
