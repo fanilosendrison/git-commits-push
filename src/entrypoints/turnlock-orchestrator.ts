@@ -673,7 +673,7 @@ const config: OrchestratorConfig<GlobalState> = {
 					{
 						kind: "agent-batch",
 						agentType: "git-commit-generator",
-						label: "commit-jobs-retry",
+						label: `commit-jobs-retry-${Date.now()}`, // unique per retry
 						jobs: jobsSnapshot,
 						timeout: { perDelegationMs: 600_000 },
 						retry: {
