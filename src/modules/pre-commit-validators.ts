@@ -15,6 +15,7 @@
 import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { RepositoryInfo, Settings } from "../types.ts";
 
@@ -161,6 +162,53 @@ function hasFilesMatching(repoPath: string, pattern: RegExp): boolean {
 	}
 }
 
+import { atomicAppend } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/src/atomic-appender.ts";
+
+function logSecretBlock(opts: {
+	repoId: string;
+	repoPath: string;
+	matchCount: number;
+	details: string;
+}): void {
+	const statsDir =
+		process.env.SECRET_SCANNER_STATS_DIR ||
+		path.join(os.homedir(), "neelopedia", "stats", "pi", "secret-scanner");
+	const filePath = path.join(statsDir, "events.jsonl");
+	try {
+		fs.mkdirSync(statsDir, { recursive: true });
+	} catch {
+		// ignore
+	}
+
+	const findings = opts.details
+		.split(", ")
+		.filter(Boolean)
+		.map((d) => {
+			const match = d.match(/^(.*) at line (\d+)$/);
+			if (match) {
+				return { name: match[1], line: "", lineNumber: parseInt(match[2], 10) };
+			}
+			return { name: d, line: "", lineNumber: 0 };
+		});
+
+	const event = {
+		timestamp: new Date().toISOString(),
+		eventId: crypto.randomUUID(),
+		extension: "secret-scanner",
+		eventType: "block",
+		agent: "pi",
+		workspace: opts.repoPath,
+		sessionId: `skill-${opts.repoId}`,
+		cycleId: crypto.randomUUID(),
+		details: {
+			findingsCount: opts.matchCount,
+			findings,
+			_source: "git-commits-push-skill",
+		},
+	};
+	atomicAppend(filePath, JSON.stringify(event) + "\n");
+}
+
 function execCwd(cmd: string, cwd: string): void {
 	execSync(cmd, {
 		cwd,
@@ -209,6 +257,14 @@ export async function processRepoValidationAndDiff(
 	// 4. Security scan — fail closed (DC-SECRET-SCANNER §3)
 	const scanResult = await scanner(diff);
 	if (scanResult.hasSecrets) {
+		// Log to Pi stats events.jsonl
+		logSecretBlock({
+			repoId: repo.id,
+			repoPath: repo.path,
+			matchCount: scanResult.matchCount,
+			details: scanResult.details ?? "",
+		});
+
 		throw new Error(
 			`Security Exception: Secret detected in diff. ${scanResult.details ?? ""}`,
 		);
