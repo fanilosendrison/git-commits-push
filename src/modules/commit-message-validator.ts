@@ -57,7 +57,7 @@ export function validateCommitMessage(message: string): ValidationResult {
 	}
 
 	// Extract first line (subject) for format validation — body is free-form
-	const subject = trimmed.split("\n")[0].trim();
+	const subject = trimmed.split("\n")[0]!.trim();
 
 	const errors: string[] = [];
 
@@ -69,7 +69,8 @@ export function validateCommitMessage(message: string): ValidationResult {
 		};
 	}
 
-	const [, type, , , description] = match;
+	const type = match[1]!;
+	const description = match[4]!;
 
 	if (!VALID_TYPES.includes(type as (typeof VALID_TYPES)[number])) {
 		errors.push(
