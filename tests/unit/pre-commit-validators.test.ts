@@ -1,6 +1,7 @@
 // tests/unit/pre-commit-validators.test.ts — Unit tests for src/modules/pre-commit-validators.ts
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { SecretScanner } from "../../src/modules/pre-commit-validators.ts";
 import {
@@ -79,6 +80,8 @@ describe("U-VA-02 | processRepoValidationAndDiff — throws if nothing staged af
 
 describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns hasSecrets: true", () => {
 	let repo: GitRepoFixture;
+	let statsDir: string;
+
 	beforeAll(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
@@ -86,14 +89,37 @@ describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns
 			"secret.ts",
 			`export const key = "AKIAIOSFODNN7EXAMPLE";\n`,
 		);
+		// Redirect stats to temp dir for test isolation
+		statsDir = path.join(os.tmpdir(), "ss-test-" + Date.now());
+		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
 	});
-	afterAll(() => repo.dispose());
+	afterAll(() => {
+		repo.dispose();
+		delete process.env.SECRET_SCANNER_STATS_DIR;
+		if (fs.existsSync(statsDir))
+			fs.rmSync(statsDir, { recursive: true, force: true });
+	});
 
-	test("throws 'Security Exception'", async () => {
+	test("throws 'Security Exception' and logs a block event", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
 		await expect(
 			processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, SECRET_SCANNER),
 		).rejects.toThrow("Security Exception");
+
+		// Verify stats were logged
+		const eventsPath = path.join(statsDir, "events.jsonl");
+		expect(fs.existsSync(eventsPath)).toBe(true);
+		const events = fs
+			.readFileSync(eventsPath, "utf-8")
+			.trim()
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => JSON.parse(l));
+		expect(events.length).toBe(1);
+		expect(events[0].eventType).toBe("block");
+		expect(events[0].extension).toBe("secret-scanner");
+		expect(events[0].details.findingsCount).toBe(1);
+		expect(events[0].details.findings[0].name).toBe("Found: AWS_KEY");
 	});
 });
 
