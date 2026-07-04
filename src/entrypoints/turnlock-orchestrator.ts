@@ -476,6 +476,17 @@ const config: OrchestratorConfig<GlobalState> = {
 						systemPrompt,
 						result.commits,
 					);
+					totalRetries++;
+					skillLog.logRetry({
+						runId: currentRunId,
+						repoId: result.id,
+						kind: "validation",
+						attempt: validationAttempts + 1,
+						maxAttempts: MAX_ATTEMPTS_BY_KIND.validation,
+						diffHash: repoState.diffHash ?? "",
+						model: settings.model,
+						thinking: settings.thinking ?? false,
+					});
 					if (retryResult.kind === "loop-detected") {
 						nextRepos[result.id] = {
 							...retryResult.repoState,
@@ -514,6 +525,17 @@ const config: OrchestratorConfig<GlobalState> = {
 							systemPrompt,
 							result.commits,
 						);
+						totalRetries++;
+						skillLog.logRetry({
+							runId: currentRunId,
+							repoId: result.id,
+							kind: "validation",
+							attempt: 1,
+							maxAttempts: MAX_ATTEMPTS_BY_KIND.validation,
+							diffHash: repoState.diffHash ?? "",
+							model: fallbackSettings.model,
+							thinking: settings.thinking ?? false,
+						});
 						if (retryResult.kind === "loop-detected") {
 							nextRepos[result.id] = {
 								...retryResult.repoState,
