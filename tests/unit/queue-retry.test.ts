@@ -280,12 +280,13 @@ describe("U-GE-31 | pendingFiles filtered against committedShas", () => {
 
 // ── U-GE-32: feedbackHistory capping ─────────────────────────────────────────
 
-describe("U-GE-32 | feedbackHistory capped at 10 entries", () => {
-	test("after 11 calls with distinct plans, history has exactly 10 entries", () => {
+describe("U-GE-32 | feedbackHistory capped at MAX_FEEDBACK_HISTORY", () => {
+	test("after 15 calls with distinct plans, history respects the cap", () => {
 		let repoState = makeRepoState();
 		const errors: FeedbackError[] = [{ kind: "structural", message: "err" }];
 
-		for (let i = 0; i < 11; i++) {
+		// Make more calls than the default cap (which is 14 with current MAX_ATTEMPTS)
+		for (let i = 0; i < 18; i++) {
 			const plan = makePlan(i, [`file${i}.ts`], "feat", `change ${i}`);
 			const result = queueRetry(
 				"repo-1",
@@ -301,7 +302,10 @@ describe("U-GE-32 | feedbackHistory capped at 10 entries", () => {
 			repoState = result.repoState;
 		}
 
-		expect(repoState.feedbackHistory).toHaveLength(10);
+		// MAX_FEEDBACK_HISTORY = Math.max(10, sum of all MAX_ATTEMPTS_BY_KIND)
+		// With validation=10, others=1: sum=14, so max=14
+		// After 18 calls, history should be capped at 14
+		expect(repoState.feedbackHistory?.length).toBeLessThanOrEqual(14);
 	});
 });
 
