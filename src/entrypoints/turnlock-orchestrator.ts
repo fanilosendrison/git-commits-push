@@ -55,9 +55,9 @@ let runStarted = false;
 
 const commitMessageSchema = z.object({
 	type: z.string(),
-	scope: z.string().optional(),
+	scope: z.string().optional().nullable(),
 	description: z.string(),
-	body: z.string().optional(),
+	body: z.string().optional().nullable(),
 	isBreaking: z.boolean(),
 });
 
