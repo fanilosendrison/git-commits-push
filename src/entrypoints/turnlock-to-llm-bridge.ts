@@ -59,15 +59,12 @@ export async function invokeLlm(payload: {
 		});
 	}
 
-	// Enable thinking/reasoning for DeepSeek (supports thinking blocks)
-	const isDeepSeek = payload.provider === "deepseek";
 	const response = await adapter.call({
 		messages: buildSimplePrompt({
 			system: payload.systemPrompt,
 			user: payload.userPrompt,
 		}),
 		temperature: payload.temperature,
-		...(isDeepSeek ? { thinking: true, reasoningEffort: "high" } : {}),
 	});
 
 	return response.content;
