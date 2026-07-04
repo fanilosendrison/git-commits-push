@@ -24,7 +24,9 @@ beforeAll(() => {
 	repoDetached.writeAndStage("extra.ts", "export const y = 2;\n");
 
 	env.writeSettings({
-		searchPaths: [path.dirname(repoDetached.dir)],
+		// Scope search to the fixture's directory only, NOT its parent (system temp dir
+		// which may contain leftover repos from other tests).
+		searchPaths: [repoDetached.dir],
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
