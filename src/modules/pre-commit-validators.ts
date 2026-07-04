@@ -51,13 +51,20 @@ const defaultScanner: SecretScanner = async (
 		// Import the module dynamically (works in bun)
 		// We use import() because the module might not be compiled
 		const module = await import(scannerPath);
-		const result = module.scanDiff(diff);
+		const result = module.scanDiff(diff) as {
+			clean: boolean;
+			findings?: { name: string; lineNumber: number }[];
+		};
+		const details = result.findings
+			?.map(
+				(f: { name: string; lineNumber: number }) =>
+					`${f.name} at line ${f.lineNumber}`,
+			)
+			.join(", ");
 		return {
 			hasSecrets: !result.clean,
 			matchCount: result.findings?.length ?? 0,
-			details: result.findings
-				?.map((f: any) => `${f.name} at line ${f.lineNumber}`)
-				.join(", "),
+			...(details ? { details } : {}),
 		};
 	} catch (err) {
 		throw new Error(
