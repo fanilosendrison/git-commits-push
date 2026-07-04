@@ -70,46 +70,8 @@ export async function invokeLlm(payload: {
 	return response.content;
 }
 
-interface CommitJobPayload {
-	repository: string;
-	diff: string;
-	diffHash: string;
-	provider: string;
-	model: string;
-	temperature: number;
-	systemPrompt: string;
-	feedback?: {
-		previous_commit: string;
-		validation_errors: string[];
-	};
-}
-
-interface CommitMessage {
-	type: string;
-	scope?: string;
-	description: string;
-	body?: string;
-	isBreaking: boolean;
-}
-
-interface CommitPlan {
-	commit: CommitMessage;
-	files: string[];
-}
-
-interface CommitJobResultSuccess {
-	success: true;
-	id: string;
-	commits: CommitPlan[];
-}
-
-interface CommitJobResultError {
-	success: false;
-	id: string;
-	error: string;
-}
-
-type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
+import { formatFeedbackBlock } from "../modules/feedback-formatter.ts";
+import type { CommitJobPayload, CommitJobResult } from "../types.ts";
 
 interface TurnlockBatchManifest {
 	manifestVersion: number;
@@ -207,11 +169,10 @@ export async function handleTurnlockDelegation(
 				);
 				let finalUserPrompt = payload.diff;
 				if (payload.feedback) {
-					finalUserPrompt += `\n\n--- FEEDBACK FROM PREVIOUS FAILED ATTEMPT ---\n`;
-					finalUserPrompt += `Your previous commit plan was rejected due to formatting errors.\n\n`;
-					finalUserPrompt += `Previous attempt (all commits):\n${payload.feedback.previous_commit}\n\n`;
-					finalUserPrompt += `Validation Errors:\n${payload.feedback.validation_errors.map((e) => `- ${e}`).join("\n")}\n\n`;
-					finalUserPrompt += `Please generate a NEW JSON array fixing these exact errors.\n`;
+					finalUserPrompt += formatFeedbackBlock(
+						payload.feedback,
+						payload.diff,
+					);
 				}
 
 				const llmResponse = await invokeLlm({
