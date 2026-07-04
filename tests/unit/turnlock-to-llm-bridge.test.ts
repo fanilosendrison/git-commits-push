@@ -238,6 +238,7 @@ describe("turnlock-to-llm-bridge", () => {
 				"resume-cmd --test",
 				(cmd) => {
 					lastExecCmd = cmd;
+					return "";
 				},
 			);
 
@@ -290,6 +291,7 @@ describe("turnlock-to-llm-bridge", () => {
 				"resume-cmd --test",
 				(cmd) => {
 					lastExecCmd = cmd;
+					return "";
 				},
 			);
 
@@ -338,7 +340,9 @@ describe("turnlock-to-llm-bridge", () => {
 			await handleTurnlockDelegation(
 				tempManifestPath,
 				"resume-cmd --test",
-				() => {},
+				() => {
+					return "";
+				},
 			);
 
 			expect(lastUserPrompt ?? "").toContain(
