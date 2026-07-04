@@ -27,6 +27,10 @@ import {
 } from "../modules/error-classifier.ts";
 import { CommitPlanError, PartialCommitError } from "../modules/errors.ts";
 import {
+	buildFallbackSettings,
+	shouldUseFallback,
+} from "../modules/fallback-model.ts";
+import {
 	executeMultiCommitAndPush,
 	formatConventionalCommit,
 } from "../modules/git-publisher.ts";
@@ -481,6 +485,44 @@ const config: OrchestratorConfig<GlobalState> = {
 					continue;
 				}
 				if (validationErrors.length > 0) {
+					// Try fallback model before failing
+					if (
+						shouldUseFallback(
+							settings,
+							"validation",
+							validationAttempts,
+							repoState.fallbackAttempted ?? false,
+						)
+					) {
+						const fallbackSettings = buildFallbackSettings(settings);
+						const retryResult = queueRetry(
+							result.id,
+							{
+								...repoState,
+								fallbackAttempted: true,
+								attempts: {
+									...(repoState.attempts ?? {}),
+									validation: 0, // reset budget for fallback
+								},
+							},
+							validationErrors,
+							{},
+							fallbackSettings, // override provider/model
+							systemPrompt,
+							result.commits,
+						);
+						if (retryResult.kind === "loop-detected") {
+							nextRepos[result.id] = {
+								...retryResult.repoState,
+								status: "FAILED",
+								error: `Loop detected after fallback: LLM returned an identical plan.`,
+							};
+							continue;
+						}
+						nextRepos[result.id] = retryResult.repoState;
+						continue;
+					}
+
 					nextRepos[result.id] = {
 						...repoState,
 						status: "FAILED",

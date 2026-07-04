@@ -5,5 +5,7 @@
 	"temperature": 0.2,
 	"systemPromptPath": "../../system-prompt.md",
 	"autoPush": true,
-	"skipTests": false
+	"skipTests": false,
+	"fallbackProvider": "openai",
+	"fallbackModel": "gpt-5.5"
 }

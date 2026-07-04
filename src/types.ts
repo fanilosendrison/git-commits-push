@@ -13,6 +13,8 @@ export interface Settings {
 	systemPromptPath: string;
 	autoPush: boolean;
 	skipTests: boolean;
+	fallbackProvider?: string;
+	fallbackModel?: string;
 }
 
 export interface RepositoryInfo {
@@ -170,6 +172,8 @@ export interface RepoState {
 		kind: FeedbackError["kind"];
 		planHash: string;
 	};
+	/** NEW: true when the fallback model has been tried for this repo */
+	fallbackAttempted?: boolean;
 }
 // ── RepoReport (Phase 8) ───────────────────────────────────────────────
 
