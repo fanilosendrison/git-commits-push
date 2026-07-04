@@ -283,24 +283,11 @@ const config: OrchestratorConfig<GlobalState> = {
 			// R26 invariant: only safe if Turnlock guarantees single-instance execution.
 			retryJobs.length = 0;
 
-			// Reset attempt counters when the diffHash changes (Decision 7).
-			// R36 fix: use immutable updates.
-			// R58 fix: state.diffHash is now a top-level schema field populated by the
-			// diff-capture phase. The comparison correctly detects when a repo's diff
-			// has changed since its last processing.
-			for (const id of Object.keys(nextRepos)) {
-				const r = nextRepos[id];
-				if (r && r.diffHash !== state.diffHash) {
-					nextRepos[id] = {
-						...r,
-						attempts: {},
-						committedShas: [],
-						originalHead: undefined,
-						feedbackHistory: [],
-						lastPlanHash: undefined,
-					};
-				}
-			}
+			// Note: the reset loop for diffHash changes (Decision 7, R36/R58) was removed
+			// because state.diffHash is never populated (the diff-capture phase sets
+			// per-repo diffHash, not a top-level one). The comparison was always true,
+			// causing all retry counters to be wiped on every phase entry → infinite retry.
+			// The DiffHashMismatchError in the publisher already handles race conditions.
 
 			for (const result of results) {
 				let repoState = nextRepos[result.id];
