@@ -64,10 +64,7 @@ export function generateReport(repos: Record<string, RepoState>): string {
 				line += ` (${commitCount} commit${commitCount > 1 ? "s" : ""})`;
 			}
 		} else if (state.status === "FAILED") {
-			const reason = state.error ? ` ${state.error}` : "";
-			line = `❌ [${id}] Échec.${reason}`;
-		} else if (state.status === "ESCALATED") {
-			line = `⚠️ [${id}] Escaladé. ${state.error ?? "Remonté à l'agent parent."}`;
+			line = `❌ [${id}] Échec.${state.error ?? ""}`;
 		} else {
 			line = `⚠️ [${id}] État inattendu: ${state.status}`;
 		}

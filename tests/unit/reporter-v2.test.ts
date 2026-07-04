@@ -80,17 +80,6 @@ describe("buildReport", () => {
 		});
 	});
 
-	test("ESCALATED status is preserved", () => {
-		const repos: Record<string, RepoState> = {
-			"repo-1": {
-				repository: "/path",
-				status: "ESCALATED",
-			},
-		};
-		const result = buildReport(repos);
-		expect(result[0]?.status).toBe("ESCALATED");
-	});
-
 	test("repo without attempts → totalRetries = 0", () => {
 		const repos: Record<string, RepoState> = {
 			"repo-1": {
@@ -151,17 +140,6 @@ describe("generateReport — new fields", () => {
 		expect(report).toContain("❌");
 		expect(report).toContain("Loop detected");
 		expect(report).toContain("structural");
-	});
-
-	test("ESCALATED appears in report", () => {
-		const repos: Record<string, RepoState> = {
-			"repo-1": {
-				repository: "/path",
-				status: "ESCALATED",
-			},
-		};
-		const report = generateReport(repos);
-		expect(report).toContain("Escaladé");
 	});
 
 	test("committed SHA list renders short SHAs", () => {
