@@ -81,9 +81,10 @@ function logRetry(
 	attempt: number,
 	diffHash: string,
 	reason: string,
+	model?: string,
 ): void {
 	process.stderr.write(
-		`[git-commits-push-tl] retry repo=${repoId} kind=${kind} attempt=${attempt}/${MAX_ATTEMPTS_BY_KIND[kind]} diffHash=${diffHash.slice(0, 12)} reason=${JSON.stringify(reason)}\n`,
+		`[git-commits-push-tl] retry repo=${repoId} kind=${kind} attempt=${attempt}/${MAX_ATTEMPTS_BY_KIND[kind]} model=${model ?? "?"} diffHash=${diffHash.slice(0, 12)} reason=${JSON.stringify(reason)}\n`,
 	);
 }
 
@@ -252,6 +253,7 @@ export function queueRetry(
 		currentAttempt,
 		repoState.diffHash,
 		"queueRetry",
+		settings.model,
 	);
 
 	const newRepoState: RepoState = {
