@@ -244,10 +244,20 @@ export async function handleTurnlockDelegation(
 	console.log(
 		`\n[Pi Wrapper] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
-	const output = execFn(resumeCmd);
-
-	// Print the resumed orchestrator's output to the user
-	process.stdout.write(output);
+	// Print the resumed orchestrator's output even if it fails (report is in stdout)
+	let output = "";
+	try {
+		output = execFn(resumeCmd);
+	} catch (e: unknown) {
+		// execSync captures stdout before throwing — preserve it for display
+		output =
+			e && typeof e === "object" && "stdout" in e
+				? String((e as any).stdout)
+				: output;
+		throw e;
+	} finally {
+		process.stdout.write(output);
+	}
 
 	// Check if the orchestrator emitted another delegation (retry)
 	const { manifestPath: nextManifest, resumeCmd: nextResume } =
