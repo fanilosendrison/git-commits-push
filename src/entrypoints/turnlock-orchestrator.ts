@@ -1,6 +1,16 @@
 /**
  * src/turnlock-orchestrator.ts — Main entrypoint for the git-commits-push-TL skill.
  * Orchestrates Phase 1-5 via Turnlock state machine.
+ *
+ * Phase 4 refactor (plan unified-retry-on-all-catches):
+ *   - Updated stateSchema with new fields (R30, R37, R48, R58, R62)
+ *   - LLM-side failure classification via classifyLLMFailure (R7, R27)
+ *   - Validation retry via queueRetry with FeedbackError[]
+ *   - Execution error classification via classifyError (R43)
+ *   - Module-scope retryJobs with reset at phase entry (Decision 9, R26)
+ *   - Reset loop for diffHash changes (R36, R58)
+ *   - committedShas accumulation from error context (R59)
+ *   - R74: orchestrator re-attempts git reset HEAD before queueRetry
  */
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -13,12 +23,24 @@ import { readSettings } from "../config/settings.ts";
 import { validateCommitMessage } from "../modules/commit-message-validator.ts";
 import { runDiscovery } from "../modules/discovery.ts";
 import {
+	classifyError,
+	classifyLLMFailure,
+} from "../modules/error-classifier.ts";
+import { CommitPlanError, PartialCommitError } from "../modules/errors.ts";
+import {
 	executeMultiCommitAndPush,
 	formatConventionalCommit,
 } from "../modules/git-publisher.ts";
 import { processRepoValidationAndDiff } from "../modules/pre-commit-validators.ts";
+import {
+	MAX_ATTEMPTS_BY_KIND,
+	queueRetry,
+	retryJobs,
+} from "../modules/queue-retry.ts";
 import { printReport } from "../modules/reporter.ts";
-import type { CommitJobPayload, GlobalState } from "../types.ts";
+import type { CommitJobPayload, FeedbackError, GlobalState } from "../types.ts";
+
+// ── Zod schemas ──────────────────────────────────────────────────────────────
 
 const commitMessageSchema = z.object({
 	type: z.string(),
@@ -46,19 +68,70 @@ const commitJobResultSchema = z.union([
 	}),
 ]);
 
+const ATTEMPT_KINDS = [
+	"validation",
+	"structural",
+	"race",
+	"git",
+	"network",
+] as const;
+type AttemptKind = (typeof ATTEMPT_KINDS)[number];
+
+const attemptsSchema = z.preprocess(
+	(v) => {
+		if (typeof v === "number") return {}; // legacy: zero out
+		return v;
+	},
+	z
+		.record(
+			z
+				.string()
+				.refine(
+					(k): k is AttemptKind => ATTEMPT_KINDS.includes(k as AttemptKind),
+					{
+						message: `attempts key must be one of: ${ATTEMPT_KINDS.join(", ")}`,
+					},
+				),
+			z.number().int().nonnegative(),
+		)
+		.optional(),
+);
+
+// R58 fix: top-level diffHash field for the reset loop
 const stateSchema = z.object({
+	diffHash: z.string().optional(),
 	repos: z.record(
 		z.string(),
 		z.object({
 			repository: z.string(),
-			status: z.enum(["PENDING", "RUNNING", "SUCCESS", "FAILED"]),
+			status: z.enum(["PENDING", "RUNNING", "ESCALATED", "SUCCESS", "FAILED"]),
 			diffHash: z.string().optional(),
 			commits: z.array(commitPlanSchema).optional(),
 			error: z.string().optional(),
-			attempts: z.number().optional(),
+			// CHANGED: per-kind counter (was z.number()); accepts legacy via preprocessor
+			attempts: attemptsSchema,
+			// NEW: cumulative across retries
+			committedShas: z
+				.array(z.object({ sha: z.string(), files: z.array(z.string()) }))
+				.optional(),
+			// NEW
+			originalHead: z.string().optional(),
+			// NEW: rolling previous_commit history
+			feedbackHistory: z.array(z.string()).optional(),
+			// NEW: loop detection
+			lastPlanHash: z.string().optional(),
+			// R62 fix: dedicated loopDetected field
+			loopDetected: z
+				.object({
+					kind: z.string(),
+					planHash: z.string(),
+				})
+				.optional(),
 		}),
 	),
 });
+
+// ── Config ───────────────────────────────────────────────────────────────────
 
 const config: OrchestratorConfig<GlobalState> = {
 	name: "git-commits-push-tl",
@@ -120,7 +193,6 @@ const config: OrchestratorConfig<GlobalState> = {
 						diffHash,
 					};
 				} catch (err) {
-					// Validation failed (tests, secret scan, etc). Mark as failed immediately.
 					const msg = err instanceof Error ? err.message : String(err);
 					nextRepos[repo.id] = {
 						repository: repo.path,
@@ -199,119 +271,301 @@ const config: OrchestratorConfig<GlobalState> = {
 				if (fs.existsSync(promptPath)) {
 					systemPrompt = fs.readFileSync(promptPath, "utf-8");
 				}
-			} catch (_err) {
+			} catch {
 				// ignore
 			}
 
 			// Phase 4: Retrieve results
 			const results = io.consumePendingBatchResults(commitJobResultSchema);
 			const nextRepos = { ...state.repos };
-			const retryJobs: Array<{ id: string; prompt: string }> = [];
+
+			// Drain any leftover jobs from a previous failed iteration of this phase.
+			// R26 invariant: only safe if Turnlock guarantees single-instance execution.
+			retryJobs.length = 0;
+
+			// Reset attempt counters when the diffHash changes (Decision 7).
+			// R36 fix: use immutable updates.
+			// R58 fix: state.diffHash is now a top-level schema field populated by the
+			// diff-capture phase. The comparison correctly detects when a repo's diff
+			// has changed since its last processing.
+			for (const id of Object.keys(nextRepos)) {
+				const r = nextRepos[id];
+				if (r && r.diffHash !== state.diffHash) {
+					nextRepos[id] = {
+						...r,
+						attempts: {},
+						committedShas: [],
+						originalHead: undefined,
+						feedbackHistory: [],
+						lastPlanHash: undefined,
+					};
+				}
+			}
 
 			for (const result of results) {
-				const repoState = nextRepos[result.id];
-				if (!repoState) continue; // Should never happen unless state was corrupted
+				let repoState = nextRepos[result.id];
+				if (!repoState) continue;
 
 				if (!result.success) {
+					// R7 + R27 fix: classify LLM-side failures instead of hardcoding "git"
+					const llmKind = classifyLLMFailure(result.error);
+					if (llmKind === null) {
+						// Fail-closed for unknown/bridge errors
+						nextRepos[result.id] = {
+							...repoState,
+							status: "FAILED",
+							error: `LLM fatal error: ${result.error}`,
+						};
+						continue;
+					}
+					// R38 fix: direct access replaces bumpAttempt
+					const attempts = repoState.attempts?.[llmKind] ?? 0;
+					if (attempts < MAX_ATTEMPTS_BY_KIND[llmKind]) {
+						repoState = {
+							...repoState,
+							attempts: {
+								...(repoState.attempts ?? {}),
+								[llmKind]: attempts + 1,
+							},
+						};
+						const retryResult = queueRetry(
+							result.id,
+							repoState,
+							[
+								{
+									kind: llmKind,
+									message: result.error,
+									resolution_hint:
+										"The previous LLM response was malformed. Regenerate based on the current diff.",
+								},
+							],
+							{},
+							settings,
+							systemPrompt,
+							[], // no plans to hash — LLM never returned parseable output
+						);
+						if (retryResult.kind === "loop-detected") {
+							nextRepos[result.id] = {
+								...retryResult.repoState,
+								status: "FAILED",
+								error: "Loop detected after LLM-side failure.",
+							};
+							continue;
+						}
+						nextRepos[result.id] = retryResult.repoState;
+						continue;
+					}
 					nextRepos[result.id] = {
 						...repoState,
 						status: "FAILED",
-						error: result.error,
+						error: `LLM fatal error after max retries: ${result.error}`,
 					};
 					continue;
 				}
 
-				// Validate every commit in the plan
-				const allErrors: string[] = [];
-				const allFormatted: string[] = [];
+				// 1. Validation phase — uses its own per-kind counter (validation)
+				const validationErrors: FeedbackError[] = [];
 				for (const plan of result.commits) {
 					const msgStr = formatConventionalCommit(plan.commit);
-					allFormatted.push(msgStr);
 					const valRes = validateCommitMessage(msgStr);
 					if (!valRes.valid) {
 						for (const e of valRes.errors) {
-							allErrors.push(`[${msgStr}] ${e}`);
+							validationErrors.push({
+								kind: "validation",
+								message: `[${msgStr}] ${e}`,
+								resolution_hint:
+									"Rewrite the commit message to comply with Conventional Commits.",
+							});
 						}
 					}
 				}
-				if (allErrors.length > 0) {
-					const attempts = repoState.attempts || 0;
-					if (attempts < 1) {
-						// Don't mutate frozen Turnlock state — replace with new object
+				const validationAttempts = repoState.attempts?.validation ?? 0;
+				if (
+					validationErrors.length > 0 &&
+					validationAttempts < MAX_ATTEMPTS_BY_KIND.validation
+				) {
+					repoState = {
+						...repoState,
+						attempts: {
+							...(repoState.attempts ?? {}),
+							validation: validationAttempts + 1,
+						},
+					};
+					// R11 fix: pass the plan structure, not formatted messages
+					const retryResult = queueRetry(
+						result.id,
+						repoState,
+						validationErrors,
+						{},
+						settings,
+						systemPrompt,
+						result.commits,
+					);
+					if (retryResult.kind === "loop-detected") {
 						nextRepos[result.id] = {
-							...repoState,
-							attempts: attempts + 1,
-						};
-						const diff = execSync("git diff --cached", {
-							cwd: repoState.repository,
-							encoding: "utf-8",
-						}).toString();
-						if (!repoState.diffHash) {
-							throw new Error(
-								`Cannot retry validation: diffHash missing for ${result.id}`,
-							);
-						}
-						const payload: CommitJobPayload = {
-							repository: repoState.repository,
-							diff,
-							diffHash: repoState.diffHash,
-							provider: settings.provider,
-							model: settings.model,
-							temperature: settings.temperature,
-							systemPrompt,
-							feedback: {
-								previous_commit: allFormatted.join("\n---\n"),
-								validation_errors: allErrors,
-							},
-						};
-						retryJobs.push({
-							id: result.id,
-							prompt: JSON.stringify(payload),
-						});
-						continue;
-					} else {
-						nextRepos[result.id] = {
-							...repoState,
+							...retryResult.repoState,
 							status: "FAILED",
-							error: `Validation failed after max retries: ${allErrors.join(", ")}`,
+							error: `Loop detected: LLM returned an identical plan on two consecutive attempts for kind "validation".`,
 						};
 						continue;
 					}
+					nextRepos[result.id] = retryResult.repoState;
+					continue;
+				}
+				if (validationErrors.length > 0) {
+					nextRepos[result.id] = {
+						...repoState,
+						status: "FAILED",
+						error: `Validation failed after max retries: ${validationErrors.map((e) => e.message).join(", ")}`,
+					};
+					continue;
 				}
 
+				// 2. Execution + error classification
 				if (!repoState.diffHash) {
 					throw new Error(`Cannot push: diffHash missing for ${result.id}`);
 				}
+
 				try {
-					await executeMultiCommitAndPush(
-						repoState.repository,
-						result.commits,
-						repoState.diffHash,
-						settings,
-					);
+					const { committedShas, originalHead } =
+						await executeMultiCommitAndPush(
+							repoState.repository,
+							result.commits,
+							repoState.diffHash,
+							settings,
+						);
+					// Merge with anything that landed in prior retries
+					repoState = {
+						...repoState,
+						committedShas: [
+							...(repoState.committedShas ?? []),
+							...committedShas,
+						],
+						originalHead,
+					};
 					nextRepos[result.id] = {
 						...repoState,
 						status: "SUCCESS",
 						commits: result.commits,
 					};
 				} catch (err) {
+					// R59 fix (C3): merge err.context.committedShas before checking
+					let pendingFiles: string[] | undefined;
+					if (err instanceof PartialCommitError) {
+						repoState = {
+							...repoState,
+							committedShas: [
+								...(repoState.committedShas ?? []),
+								...err.context.committedShas,
+							],
+							originalHead: err.context.originalHead,
+						};
+						pendingFiles = err.context.pendingFiles;
+					} else if (
+						err instanceof CommitPlanError &&
+						err.context?.committedShas?.length
+					) {
+						repoState = {
+							...repoState,
+							committedShas: [
+								...(repoState.committedShas ?? []),
+								...err.context.committedShas,
+							],
+						};
+						pendingFiles = err.context.pendingFiles;
+					}
+
+					const committedShasExist = (repoState.committedShas?.length ?? 0) > 0;
+					const classified = classifyError(err, committedShasExist);
+
+					// R57 fix (C1): empty-plans with committedShas = SUCCESS
+					if (classified.kind === "success") {
+						nextRepos[result.id] = {
+							...repoState,
+							status: "SUCCESS",
+							commits: [],
+							error:
+								"LLM returned an empty plan after partial commits completed; treating as success.",
+						};
+						continue;
+					}
+
+					const errKind = classified.error.kind;
+					const attempts = repoState.attempts?.[errKind] ?? 0;
+					const maxAttempts = MAX_ATTEMPTS_BY_KIND[errKind];
+
+					if (classified.kind === "retry" && attempts < maxAttempts) {
+						// R74 fix: re-attempt git reset HEAD before queuing retry
+						try {
+							execSync("git reset HEAD", {
+								cwd: repoState.repository,
+								encoding: "utf-8",
+								stdio: ["pipe", "pipe", "pipe"],
+							});
+						} catch (resetErr) {
+							process.stderr.write(
+								`[git-commits-push-tl] orchestrator reset HEAD failed during retry prep: ` +
+									`${resetErr instanceof Error ? resetErr.message : String(resetErr)}\n`,
+							);
+						}
+
+						repoState = {
+							...repoState,
+							attempts: {
+								...(repoState.attempts ?? {}),
+								[errKind]: attempts + 1,
+							},
+						};
+
+						const retryResult = queueRetry(
+							result.id,
+							repoState,
+							[classified.error],
+							{ committedShas: repoState.committedShas, pendingFiles },
+							settings,
+							systemPrompt,
+							result.commits,
+						);
+
+						if (retryResult.kind === "loop-detected") {
+							nextRepos[result.id] = {
+								...retryResult.repoState,
+								status: "FAILED",
+								error: `Loop detected: LLM returned an identical plan on two consecutive attempts for kind "${errKind}".`,
+								loopDetected: {
+									kind: errKind,
+									planHash: retryResult.repoState.lastPlanHash ?? "",
+								},
+							};
+							continue;
+						}
+
+						nextRepos[result.id] = retryResult.repoState;
+						continue;
+					}
+
 					nextRepos[result.id] = {
 						...repoState,
 						status: "FAILED",
-						error: err instanceof Error ? err.message : String(err),
+						error: classified.error.message,
 					};
 				}
 			}
 
 			if (retryJobs.length > 0) {
+				const jobsSnapshot = retryJobs.slice();
 				return io.delegateAgentBatch(
 					{
 						kind: "agent-batch",
 						agentType: "git-commit-generator",
 						label: "commit-jobs-retry",
-						jobs: retryJobs,
+						jobs: jobsSnapshot,
 						timeout: { perDelegationMs: 600_000 },
-						retry: { maxAttempts: 1, backoffBaseMs: 1000, maxBackoffMs: 30000 },
+						retry: {
+							maxAttempts: 1,
+							backoffBaseMs: 1000,
+							maxBackoffMs: 30000,
+						},
 					},
 					"commit-and-push",
 					{ repos: nextRepos },

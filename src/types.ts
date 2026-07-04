@@ -220,6 +220,12 @@ export interface RepoState {
 	};
 }
 
+/**
+ * Top-level state persisted by Turnlock between phase transitions.
+ * diffHash is populated by the diff-capture phase (R58 fix) and used by the
+ * reset loop to detect when a repo's diff has changed since last processing.
+ */
 export interface GlobalState {
+	diffHash?: string;
 	repos: Record<string, RepoState>;
 }
