@@ -8,13 +8,22 @@ import * as path from "node:path";
 let lastExecCmd: string | null = null;
 let lastUserPrompt: string | null = null;
 
+interface MockAdapterConfig {
+	readonly apiKey?: string;
+}
+
+interface MockCallArgs {
+	readonly temperature: number;
+	readonly messages: { user: string };
+}
+
 mock.module("@fanilosendrison/llm-runtime", () => ({
-	createOpenAIAdapter: (config: any) => {
+	createOpenAIAdapter: (config: MockAdapterConfig) => {
 		if (config.apiKey !== "key" && config.apiKey !== "mock-token") {
 			throw new Error(`Unexpected OpenAI apiKey: ${config.apiKey}`);
 		}
 		return {
-			call: async (args: any) => {
+			call: async (args: MockCallArgs) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				lastUserPrompt = args.messages.user;
 				return {
@@ -32,10 +41,10 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 			},
 		};
 	},
-	createAnthropicAdapter: (config: any) => {
+	createAnthropicAdapter: (config: MockAdapterConfig) => {
 		if (config.apiKey !== "key") throw new Error("Unexpected Anthropic apiKey");
 		return {
-			call: async (args: any) => {
+			call: async (args: MockCallArgs) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				return {
 					content: JSON.stringify([
@@ -52,10 +61,10 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 			},
 		};
 	},
-	createGoogleAdapter: (config: any) => {
+	createGoogleAdapter: (config: MockAdapterConfig) => {
 		if (config.apiKey !== "key") throw new Error("Unexpected Google apiKey");
 		return {
-			call: async (args: any) => {
+			call: async (args: MockCallArgs) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				return {
 					content: JSON.stringify([
@@ -72,10 +81,10 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 			},
 		};
 	},
-	createOpenAICompatibleAdapter: (config: any) => {
+	createOpenAICompatibleAdapter: (config: MockAdapterConfig) => {
 		if (config.apiKey !== "key") throw new Error("Unexpected Custom apiKey");
 		return {
-			call: async (args: any) => {
+			call: async (args: MockCallArgs) => {
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				return {
 					content: JSON.stringify([
@@ -92,7 +101,7 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 			},
 		};
 	},
-	buildSimplePrompt: (p: any) => p,
+	buildSimplePrompt: <T>(p: T) => p,
 }));
 
 mock.module(path.resolve(__dirname, "../../src/modules/auth-resolver"), () => ({
@@ -243,7 +252,7 @@ describe("turnlock-to-llm-bridge", () => {
 			);
 
 			// Verify execSync resume command was executed
-			expect(lastExecCmd!).toBe("resume-cmd --test");
+			expect(lastExecCmd ?? "").toBe("resume-cmd --test");
 		});
 
 		test("writes failure results on execution errors", async () => {
@@ -332,12 +341,12 @@ describe("turnlock-to-llm-bridge", () => {
 				() => {},
 			);
 
-			expect(lastUserPrompt!).toContain(
+			expect(lastUserPrompt ?? "").toContain(
 				"FEEDBACK FROM PREVIOUS FAILED ATTEMPT",
 			);
-			expect(lastUserPrompt!).toContain("BAD COMMIT");
-			expect(lastUserPrompt!).toContain("- Error 1");
-			expect(lastUserPrompt!).toContain("- Error 2");
+			expect(lastUserPrompt ?? "").toContain("BAD COMMIT");
+			expect(lastUserPrompt ?? "").toContain("- Error 1");
+			expect(lastUserPrompt ?? "").toContain("- Error 2");
 		});
 	});
 });
