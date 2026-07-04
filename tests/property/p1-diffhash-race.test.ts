@@ -76,6 +76,7 @@ afterAll(() => {
 
 describe("P1 — DiffHash Race Condition Prevention", () => {
 	let stderr: string;
+	let stdout: string;
 
 	test("P1-01 | process exits with code 0 (partial success path)", () => {
 		const result = spawnSync(
@@ -91,17 +92,19 @@ describe("P1 — DiffHash Race Condition Prevention", () => {
 			},
 		);
 		stderr = result.stderr ?? "";
+		stdout = result.stdout ?? "";
 		// The orchestration itself succeeds but the repo worker fails gracefully
 		expect(result.status).toBe(0);
 	});
 
-	test("P1-02 | repo-dirty appears in report as FAILED", () => {
-		expect(stderr).toContain("❌");
-		expect(stderr).toContain(repoId);
+	test("P1-02 | orchestrator delegates retry (race → retryable)", () => {
+		// Phase 4 classifies DiffHashMismatchError as retryable (race kind, 1 attempt),
+		// so the orchestrator delegates again instead of reporting FAILED immediately.
+		expect(stdout).toContain("action: DELEGATE");
 	});
 
-	test("P1-03 | failure reason mentions race condition or diff mismatch", () => {
-		expect(stderr.toLowerCase()).toMatch(/race|diff.*mismatch|hash.*mismatch/);
+	test("P1-03 | retry label is 'commit-jobs-retry'", () => {
+		expect(stdout).toContain("commit-jobs-retry");
 	});
 
 	test("P1-04 | git commit was NOT executed in repo-dirty", () => {

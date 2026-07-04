@@ -78,6 +78,7 @@ afterAll(() => {
 
 describe("I2 — Non-Interactive Shell Safety", () => {
 	let stderr: string;
+	let stdout: string;
 	let durationMs: number;
 
 	test("I2-01 | process completes within 10 seconds (no hang)", () => {
@@ -98,13 +99,18 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 		);
 		durationMs = Date.now() - start;
 		stderr = result.stderr ?? "";
+		stdout = result.stdout ?? "";
 		// We do not assert exit code 0 here — the push WILL fail, but gracefully
 		// The important thing is that it does NOT hang
 		expect(durationMs).toBeLessThan(10_000);
 	});
 
-	test("I2-02 | push failure is reported in stderr, not as an unhandled exception", () => {
-		expect(stderr).toContain("❌");
+	test("I2-02 | orchestrator delegates retry (transient push → retryable)", () => {
+		// Phase 4 classifies PushError(transient=true) as retryable (network kind, 1 attempt),
+		// so the orchestrator delegates again instead of reporting FAILED immediately.
+		expect(stdout).toContain("action: DELEGATE");
+		expect(stdout).toContain("commit-jobs-retry");
+		// Stderr must NOT contain unhandled exceptions
 		expect(stderr).not.toContain("Uncaught");
 		expect(stderr).not.toContain("UnhandledPromiseRejection");
 	});
