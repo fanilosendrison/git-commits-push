@@ -133,10 +133,53 @@ export function parseSerializedValue(val: string): string {
 	return val;
 }
 
+/**
+ * Parse TURNLOCK protocol blocks from a string and extract manifest/resume_cmd.
+ */
+function extractTurnlockBlocks(output: string): {
+	manifestPath: string | null;
+	resumeCmd: string | null;
+} {
+	let manifestPath: string | null = null;
+	let resumeCmd: string | null = null;
+	let inBlock = false;
+	const blockLines: string[] = [];
+
+	for (const line of output.split("\n")) {
+		const trimmed = line.trim();
+		if (trimmed === "@@TURNLOCK@@") {
+			inBlock = true;
+			blockLines.length = 0;
+			continue;
+		}
+		if (trimmed === "@@END@@") {
+			inBlock = false;
+			for (const bl of blockLines) {
+				const matchManifest = bl.match(/^manifest: (.*)$/);
+				if (matchManifest && matchManifest[1] !== undefined) {
+					manifestPath = parseSerializedValue(matchManifest[1]);
+				}
+				const matchResume = bl.match(/^resume_cmd: (.*)$/);
+				if (matchResume && matchResume[1] !== undefined) {
+					resumeCmd = parseSerializedValue(matchResume[1]);
+				}
+			}
+			blockLines.length = 0;
+			continue;
+		}
+		if (inBlock) {
+			blockLines.push(line);
+		}
+	}
+
+	return { manifestPath, resumeCmd };
+}
+
 export async function handleTurnlockDelegation(
 	manifestPath: string,
 	resumeCmd: string,
-	execFn: (cmd: string) => void = (cmd) => execSync(cmd, { stdio: "inherit" }),
+	execFn: (cmd: string) => string = (cmd) =>
+		execSync(cmd, { encoding: "utf-8" }),
 ): Promise<void> {
 	if (!fs.existsSync(manifestPath)) {
 		throw new Error(`Manifest file not found at ${manifestPath}`);
@@ -234,7 +277,20 @@ export async function handleTurnlockDelegation(
 	console.log(
 		`\n[Pi Wrapper] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
-	execFn(resumeCmd);
+	const output = execFn(resumeCmd);
+
+	// Print the resumed orchestrator's output to the user
+	process.stdout.write(output);
+
+	// Check if the orchestrator emitted another delegation (retry)
+	const { manifestPath: nextManifest, resumeCmd: nextResume } =
+		extractTurnlockBlocks(output);
+	if (nextManifest && nextResume) {
+		console.log(
+			`\n[Pi Wrapper] Retry delegation detected. Processing next cycle...\n`,
+		);
+		await handleTurnlockDelegation(nextManifest, nextResume, execFn);
+	}
 }
 
 export async function main() {
