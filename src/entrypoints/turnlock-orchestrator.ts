@@ -189,14 +189,18 @@ const config: OrchestratorConfig<GlobalState> = {
 			const settings = readSettings(path.resolve(__dirname, "../config"));
 
 			// Dynamically load the validator
-			let validateCommitMessage: any = null;
+			let validateCommitMessage:
+				| ((message: string) => { valid: boolean; errors: string[] })
+				| null = null;
 			const validatorPath = path.resolve(
 				__dirname,
 				"../../../../../agent-enforcers/commit-msg-validator/src/core/validator.ts",
 			);
 			if (fs.existsSync(validatorPath)) {
 				const module = await import(validatorPath);
-				validateCommitMessage = module.validateCommitMessage;
+				validateCommitMessage = module.validateCommitMessage as (
+					message: string,
+				) => { valid: boolean; errors: string[] };
 			}
 
 			// Try to read system prompt if present, else empty string
@@ -216,7 +220,7 @@ const config: OrchestratorConfig<GlobalState> = {
 			// Phase 4: Retrieve results
 			const results = io.consumePendingBatchResults(commitJobResultSchema);
 			const nextRepos = { ...state.repos };
-			const retryJobs: any[] = [];
+			const retryJobs: Array<{ id: string; prompt: string }> = [];
 
 			for (const result of results) {
 				const repoState = nextRepos[result.id];
@@ -256,10 +260,15 @@ const config: OrchestratorConfig<GlobalState> = {
 								cwd: repoState.repository,
 								encoding: "utf-8",
 							}).toString();
+							if (!repoState.diffHash) {
+								throw new Error(
+									`Cannot retry validation: diffHash missing for ${result.id}`,
+								);
+							}
 							const payload: CommitJobPayload = {
 								repository: repoState.repository,
 								diff,
-								diffHash: repoState.diffHash!,
+								diffHash: repoState.diffHash,
 								provider: settings.provider,
 								model: settings.model,
 								temperature: settings.temperature,
@@ -285,11 +294,14 @@ const config: OrchestratorConfig<GlobalState> = {
 					}
 				}
 
+				if (!repoState.diffHash) {
+					throw new Error(`Cannot push: diffHash missing for ${result.id}`);
+				}
 				try {
 					await executeMultiCommitAndPush(
 						repoState.repository,
 						result.commits,
-						repoState.diffHash!,
+						repoState.diffHash,
 						settings,
 					);
 					nextRepos[result.id] = {
