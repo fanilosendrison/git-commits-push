@@ -219,6 +219,22 @@ export interface RepoState {
 		planHash: string;
 	};
 }
+// ── RepoReport (Phase 8) ───────────────────────────────────────────────
+
+/**
+ * Structured execution report for a single repository.
+ * Built by buildReport() from RepoState, rendered by generateReport().
+ * Plan ref: Phase 8 — Reporter contract (R39, R62)
+ */
+export interface RepoReport {
+	repository: string;
+	status: "PENDING" | "RUNNING" | "ESCALATED" | "SUCCESS" | "FAILED";
+	error?: string;
+	committedShas: CommittedSha[];
+	attempts: Partial<Record<FeedbackError["kind"], number>>;
+	totalRetries: number;
+	loopDetected?: { kind: FeedbackError["kind"]; planHash: string };
+}
 
 /**
  * Top-level state persisted by Turnlock between phase transitions.
