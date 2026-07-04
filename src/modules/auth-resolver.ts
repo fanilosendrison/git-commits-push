@@ -10,6 +10,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+function isKeyedTokenConfig(value: unknown): value is { key: string } {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"key" in value &&
+		typeof (value as Record<string, unknown>).key === "string"
+	);
+}
+
 export async function resolveAuthToken(provider: string): Promise<string> {
 	const envKey = `${provider.toUpperCase()}_API_KEY`;
 
@@ -24,10 +33,10 @@ export async function resolveAuthToken(provider: string): Promise<string> {
 		".agents",
 		"agent-credentials.json",
 	);
-	let authData: Record<string, any>;
+	let authData: Record<string, unknown>;
 	try {
 		const raw = fs.readFileSync(authFilePath, "utf-8");
-		authData = JSON.parse(raw);
+		authData = JSON.parse(raw) as Record<string, unknown>;
 	} catch {
 		throw new Error(
 			`Authentication token for provider ${provider} not found in env and failed to read agent-credentials.json`,
@@ -44,13 +53,8 @@ export async function resolveAuthToken(provider: string): Promise<string> {
 	let tokenConfigStr: string;
 	if (typeof tokenConfig === "string") {
 		tokenConfigStr = tokenConfig;
-	} else if (
-		typeof tokenConfig === "object" &&
-		tokenConfig !== null &&
-		"key" in tokenConfig &&
-		typeof (tokenConfig as any).key === "string"
-	) {
-		tokenConfigStr = (tokenConfig as any).key;
+	} else if (isKeyedTokenConfig(tokenConfig)) {
+		tokenConfigStr = tokenConfig.key;
 	} else {
 		throw new Error(
 			`Authentication token for provider ${provider} in agent-credentials.json is malformed`,
@@ -67,9 +71,10 @@ export async function resolveAuthToken(provider: string): Promise<string> {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		return result.trim();
-	} catch (err: any) {
+	} catch (err: unknown) {
+		const message = err instanceof Error ? err.message : String(err);
 		throw new Error(
-			`Failed to execute credential command for provider ${provider}. Ensure the key in agent-credentials.json is a valid shell command (e.g. doppler). Error: ${err.message}`,
+			`Failed to execute credential command for provider ${provider}. Ensure the key in agent-credentials.json is a valid shell command (e.g. doppler). Error: ${message}`,
 		);
 	}
 }
