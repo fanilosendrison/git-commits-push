@@ -37,7 +37,19 @@ import {
 	retryJobs,
 } from "../modules/queue-retry.ts";
 import { printReport } from "../modules/reporter.ts";
+import type { SkillStatsLog } from "../modules/skill-stats-log.ts";
+import { createSkillStatsLog } from "../modules/skill-stats-log.ts";
 import type { CommitJobPayload, FeedbackError, GlobalState } from "../types.ts";
+
+// ── Skill stats log ───────────────────────────────────────────────────────
+
+const skillLog: SkillStatsLog = createSkillStatsLog();
+let currentRunId = "(unknown)";
+const currentParentModel = process.env.PI_PARENT_MODEL || "unknown";
+let currentSkillModel = "unknown";
+let currentSkillProvider = "unknown";
+// Track if run_start has been logged (first delegation only)
+let runStarted = false;
 
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -142,6 +154,14 @@ const config: OrchestratorConfig<GlobalState> = {
 		"discovery-and-validation": definePhase(async (state, io) => {
 			const settings = readSettings(path.resolve(__dirname, "../config"));
 
+			// ── Log run_start on first invocation ───────────────────────────
+			currentRunId = io.runId;
+			currentSkillModel = settings.model;
+			currentSkillProvider = settings.provider;
+			if (!runStarted) {
+				runStarted = true;
+			}
+
 			// Try to read system prompt if present, else empty string
 			let systemPrompt = "";
 			try {
@@ -204,6 +224,17 @@ const config: OrchestratorConfig<GlobalState> = {
 					"[orchestrator] No repositories passed validation. Exiting.\n",
 				);
 				printReport(nextRepos);
+				skillLog.logRunEnd({
+					runId: currentRunId,
+					durationMs: 0,
+					successCount: 0,
+					failCount: Object.values(nextRepos).filter(
+						(r) => r.status === "FAILED",
+					).length,
+					totalRepos: Object.keys(nextRepos).length,
+					totalRetries: 0,
+					loopCount: 0,
+				});
 				const hasFailedRepo = Object.values(nextRepos).some(
 					(r) => r.status === "FAILED",
 				);
@@ -233,6 +264,18 @@ const config: OrchestratorConfig<GlobalState> = {
 					prompt: JSON.stringify(payload),
 				};
 			});
+
+			// Log run_start once per invocation (not on retries back to this phase)
+			if (!runStarted) {
+				runStarted = true;
+				skillLog.logRunStart({
+					runId: currentRunId,
+					parentModel: currentParentModel,
+					skillModel: currentSkillModel,
+					skillProvider: currentSkillProvider,
+					reposCount: jobs.length,
+				});
+			}
 
 			for (const r of validRepos) {
 				const repoState = nextRepos[r.id];
@@ -280,6 +323,10 @@ const config: OrchestratorConfig<GlobalState> = {
 			// R26 invariant: only safe if Turnlock guarantees single-instance execution.
 			retryJobs.length = 0;
 
+			// Track accumulated stats for run_end
+			let totalRetries = 0;
+			let loopCount = 0;
+
 			for (const result of results) {
 				let repoState = nextRepos[result.id];
 				if (!repoState) continue;
@@ -294,6 +341,20 @@ const config: OrchestratorConfig<GlobalState> = {
 							status: "FAILED",
 							error: `LLM fatal error: ${result.error}`,
 						};
+						skillLog.logRepoOutcome({
+							runId: currentRunId,
+							repoId: result.id,
+							repository: repoState.repository,
+							status: "FAILED",
+							error: result.error,
+							attempts: repoState.attempts ?? {},
+							totalRetries: Object.values(repoState.attempts ?? {}).reduce(
+								(a, b) => a + b,
+								0,
+							),
+							loopDetected: undefined,
+							committedCount: 0,
+						});
 						continue;
 					}
 					// R38 fix: direct access replaces bumpAttempt
@@ -323,6 +384,12 @@ const config: OrchestratorConfig<GlobalState> = {
 							[], // no plans to hash — LLM never returned parseable output
 						);
 						if (retryResult.kind === "loop-detected") {
+							skillLog.logLoopDetected({
+								runId: currentRunId,
+								repoId: result.id,
+								kind: llmKind,
+								planHash: retryResult.repoState.lastPlanHash ?? "",
+							});
 							nextRepos[result.id] = {
 								...retryResult.repoState,
 								status: "FAILED",
@@ -330,6 +397,15 @@ const config: OrchestratorConfig<GlobalState> = {
 							};
 							continue;
 						}
+						totalRetries++;
+						skillLog.logRetry({
+							runId: currentRunId,
+							repoId: result.id,
+							kind: llmKind,
+							attempt: attempts + 1,
+							maxAttempts: MAX_ATTEMPTS_BY_KIND[llmKind],
+							diffHash: repoState.diffHash ?? "",
+						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
 					}
@@ -338,6 +414,20 @@ const config: OrchestratorConfig<GlobalState> = {
 						status: "FAILED",
 						error: `LLM fatal error after max retries: ${result.error}`,
 					};
+					skillLog.logRepoOutcome({
+						runId: currentRunId,
+						repoId: result.id,
+						repository: repoState.repository,
+						status: "FAILED",
+						error: result.error,
+						attempts: repoState.attempts ?? {},
+						totalRetries: Object.values(repoState.attempts ?? {}).reduce(
+							(a, b) => a + b,
+							0,
+						),
+						loopDetected: undefined,
+						committedCount: 0,
+					});
 					continue;
 				}
 
@@ -506,6 +596,13 @@ const config: OrchestratorConfig<GlobalState> = {
 						);
 
 						if (retryResult.kind === "loop-detected") {
+							loopCount++;
+							skillLog.logLoopDetected({
+								runId: currentRunId,
+								repoId: result.id,
+								kind: errKind,
+								planHash: retryResult.repoState.lastPlanHash ?? "",
+							});
 							nextRepos[result.id] = {
 								...retryResult.repoState,
 								status: "FAILED",
@@ -515,9 +612,35 @@ const config: OrchestratorConfig<GlobalState> = {
 									planHash: retryResult.repoState.lastPlanHash ?? "",
 								},
 							};
+							skillLog.logRepoOutcome({
+								runId: currentRunId,
+								repoId: result.id,
+								repository: repoState.repository,
+								status: "FAILED",
+								error: `Loop detected for kind ${errKind}`,
+								attempts: repoState.attempts ?? {},
+								totalRetries: Object.values(repoState.attempts ?? {}).reduce(
+									(a, b) => a + b,
+									0,
+								),
+								loopDetected: {
+									kind: errKind,
+									planHash: retryResult.repoState.lastPlanHash ?? "",
+								},
+								committedCount: repoState.committedShas?.length ?? 0,
+							});
 							continue;
 						}
 
+						totalRetries++;
+						skillLog.logRetry({
+							runId: currentRunId,
+							repoId: result.id,
+							kind: errKind,
+							attempt: attempts + 1,
+							maxAttempts: MAX_ATTEMPTS_BY_KIND[errKind],
+							diffHash: repoState.diffHash ?? "",
+						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
 					}
@@ -527,6 +650,20 @@ const config: OrchestratorConfig<GlobalState> = {
 						status: "FAILED",
 						error: classified.error.message,
 					};
+					skillLog.logRepoOutcome({
+						runId: currentRunId,
+						repoId: result.id,
+						repository: repoState.repository,
+						status: "FAILED",
+						error: classified.error.message,
+						attempts: repoState.attempts ?? {},
+						totalRetries: Object.values(repoState.attempts ?? {}).reduce(
+							(a, b) => a + b,
+							0,
+						),
+						loopDetected: undefined,
+						committedCount: repoState.committedShas?.length ?? 0,
+					});
 				}
 			}
 
@@ -553,9 +690,25 @@ const config: OrchestratorConfig<GlobalState> = {
 			// Phase 5: Reporting
 			printReport(nextRepos);
 
-			const hasFailedRepo = Object.values(nextRepos).some(
+			const successCount = Object.values(nextRepos).filter(
+				(r) => r.status === "SUCCESS",
+			).length;
+			const failCount = Object.values(nextRepos).filter(
 				(r) => r.status === "FAILED",
-			);
+			).length;
+			const totalRepos = Object.keys(nextRepos).length;
+
+			skillLog.logRunEnd({
+				runId: currentRunId,
+				durationMs: Date.now() - (io.clock?.now?.() ?? Date.now()),
+				successCount,
+				failCount,
+				totalRepos,
+				totalRetries,
+				loopCount,
+			});
+
+			const hasFailedRepo = failCount > 0;
 			if (hasFailedRepo) {
 				return io.fail(
 					new Error(
