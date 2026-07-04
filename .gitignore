@@ -1,0 +1,17 @@
+# Backup files from anti-cheat tests
+_bak*
+*.bak
+
+# Dependencies
+node_modules/
+
+# Build / output
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
