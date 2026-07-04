@@ -122,7 +122,7 @@ describe("generateReport — new fields", () => {
 		};
 		const report = generateReport(repos);
 		expect(report).toContain("❌");
-		expect(report).toContain("1 tentative");
+		expect(report).toContain("1 retry");
 		expect(report).toContain("validation");
 	});
 

@@ -59,14 +59,14 @@ export function generateReport(repos: Record<string, RepoState>): string {
 			const commitSummary = firstCommit
 				? ` — ${firstCommit.type}: ${firstCommit.description}`
 				: "";
-			line = `✅ [${id}] Succès.${commitSummary}`;
+			line = `✅ [${id}] Success.${commitSummary}`;
 			if (commitCount > 0) {
 				line += ` (${commitCount} commit${commitCount > 1 ? "s" : ""})`;
 			}
 		} else if (state.status === "FAILED") {
-			line = `❌ [${id}] Échec.${state.error ?? ""}`;
+			line = `❌ [${id}] Failed.${state.error ?? ""}`;
 		} else {
-			line = `⚠️ [${id}] État inattendu: ${state.status}`;
+			line = `⚠️ [${id}] Unexpected state: ${state.status}`;
 		}
 		lines.push(line);
 
@@ -77,18 +77,18 @@ export function generateReport(repos: Record<string, RepoState>): string {
 				.map(([kind, count]) => `${kind}: ${count}`)
 				.join(", ");
 			lines.push(
-				`   🔄 ${totalRetries} tentative${totalRetries > 1 ? "s" : ""} de reprise (${breakdown})`,
+				`   🔄 ${totalRetries} retr${totalRetries > 1 ? "ies" : "y"} (${breakdown})`,
 			);
 		}
 
 		// Fallback model escalation
 		if (state.fallbackAttempted) {
-			lines.push(`   ⏫ Modèle de secours utilisé`);
+			lines.push(`   ⏫ Fallback model used`);
 		}
 
 		// Loop detection
 		if (state.loopDetected) {
-			lines.push(`   ⛔ Boucle détectée (${state.loopDetected.kind})`);
+			lines.push(`   ⛔ Loop detected (${state.loopDetected.kind})`);
 		}
 
 		// Committed SHAs
