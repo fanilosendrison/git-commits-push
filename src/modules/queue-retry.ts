@@ -21,6 +21,7 @@ import type {
 	RepoState,
 	Settings,
 } from "../types.ts";
+import { formatConventionalCommit } from "./git-publisher.ts";
 
 // ── Module-scope retry queue ─────────────────────────────────────────────────
 
@@ -95,6 +96,22 @@ export type QueueRetryResult =
 			job: { id: string; prompt: string };
 	  }
 	| { kind: "loop-detected"; repoState: RepoState };
+
+// ── formatFailedPlans ─────────────────────────────────────────────────────────
+
+/**
+ * Format failed commit plans as human-readable text for the LLM feedback block.
+ * Each plan is rendered as a formatted commit message followed by its file list.
+ */
+function formatFailedPlans(plans: CommitPlan[]): string {
+	return plans
+		.map((p) => {
+			const msg = formatConventionalCommit(p.commit);
+			const files = p.files.join(", ");
+			return `${msg}\nFiles: ${files}`;
+		})
+		.join("\n---\n");
+}
 
 // ── queueRetry ───────────────────────────────────────────────────────────────
 
@@ -186,11 +203,13 @@ export function queueRetry(
 	}
 
 	// 5. Cap feedbackHistory (R20, R29, R44, R65)
-	const serializedCanonical = JSON.stringify(canonical);
+	//    Store human-readable formatted messages instead of raw canonical JSON
+	//    so the LLM can see what it actually generated.
+	const displayEntry = formatFailedPlans(failedPlans);
 	const truncatedEntry =
-		serializedCanonical.length > MAX_FEEDBACK_ENTRY_BYTES
-			? serializedCanonical.slice(0, MAX_FEEDBACK_ENTRY_BYTES) + "\n[truncated]"
-			: serializedCanonical;
+		displayEntry.length > MAX_FEEDBACK_ENTRY_BYTES
+			? displayEntry.slice(0, MAX_FEEDBACK_ENTRY_BYTES) + "\n[truncated]"
+			: displayEntry;
 
 	const history = repoState.feedbackHistory ?? [];
 	const nextHistory = [...history, truncatedEntry];
