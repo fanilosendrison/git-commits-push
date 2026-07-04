@@ -8,7 +8,6 @@
  *   - Validation retry via queueRetry with FeedbackError[]
  *   - Execution error classification via classifyError (R43)
  *   - Module-scope retryJobs with reset at phase entry (Decision 9, R26)
- *   - Reset loop for diffHash changes (R36, R58)
  *   - committedShas accumulation from error context (R59)
  *   - R74: orchestrator re-attempts git reset HEAD before queueRetry
  */
@@ -280,12 +279,6 @@ const config: OrchestratorConfig<GlobalState> = {
 			// Drain any leftover jobs from a previous failed iteration of this phase.
 			// R26 invariant: only safe if Turnlock guarantees single-instance execution.
 			retryJobs.length = 0;
-
-			// Note: the reset loop for diffHash changes (Decision 7, R36/R58) was removed
-			// because state.diffHash is never populated (the diff-capture phase sets
-			// per-repo diffHash, not a top-level one). The comparison was always true,
-			// causing all retry counters to be wiped on every phase entry → infinite retry.
-			// The DiffHashMismatchError in the publisher already handles race conditions.
 
 			for (const result of results) {
 				let repoState = nextRepos[result.id];
