@@ -10,6 +10,7 @@ import type { OrchestratorConfig } from "turnlock";
 import { definePhase, runOrchestrator } from "turnlock";
 import { z } from "zod";
 import { readSettings } from "../config/settings.ts";
+import { validateCommitMessage } from "../modules/commit-message-validator.ts";
 import { runDiscovery } from "../modules/discovery.ts";
 import {
 	executeMultiCommitAndPush,
@@ -188,21 +189,6 @@ const config: OrchestratorConfig<GlobalState> = {
 		"commit-and-push": definePhase(async (state, io) => {
 			const settings = readSettings(path.resolve(__dirname, "../config"));
 
-			// Dynamically load the validator
-			let validateCommitMessage:
-				| ((message: string) => { valid: boolean; errors: string[] })
-				| null = null;
-			const validatorPath = path.resolve(
-				__dirname,
-				"../../../../../agent-enforcers/commit-msg-validator/src/core/validator.ts",
-			);
-			if (fs.existsSync(validatorPath)) {
-				const module = await import(validatorPath);
-				validateCommitMessage = module.validateCommitMessage as (
-					message: string,
-				) => { valid: boolean; errors: string[] };
-			}
-
 			// Try to read system prompt if present, else empty string
 			let systemPrompt = "";
 			try {
@@ -235,62 +221,61 @@ const config: OrchestratorConfig<GlobalState> = {
 					continue;
 				}
 
-				if (validateCommitMessage) {
-					// Validate every commit in the plan
-					const allErrors: string[] = [];
-					const allFormatted: string[] = [];
-					for (const plan of result.commits) {
-						const msgStr = formatConventionalCommit(plan.commit);
-						allFormatted.push(msgStr);
-						const valRes = validateCommitMessage(msgStr);
-						if (!valRes.valid) {
-							for (const e of valRes.errors) {
-								allErrors.push(`[${msgStr}] ${e}`);
-							}
+				// Validate every commit in the plan
+				const allErrors: string[] = [];
+				const allFormatted: string[] = [];
+				for (const plan of result.commits) {
+					const msgStr = formatConventionalCommit(plan.commit);
+					allFormatted.push(msgStr);
+					const valRes = validateCommitMessage(msgStr);
+					if (!valRes.valid) {
+						for (const e of valRes.errors) {
+							allErrors.push(`[${msgStr}] ${e}`);
 						}
 					}
-					if (allErrors.length > 0) {
-						const attempts = repoState.attempts || 0;
-						if (attempts < 1) {
-							const target = nextRepos[result.id];
-							if (target) {
-								target.attempts = attempts + 1;
-							}
-							const diff = execSync("git diff --cached", {
-								cwd: repoState.repository,
-								encoding: "utf-8",
-							}).toString();
-							if (!repoState.diffHash) {
-								throw new Error(
-									`Cannot retry validation: diffHash missing for ${result.id}`,
-								);
-							}
-							const payload: CommitJobPayload = {
-								repository: repoState.repository,
-								diff,
-								diffHash: repoState.diffHash,
-								provider: settings.provider,
-								model: settings.model,
-								temperature: settings.temperature,
-								systemPrompt,
-								feedback: {
-									previous_commit: allFormatted.join("\n---\n"),
-									validation_errors: allErrors,
-								},
-							};
-							retryJobs.push({
-								id: result.id,
-								prompt: JSON.stringify(payload),
-							});
-							continue;
-						} else {
-							nextRepos[result.id] = {
-								...repoState,
-								status: "FAILED",
-								error: `Validation failed after max retries: ${allErrors.join(", ")}`,
-							};
-							continue;
+				}
+				if (allErrors.length > 0) {
+					const attempts = repoState.attempts || 0;
+					if (attempts < 1) {
+						// Don't mutate frozen Turnlock state — replace with new object
+						nextRepos[result.id] = {
+							...repoState,
+							attempts: attempts + 1,
+						};
+						const diff = execSync("git diff --cached", {
+							cwd: repoState.repository,
+							encoding: "utf-8",
+						}).toString();
+						if (!repoState.diffHash) {
+							throw new Error(
+								`Cannot retry validation: diffHash missing for ${result.id}`,
+							);
 						}
+						const payload: CommitJobPayload = {
+							repository: repoState.repository,
+							diff,
+							diffHash: repoState.diffHash,
+							provider: settings.provider,
+							model: settings.model,
+							temperature: settings.temperature,
+							systemPrompt,
+							feedback: {
+								previous_commit: allFormatted.join("\n---\n"),
+								validation_errors: allErrors,
+							},
+						};
+						retryJobs.push({
+							id: result.id,
+							prompt: JSON.stringify(payload),
+						});
+						continue;
+					} else {
+						nextRepos[result.id] = {
+							...repoState,
+							status: "FAILED",
+							error: `Validation failed after max retries: ${allErrors.join(", ")}`,
+						};
+						continue;
 					}
 				}
 
