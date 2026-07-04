@@ -243,10 +243,12 @@ export function queueRetry(
 	};
 
 	// 7. Log and push
+	const currentAttempt =
+		repoState.attempts?.[errors[0]?.kind ?? "structural"] ?? 0;
 	logRetry(
 		repoId,
 		errors[0]?.kind ?? "structural",
-		0,
+		currentAttempt,
 		repoState.diffHash,
 		"queueRetry",
 	);
