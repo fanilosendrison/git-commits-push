@@ -60,6 +60,7 @@ describe("I4 — Turnlock stdout Compliance", () => {
 				...process.env,
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-initial"),
 				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});
@@ -74,6 +75,7 @@ describe("I4 — Turnlock stdout Compliance", () => {
 				...process.env,
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-stderr"),
 				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});
@@ -90,6 +92,7 @@ describe("I4 — Turnlock stdout Compliance", () => {
 				...process.env,
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-debug"),
 				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});
