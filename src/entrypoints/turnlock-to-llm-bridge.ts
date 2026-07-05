@@ -182,21 +182,33 @@ export async function handleTurnlockDelegation(
 					}
 				}
 
-				const llmResponse = await invokeLlm({
-					provider: payload.provider,
-					model: payload.model,
-					token: token,
-					temperature: payload.temperature,
-					systemPrompt: payload.systemPrompt,
-					userPrompt: finalUserPrompt,
-					stripJsonFence: true, // Mandatory per specs
-				});
+				// Retry loop: LLM sometimes returns malformed JSON (transient)
+				let llmResponse = "";
+				let commits: CommitPlan[] = [];
+				for (let attempt = 0; attempt < 2; attempt++) {
+					llmResponse = await invokeLlm({
+						provider: payload.provider,
+						model: payload.model,
+						token: token,
+						temperature: payload.temperature,
+						systemPrompt: payload.systemPrompt,
+						userPrompt: finalUserPrompt,
+						stripJsonFence: true, // Mandatory per specs
+					});
 
-				console.log(
-					`[Pi Wrapper] [${job.id}] LLM response received. Parsing JSON...`,
-				);
-				const commits: CommitPlan[] = JSON.parse(llmResponse);
-				if (!Array.isArray(commits)) {
+					console.log(
+						`[Pi Wrapper] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
+					);
+					try {
+						commits = JSON.parse(llmResponse);
+						if (Array.isArray(commits)) break;
+					} catch {
+						console.warn(
+							`[Pi Wrapper] [${job.id}] Invalid JSON on attempt ${attempt + 1}, retrying...`,
+						);
+					}
+				}
+				if (!Array.isArray(commits) || commits.length === 0) {
 					throw new Error(
 						"LLM returned an invalid response: expected a JSON array of commit plans.",
 					);
