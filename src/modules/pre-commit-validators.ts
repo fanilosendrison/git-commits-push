@@ -162,7 +162,7 @@ function hasFilesMatching(repoPath: string, pattern: RegExp): boolean {
 	}
 }
 
-import { atomicAppend } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/src/atomic-appender.ts";
+import { atomicAppend } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/atomic-writer.ts";
 
 function logSecretBlock(opts: {
 	repoId: string;
