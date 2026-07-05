@@ -354,6 +354,23 @@ const config: OrchestratorConfig<GlobalState> = {
 					// R7 + R27 fix: classify LLM-side failures instead of hardcoding "git"
 					const llmKind = classifyLLMFailure(result.error);
 					if (llmKind === null) {
+						// R57 mirror (C1): if LLM returned empty plans but commits already landed,
+						// treat as SUCCESS — same logic as classifyError for CommitPlanError(empty-plans).
+						const isLlmEmptyPlans =
+							result.error.includes("empty") ||
+							result.error.includes("non-empty JSON array");
+						const committedShasExist =
+							(repoState.committedShas?.length ?? 0) > 0;
+						if (isLlmEmptyPlans && committedShasExist) {
+							nextRepos[result.id] = {
+								...repoState,
+								status: "SUCCESS",
+								commits: [],
+								error:
+									"LLM returned an empty plan after partial commits completed; treating as success.",
+							};
+							continue;
+						}
 						// Fail-closed for unknown/bridge errors
 						nextRepos[result.id] = {
 							...repoState,
@@ -447,7 +464,7 @@ const config: OrchestratorConfig<GlobalState> = {
 							0,
 						),
 						loopDetected: undefined,
-						committedCount: 0,
+						committedCount: repoState.committedShas?.length ?? 0,
 					});
 					continue;
 				}
