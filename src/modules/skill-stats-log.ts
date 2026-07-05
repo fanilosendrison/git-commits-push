@@ -43,6 +43,8 @@ function appendEvent(
 	details: Record<string, unknown>,
 	timestamp?: string,
 ): void {
+	if (process.env.PI_SKILL_STATS_MODE === "test") return;
+
 	const event = {
 		timestamp: timestamp || new Date().toISOString(),
 		eventId: crypto.randomUUID(),

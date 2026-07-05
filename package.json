@@ -7,7 +7,7 @@
 	"scripts": {
 		"test": "bun test --timeout 60000",
 		"test:quick": "bun test --timeout 60000 --ignore 'tests/invariants/i1-secret-scanner.test.ts' --ignore 'tests/invariants/i3-parallel-isolation.test.ts' --ignore 'tests/invariants/i4-stdout-compliance.test.ts'",
-		"test:run": "bun run src/entrypoints/turnlock-orchestrator.ts",
+		"test:run": "PI_SKILL_STATS_MODE=test bun run src/entrypoints/turnlock-orchestrator.ts",
 		"start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check src/ tests/"
