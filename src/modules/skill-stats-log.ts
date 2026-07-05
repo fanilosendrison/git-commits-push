@@ -69,6 +69,7 @@ export interface SkillStatsLog {
 		skillModel: string;
 		skillProvider: string;
 		reposCount: number;
+		thinking: boolean;
 	}): void;
 
 	/** Run ended (success or fail) */
@@ -99,7 +100,27 @@ export interface SkillStatsLog {
 		resultKind: string;
 	}): void;
 
-	/** Retry queued for a repo */
+	/** Each LLM delegation (initial + retries) — unified event replacing logRetry */
+	logDelegation(params: {
+		runId: string;
+		repoId: string;
+		repository: string;
+		isRetry: boolean;
+		retryKind: string | null;
+		attempt: number;
+		maxAttempts: number | null;
+		model: string;
+		thinking: boolean;
+		diffHash: string;
+		diffSizeBytes: number | null;
+		previousDiffHash: string | null;
+		diffChanged: boolean | null;
+		pendingFilesCount: number | null;
+		hasFeedback: boolean;
+		feedbackHistoryItems: number;
+	}): void;
+
+	/** @deprecated — logDelegation now covers this */
 	logRetry(params: {
 		runId: string;
 		repoId: string;
@@ -146,6 +167,7 @@ export function createSkillStatsLog(): SkillStatsLog {
 				skillModel: params.skillModel,
 				skillProvider: params.skillProvider,
 				reposCount: params.reposCount,
+				thinking: params.thinking,
 			});
 		},
 
@@ -177,6 +199,27 @@ export function createSkillStatsLog(): SkillStatsLog {
 				phase: params.phase,
 				durationMs: params.durationMs,
 				resultKind: params.resultKind,
+			});
+		},
+
+		logDelegation(params) {
+			appendEvent("delegation", {
+				runId: params.runId,
+				repoId: params.repoId,
+				repository: params.repository,
+				isRetry: params.isRetry,
+				retryKind: params.retryKind,
+				attempt: params.attempt,
+				maxAttempts: params.maxAttempts,
+				model: params.model,
+				thinking: params.thinking,
+				diffHash: params.diffHash,
+				diffSizeBytes: params.diffSizeBytes,
+				previousDiffHash: params.previousDiffHash,
+				diffChanged: params.diffChanged,
+				pendingFilesCount: params.pendingFilesCount,
+				hasFeedback: params.hasFeedback,
+				feedbackHistoryItems: params.feedbackHistoryItems,
 			});
 		},
 

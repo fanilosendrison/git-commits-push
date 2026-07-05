@@ -290,6 +290,7 @@ const config: OrchestratorConfig<GlobalState> = {
 					skillModel: currentSkillModel,
 					skillProvider: currentSkillProvider,
 					reposCount: jobs.length,
+					thinking: settings.thinking ?? false,
 				});
 			}
 
@@ -298,6 +299,28 @@ const config: OrchestratorConfig<GlobalState> = {
 				if (repoState) {
 					repoState.status = "RUNNING";
 				}
+			}
+
+			// Log initial delegation per repo
+			for (const r of validRepos) {
+				skillLog.logDelegation({
+					runId: currentRunId,
+					repoId: r.id,
+					repository: r.path,
+					isRetry: false,
+					retryKind: null,
+					attempt: 0,
+					maxAttempts: null,
+					model: currentSkillModel,
+					thinking: settings.thinking ?? false,
+					diffHash: r.diffHash,
+					diffSizeBytes: Buffer.byteLength(r.diff, "utf-8"),
+					previousDiffHash: null,
+					diffChanged: null,
+					pendingFilesCount: null,
+					hasFeedback: false,
+					feedbackHistoryItems: 0,
+				});
 			}
 
 			return io.delegateAgentBatch(
@@ -436,15 +459,25 @@ const config: OrchestratorConfig<GlobalState> = {
 							continue;
 						}
 						totalRetries++;
-						skillLog.logRetry({
+						skillLog.logDelegation({
 							runId: currentRunId,
 							repoId: result.id,
-							kind: llmKind,
+							repository: repoState.repository,
+							isRetry: true,
+							retryKind: llmKind,
 							attempt: attempts + 1,
 							maxAttempts: MAX_ATTEMPTS_BY_KIND[llmKind],
-							diffHash: repoState.diffHash ?? "",
 							model: settings.model,
 							thinking: settings.thinking ?? false,
+							diffHash: retryResult.repoState.diffHash ?? "",
+							diffSizeBytes: null,
+							previousDiffHash: repoState.diffHash ?? "",
+							diffChanged:
+								(repoState.diffHash ?? "") !==
+								(retryResult.repoState.diffHash ?? ""),
+							pendingFilesCount: null,
+							hasFeedback: true,
+							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
@@ -510,15 +543,25 @@ const config: OrchestratorConfig<GlobalState> = {
 						result.commits,
 					);
 					totalRetries++;
-					skillLog.logRetry({
+					skillLog.logDelegation({
 						runId: currentRunId,
 						repoId: result.id,
-						kind: "validation",
+						repository: repoState.repository,
+						isRetry: true,
+						retryKind: "validation",
 						attempt: validationAttempts + 1,
 						maxAttempts: MAX_ATTEMPTS_BY_KIND.validation,
-						diffHash: repoState.diffHash ?? "",
 						model: settings.model,
 						thinking: settings.thinking ?? false,
+						diffHash: retryResult.repoState.diffHash ?? "",
+						diffSizeBytes: null,
+						previousDiffHash: repoState.diffHash ?? "",
+						diffChanged:
+							(repoState.diffHash ?? "") !==
+							(retryResult.repoState.diffHash ?? ""),
+						pendingFilesCount: null,
+						hasFeedback: true,
+						feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 					});
 					if (retryResult.kind === "loop-detected") {
 						nextRepos[result.id] = {
@@ -559,15 +602,23 @@ const config: OrchestratorConfig<GlobalState> = {
 							result.commits,
 						);
 						totalRetries++;
-						skillLog.logRetry({
+						skillLog.logDelegation({
 							runId: currentRunId,
 							repoId: result.id,
-							kind: "validation",
+							repository: repoState.repository,
+							isRetry: true,
+							retryKind: "validation",
 							attempt: 1,
 							maxAttempts: MAX_ATTEMPTS_BY_KIND.validation,
-							diffHash: repoState.diffHash ?? "",
 							model: fallbackSettings.model,
 							thinking: settings.thinking ?? false,
+							diffHash: retryResult.repoState.diffHash ?? "",
+							diffSizeBytes: null,
+							previousDiffHash: repoState.diffHash ?? "",
+							diffChanged: (repoState.diffHash ?? "") !== (retryResult.repoState.diffHash ?? ""),
+							pendingFilesCount: null,
+							hasFeedback: true,
+							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						if (retryResult.kind === "loop-detected") {
 							nextRepos[result.id] = {
@@ -733,15 +784,23 @@ const config: OrchestratorConfig<GlobalState> = {
 						}
 
 						totalRetries++;
-						skillLog.logRetry({
+						skillLog.logDelegation({
 							runId: currentRunId,
 							repoId: result.id,
-							kind: errKind,
+							repository: repoState.repository,
+							isRetry: true,
+							retryKind: errKind,
 							attempt: attempts + 1,
 							maxAttempts: MAX_ATTEMPTS_BY_KIND[errKind],
-							diffHash: repoState.diffHash ?? "",
 							model: settings.model,
 							thinking: settings.thinking ?? false,
+							diffHash: retryResult.repoState.diffHash ?? "",
+							diffSizeBytes: null,
+							previousDiffHash: repoState.diffHash ?? "",
+							diffChanged: (repoState.diffHash ?? "") !== (retryResult.repoState.diffHash ?? ""),
+							pendingFilesCount: pendingFiles?.length ?? null,
+							hasFeedback: true,
+							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
