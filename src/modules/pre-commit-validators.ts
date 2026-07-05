@@ -162,7 +162,22 @@ function hasFilesMatching(repoPath: string, pattern: RegExp): boolean {
 	}
 }
 
-import { atomicAppend } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/atomic-writer.ts";
+import { createEventSink } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts";
+
+let secretSink: ReturnType<typeof createEventSink> | null = null;
+
+function getSecretSink(): ReturnType<typeof createEventSink> {
+	if (!secretSink) {
+		secretSink = createEventSink({
+			statsDir:
+				process.env.SECRET_SCANNER_STATS_DIR ||
+				path.join(os.homedir(), "neelopedia", "stats", "pi", "secret-scanner"),
+			agent: "pi",
+			namespace: "secret-scanner",
+		});
+	}
+	return secretSink;
+}
 
 function logSecretBlock(opts: {
 	repoId: string;
@@ -170,16 +185,6 @@ function logSecretBlock(opts: {
 	matchCount: number;
 	details: string;
 }): void {
-	const statsDir =
-		process.env.SECRET_SCANNER_STATS_DIR ||
-		path.join(os.homedir(), "neelopedia", "stats", "pi", "secret-scanner");
-	const filePath = path.join(statsDir, "events.jsonl");
-	try {
-		fs.mkdirSync(statsDir, { recursive: true });
-	} catch {
-		// ignore
-	}
-
 	const findings = opts.details
 		.split(", ")
 		.filter(Boolean)
@@ -191,22 +196,18 @@ function logSecretBlock(opts: {
 			return { name: d, line: "", lineNumber: 0 };
 		});
 
-	const event = {
-		timestamp: new Date().toISOString(),
-		eventId: crypto.randomUUID(),
-		extension: "secret-scanner",
-		eventType: "block",
-		agent: "pi",
-		workspace: opts.repoPath,
-		sessionId: `skill-${opts.repoId}`,
-		cycleId: crypto.randomUUID(),
-		details: {
+	getSecretSink().append(
+		"block",
+		{
 			findingsCount: opts.matchCount,
 			findings,
 			_source: "git-commits-push-skill",
 		},
-	};
-	atomicAppend(filePath, JSON.stringify(event) + "\n");
+		{
+			sessionId: `skill-${opts.repoId}`,
+			workspace: opts.repoPath,
+		},
+	);
 }
 
 function execCwd(cmd: string, cwd: string): void {

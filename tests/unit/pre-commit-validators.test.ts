@@ -117,7 +117,7 @@ describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns
 			.map((l) => JSON.parse(l));
 		expect(events.length).toBe(1);
 		expect(events[0].eventType).toBe("block");
-		expect(events[0].extension).toBe("secret-scanner");
+		expect(events[0].namespace).toBe("secret-scanner");
 		expect(events[0].details.findingsCount).toBe(1);
 		expect(events[0].details.findings[0].name).toBe("Found: AWS_KEY");
 	});
