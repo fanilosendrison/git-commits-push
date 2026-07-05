@@ -196,9 +196,9 @@ export async function handleTurnlockDelegation(
 					`[Pi Wrapper] [${job.id}] LLM response received. Parsing JSON...`,
 				);
 				const commits: CommitPlan[] = JSON.parse(llmResponse);
-				if (!Array.isArray(commits) || commits.length === 0) {
+				if (!Array.isArray(commits)) {
 					throw new Error(
-						"LLM returned an invalid response: expected a non-empty JSON array of commit plans.",
+						"LLM returned an invalid response: expected a JSON array of commit plans.",
 					);
 				}
 
