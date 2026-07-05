@@ -176,6 +176,40 @@ export function queueRetry(
 		pendingFiles,
 	);
 
+	// 3.5 Re-stage files and recompute diffHash so the next execution
+	//      passes the diffHash guard (R74 reset may have cleared staging).
+	//      The reconstructRemainingDiff above temporarily stages/reads/resets;
+	//      here we re-stage permanently and compute a fresh hash so that
+	//      executeMultiCommitAndPush sees a consistent (staging ≡ hash) pair.
+	let actualDiff = remainingDiff;
+	try {
+		if (pendingFiles && pendingFiles.length > 0) {
+			const quoted = pendingFiles.map((f) => JSON.stringify(f)).join(" ");
+			execSync(`git add -- ${quoted}`, {
+				cwd: repoState.repository,
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+		} else {
+			execSync("git add -A", {
+				cwd: repoState.repository,
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			});
+		}
+		actualDiff = execSync("git diff --cached", {
+			cwd: repoState.repository,
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+		}).toString();
+	} catch {
+		// Best-effort: if staging fails, fall back to remainingDiff
+	}
+	const newDiffHash = crypto
+		.createHash("sha256")
+		.update(actualDiff)
+		.digest("hex");
+
 	// 4. Loop detection (R11): hash the canonical plan structure
 	const canonical = failedPlans
 		.map((p) => ({
@@ -234,8 +268,8 @@ export function queueRetry(
 
 	const payload: CommitJobPayload = {
 		repository: repoState.repository,
-		diff: remainingDiff,
-		diffHash: repoState.diffHash,
+		diff: actualDiff,
+		diffHash: newDiffHash,
 		provider: settings.provider,
 		model: settings.model,
 		temperature: settings.temperature,
@@ -251,7 +285,7 @@ export function queueRetry(
 		repoId,
 		errors[0]?.kind ?? "structural",
 		currentAttempt,
-		repoState.diffHash,
+		newDiffHash,
 		"queueRetry",
 		settings.model,
 	);
@@ -260,6 +294,7 @@ export function queueRetry(
 		...repoState,
 		lastPlanHash: planHash,
 		feedbackHistory: nextHistory,
+		diffHash: newDiffHash,
 	};
 
 	const job = { id: repoId, prompt: JSON.stringify(payload) };
