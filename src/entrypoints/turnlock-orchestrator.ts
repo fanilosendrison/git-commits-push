@@ -162,9 +162,6 @@ const config: OrchestratorConfig<GlobalState> = {
 			currentRunId = io.runId;
 			currentSkillModel = settings.model;
 			currentSkillProvider = settings.provider;
-			if (!runStarted) {
-				runStarted = true;
-			}
 
 			// Try to read system prompt if present, else empty string
 			let systemPrompt = "";
@@ -319,6 +316,11 @@ const config: OrchestratorConfig<GlobalState> = {
 
 		"commit-and-push": definePhase(async (state, io) => {
 			const settings = readSettings(path.resolve(__dirname, "../config"));
+
+			// ── Init stats vars for resume flow ────────────────────────────
+			currentRunId = io.runId;
+			currentSkillModel = settings.model;
+			currentSkillProvider = settings.provider;
 
 			// Try to read system prompt if present, else empty string
 			let systemPrompt = "";
