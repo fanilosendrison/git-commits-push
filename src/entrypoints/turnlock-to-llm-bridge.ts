@@ -195,6 +195,8 @@ export async function handleTurnlockDelegation(
 						userPrompt: finalUserPrompt,
 						stripJsonFence: true, // Mandatory per specs
 					});
+					// TEST: force first attempt to fail to verify retry works
+					if (attempt === 0) llmResponse = "invalid json{{{";
 
 					console.log(
 						`[Pi Wrapper] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
