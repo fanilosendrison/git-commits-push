@@ -54,6 +54,7 @@ let currentSkillModel = "unknown";
 let currentSkillProvider = "unknown";
 // Track if run_start has been logged (first delegation only)
 let runStarted = false;
+let runStartEpochMs = 0;
 
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -240,7 +241,7 @@ const config: OrchestratorConfig<GlobalState> = {
 				printReport(nextRepos);
 				skillLog.logRunEnd({
 					runId: currentRunId,
-					durationMs: 0,
+					durationMs: Date.now() - runStartEpochMs,
 					successCount: 0,
 					failCount: Object.values(nextRepos).filter(
 						(r) => r.status === "FAILED",
@@ -283,6 +284,7 @@ const config: OrchestratorConfig<GlobalState> = {
 			// Log run_start once per invocation (not on retries back to this phase)
 			if (!runStarted) {
 				runStarted = true;
+				runStartEpochMs = Date.now();
 				skillLog.logRunStart({
 					runId: currentRunId,
 					parentModel: currentParentModel,
@@ -463,7 +465,7 @@ const config: OrchestratorConfig<GlobalState> = {
 							isRetry: true,
 							retryKind: llmKind,
 							attempt: attempts + 1,
-									model: settings.model,
+							model: settings.model,
 							thinking: settings.thinking ?? false,
 							diffHash: retryResult.repoState.diffHash ?? "",
 							diffSizeBytes: null,
@@ -472,7 +474,7 @@ const config: OrchestratorConfig<GlobalState> = {
 								(repoState.diffHash ?? "") !==
 								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: null,
-									feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
@@ -545,7 +547,7 @@ const config: OrchestratorConfig<GlobalState> = {
 						isRetry: true,
 						retryKind: "validation",
 						attempt: validationAttempts + 1,
-							model: settings.model,
+						model: settings.model,
 						thinking: settings.thinking ?? false,
 						diffHash: retryResult.repoState.diffHash ?? "",
 						diffSizeBytes: null,
@@ -554,7 +556,7 @@ const config: OrchestratorConfig<GlobalState> = {
 							(repoState.diffHash ?? "") !==
 							(retryResult.repoState.diffHash ?? ""),
 						pendingFilesCount: null,
-							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+						feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 					});
 					if (retryResult.kind === "loop-detected") {
 						nextRepos[result.id] = {
@@ -602,7 +604,7 @@ const config: OrchestratorConfig<GlobalState> = {
 							isRetry: true,
 							retryKind: "validation",
 							attempt: 1,
-									model: fallbackSettings.model,
+							model: fallbackSettings.model,
 							thinking: settings.thinking ?? false,
 							diffHash: retryResult.repoState.diffHash ?? "",
 							diffSizeBytes: null,
@@ -611,7 +613,7 @@ const config: OrchestratorConfig<GlobalState> = {
 								(repoState.diffHash ?? "") !==
 								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: null,
-									feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						if (retryResult.kind === "loop-detected") {
 							nextRepos[result.id] = {
@@ -784,7 +786,7 @@ const config: OrchestratorConfig<GlobalState> = {
 							isRetry: true,
 							retryKind: errKind,
 							attempt: attempts + 1,
-									model: settings.model,
+							model: settings.model,
 							thinking: settings.thinking ?? false,
 							diffHash: retryResult.repoState.diffHash ?? "",
 							diffSizeBytes: null,
@@ -793,7 +795,7 @@ const config: OrchestratorConfig<GlobalState> = {
 								(repoState.diffHash ?? "") !==
 								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: pendingFiles?.length ?? null,
-									feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
@@ -831,7 +833,7 @@ const config: OrchestratorConfig<GlobalState> = {
 						jobs: jobsSnapshot,
 						timeout: { perDelegationMs: 600_000 },
 						retry: {
-									backoffBaseMs: 1000,
+							backoffBaseMs: 1000,
 							maxBackoffMs: 30000,
 						},
 					},
@@ -851,9 +853,23 @@ const config: OrchestratorConfig<GlobalState> = {
 			).length;
 			const totalRepos = Object.keys(nextRepos).length;
 
+			// Resolve run start epoch: first invocation sets runStartEpochMs in discovery;
+			// resume must read it from state.json (new process has runStartEpochMs === 0).
+			let startEpoch = runStartEpochMs;
+			if (startEpoch === 0) {
+				try {
+					const statePath = path.join(io.runDir, "state.json");
+					const raw = fs.readFileSync(statePath, "utf-8");
+					const st = JSON.parse(raw) as { startedAtEpochMs?: number };
+					startEpoch = st.startedAtEpochMs ?? Date.now();
+				} catch {
+					startEpoch = Date.now();
+				}
+			}
+
 			skillLog.logRunEnd({
 				runId: currentRunId,
-				durationMs: Date.now() - (io.clock?.now?.() ?? Date.now()),
+				durationMs: Date.now() - startEpoch,
 				successCount,
 				failCount,
 				totalRepos,
