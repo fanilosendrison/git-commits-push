@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
@@ -9,6 +10,7 @@ import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 let repoClean: GitRepoFixture;
 let repoDirty: GitRepoFixture;
 let env: MockTurnlockEnvironment;
+let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
 	import.meta.dir,
@@ -17,18 +19,19 @@ const SKILL_ENTRYPOINT = path.resolve(
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();
+	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "a1-"));
 
 	// repo-clean: initialized with a commit, no staged changes
-	repoClean = GitRepoFixture.create();
+	repoClean = GitRepoFixture.create({ parentDir: searchRoot });
 	repoClean.commit("initial commit");
 
 	// repo-dirty: initialized with a commit, then staged changes
-	repoDirty = GitRepoFixture.create();
+	repoDirty = GitRepoFixture.create({ parentDir: searchRoot });
 	repoDirty.commit("initial commit");
 	repoDirty.writeAndStage("hello.ts", "export const hello = 'world';\n");
 
 	env.writeSettings({
-		searchPaths: [path.dirname(repoClean.dir), path.dirname(repoDirty.dir)],
+		searchPaths: [searchRoot],
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
@@ -42,6 +45,7 @@ afterAll(() => {
 	repoClean.dispose();
 	repoDirty.dispose();
 	env.dispose();
+	fs.rmSync(searchRoot, { recursive: true, force: true });
 });
 
 describe("A1 — End-to-End Initial Run", () => {
@@ -52,8 +56,7 @@ describe("A1 — End-to-End Initial Run", () => {
 		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
-				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+				...env.env(),
 			},
 			encoding: "utf-8",
 		});

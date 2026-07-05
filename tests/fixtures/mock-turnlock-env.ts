@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -19,9 +20,12 @@ import type { CommitJobResult, Settings } from "../../src/types.ts";
  */
 export class MockTurnlockEnvironment {
 	readonly runDir: string;
+	/** Isolated temp dir for skill-stats-log (keeps tests out of production events.jsonl) */
+	readonly statsDir: string;
 
-	private constructor(runDir: string) {
+	private constructor(runDir: string, statsDir: string) {
 		this.runDir = runDir;
+		this.statsDir = statsDir;
 	}
 
 	/** Create a fresh, isolated runDir under the system temp dir */
@@ -29,17 +33,29 @@ export class MockTurnlockEnvironment {
 		const runDir = fs.mkdtempSync(
 			path.join(os.tmpdir(), "git-commits-push-tl-run-"),
 		);
-		const env = new MockTurnlockEnvironment(runDir);
+		const statsDir = fs.mkdtempSync(
+			path.join(os.tmpdir(), "git-commits-push-stats-"),
+		);
+		const env = new MockTurnlockEnvironment(runDir, statsDir);
 		fs.mkdirSync(path.join(runDir, "delegations"), { recursive: true });
 		fs.mkdirSync(path.join(runDir, "results"), { recursive: true });
 		return env;
 	}
 
-	/** Write settings.json into the runDir */
+	/** Environment variables to pass to spawnSync (Turnlock + stats isolation) */
+	env(): Record<string, string> {
+		return {
+			TURNLOCK_RUN_DIR_ROOT: path.join(this.runDir, "runs"),
+			TURNLOCK_SKILL_SETTINGS_PATH: path.join(this.runDir, "settings.json"),
+			PI_SKILL_STATS_DIR: this.statsDir,
+		};
+	}
+
 	writeSettings(settings: Settings): void {
 		fs.writeFileSync(
 			path.join(this.runDir, "settings.json"),
 			JSON.stringify(settings, null, 2),
+			"utf-8",
 		);
 	}
 
@@ -65,11 +81,12 @@ export class MockTurnlockEnvironment {
 		fs.writeFileSync(
 			path.join(batchDir, `${jobId}.json`),
 			JSON.stringify(result, null, 2),
+			"utf-8",
 		);
 	}
 
-	/** Remove the temp directory — call in afterAll/afterEach */
 	dispose(): void {
 		fs.rmSync(this.runDir, { recursive: true, force: true });
+		fs.rmSync(this.statsDir, { recursive: true, force: true });
 	}
 }

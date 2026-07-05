@@ -96,8 +96,7 @@ describe("A2 — End-to-End Resume Run", () => {
 			{
 				env: {
 					...process.env,
-					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					...env.env(),
 				},
 				encoding: "utf-8",
 			},

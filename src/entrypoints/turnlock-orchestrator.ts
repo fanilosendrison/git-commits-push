@@ -183,7 +183,11 @@ const config: OrchestratorConfig<GlobalState> = {
 			}
 
 			// Phase 1: Discovery
+			process.stderr.write("[DEBUG] Starting runDiscovery...\n");
 			const repos = await runDiscovery(settings);
+			process.stderr.write(
+				"[DEBUG] runDiscovery done: " + repos.length + " repos\n",
+			);
 			if (repos.length === 0) {
 				process.stderr.write(
 					"[orchestrator] No repositories with changes found. Exiting.\n",
@@ -203,9 +207,18 @@ const config: OrchestratorConfig<GlobalState> = {
 
 			for (const repo of repos) {
 				try {
+					process.stderr.write("[DEBUG] Validating repo: " + repo.path + "\n");
+					const t0 = Date.now();
 					const { diff, diffHash } = await processRepoValidationAndDiff(
 						repo,
 						settings,
+					);
+					process.stderr.write(
+						"[DEBUG] Repo validated in " +
+							(Date.now() - t0) +
+							"ms: " +
+							repo.path +
+							"\n",
 					);
 					validRepos.push({ id: repo.id, path: repo.path, diff, diffHash });
 					nextRepos[repo.id] = {
@@ -231,6 +244,7 @@ const config: OrchestratorConfig<GlobalState> = {
 				skillLog.logRunEnd({
 					runId: currentRunId,
 					durationMs: 0,
+					model: currentSkillModel,
 					successCount: 0,
 					failCount: Object.values(nextRepos).filter(
 						(r) => r.status === "FAILED",
@@ -770,6 +784,7 @@ const config: OrchestratorConfig<GlobalState> = {
 			skillLog.logRunEnd({
 				runId: currentRunId,
 				durationMs: Date.now() - (io.clock?.now?.() ?? Date.now()),
+				model: currentSkillModel,
 				successCount,
 				failCount,
 				totalRepos,

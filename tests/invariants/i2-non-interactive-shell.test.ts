@@ -90,8 +90,7 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 				env: {
 					...process.env,
 					GIT_TERMINAL_PROMPT: "0", // explicitly set — matches Global Invariant I1
-					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					...env.env(),
 				},
 				encoding: "utf-8",
 				timeout: 10_000, // fail-safe: bun will kill if it hangs

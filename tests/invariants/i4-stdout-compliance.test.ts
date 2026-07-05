@@ -3,12 +3,15 @@
 // Expected: stdout contains ONLY valid @@TURNLOCK@@ protocol blocks — no other bytes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
 let repoDirty: GitRepoFixture;
 let env: MockTurnlockEnvironment;
+let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
 	import.meta.dir,
@@ -17,12 +20,13 @@ const SKILL_ENTRYPOINT = path.resolve(
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();
-	repoDirty = GitRepoFixture.create();
+	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "i4-"));
+	repoDirty = GitRepoFixture.create({ parentDir: searchRoot });
 	repoDirty.commit("initial commit");
 	repoDirty.writeAndStage("stdout-test.ts", "export const x = 'stdout';\n");
 
 	env.writeSettings({
-		searchPaths: [path.dirname(repoDirty.dir)],
+		searchPaths: [searchRoot],
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
@@ -35,6 +39,7 @@ beforeAll(() => {
 afterAll(() => {
 	repoDirty.dispose();
 	env.dispose();
+	fs.rmSync(searchRoot, { recursive: true, force: true });
 });
 
 /**

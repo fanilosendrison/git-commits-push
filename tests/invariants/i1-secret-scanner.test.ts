@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
@@ -11,6 +12,7 @@ import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 let repoClean: GitRepoFixture;
 let repoWithSecret: GitRepoFixture;
 let env: MockTurnlockEnvironment;
+let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
 	import.meta.dir,
@@ -19,14 +21,15 @@ const SKILL_ENTRYPOINT = path.resolve(
 
 beforeAll(() => {
 	env = MockTurnlockEnvironment.create();
+	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "i1-"));
 
 	// repo-clean: valid staged change, no secrets
-	repoClean = GitRepoFixture.create();
+	repoClean = GitRepoFixture.create({ parentDir: searchRoot });
 	repoClean.commit("initial commit");
 	repoClean.writeAndStage("clean.ts", "export const ok = true;\n");
 
 	// repo-with-secret: staged change containing a mock AWS secret
-	repoWithSecret = GitRepoFixture.create();
+	repoWithSecret = GitRepoFixture.create({ parentDir: searchRoot });
 	repoWithSecret.commit("initial commit");
 	repoWithSecret.writeAndStage(
 		"config.ts",
@@ -34,10 +37,7 @@ beforeAll(() => {
 	);
 
 	env.writeSettings({
-		searchPaths: [
-			path.dirname(repoClean.dir),
-			path.dirname(repoWithSecret.dir),
-		],
+		searchPaths: [searchRoot],
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
@@ -51,6 +51,7 @@ afterAll(() => {
 	repoClean.dispose();
 	repoWithSecret.dispose();
 	env.dispose();
+	fs.rmSync(searchRoot, { recursive: true, force: true });
 });
 
 describe("I1 — Secret Scanner Fail-Closed", () => {
@@ -61,8 +62,7 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
-				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+				...env.env(),
 			},
 			encoding: "utf-8",
 		});
@@ -119,6 +119,7 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 				...process.env,
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i1-04"),
 				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});

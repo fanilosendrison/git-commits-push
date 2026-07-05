@@ -12,13 +12,9 @@ import * as path from "node:path";
 // ── Paths ────────────────────────────────────────────────────────────────────
 
 const HOME = process.env.HOME || "/Users/famillesendrison";
-const STATS_DIR = path.join(
-	HOME,
-	"neelopedia",
-	"stats",
-	"pi",
-	"git-commits-push",
-);
+const STATS_DIR =
+	process.env.PI_SKILL_STATS_DIR ??
+	path.join(HOME, "neelopedia", "stats", "pi", "git-commits-push");
 const FILE_PATH = path.join(STATS_DIR, "events.jsonl");
 
 // ── Atomic append ────────────────────────────────────────────────────────────
@@ -82,6 +78,7 @@ export interface SkillStatsLog {
 		totalRepos: number;
 		totalRetries: number;
 		loopCount: number;
+		model: string;
 		error?: string;
 	}): void;
 
@@ -159,6 +156,7 @@ export function createSkillStatsLog(): SkillStatsLog {
 				totalRepos: params.totalRepos,
 				totalRetries: params.totalRetries,
 				loopCount: params.loopCount,
+				model: params.model,
 				error: params.error,
 			});
 		},

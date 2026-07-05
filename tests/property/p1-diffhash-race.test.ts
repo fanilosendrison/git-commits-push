@@ -85,8 +85,7 @@ describe("P1 — DiffHash Race Condition Prevention", () => {
 			{
 				env: {
 					...process.env,
-					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					...env.env(),
 				},
 				encoding: "utf-8",
 			},
@@ -103,7 +102,7 @@ describe("P1 — DiffHash Race Condition Prevention", () => {
 		expect(stdout).toContain("action: DELEGATE");
 	});
 
-	test("P1-03 | retry label is 'commit-jobs-retry'", () => {
+	test("P1-03 | retry label starts with 'commit-jobs-retry'", () => {
 		expect(stdout).toContain("commit-jobs-retry");
 	});
 

@@ -37,3 +37,4 @@ When the `/git-commits-push` command (or `bun run start` from the skill folder) 
 - **settings.json**: Contains the skill configuration (AI provider choice, model, paths).
 - **turnlock-orchestrator.ts**: The core of the skill that defines the state machine.
 - **turnlock-to-llm-bridge.ts**: The script responsible for resolving authentication and acting as the bridge between tasks delegated by Turnlock and the LLMs API.
+

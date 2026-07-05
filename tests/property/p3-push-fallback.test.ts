@@ -98,8 +98,7 @@ describe("P3 — Git Push Upstream Fallback", () => {
 				env: {
 					...process.env,
 					GIT_TERMINAL_PROMPT: "0",
-					TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs"),
-					TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
+					...env.env(),
 				},
 				encoding: "utf-8",
 			},

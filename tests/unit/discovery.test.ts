@@ -171,7 +171,10 @@ describe("U-DI-09 | runDiscovery — excludes detached HEAD repos", () => {
 	test("detached HEAD repo is not returned even if it has staged changes", async () => {
 		const settings: Settings = {
 			...BASE_SETTINGS,
-			searchPaths: [path.dirname(repoDetached.dir)],
+			// Scope to the repo dir directly — do NOT use path.dirname(repoDetached.dir)
+			// which resolves to os.tmpdir() and causes findGitDirectoriesRecursively
+			// to crawl the entire system temp folder (huge, 30s+ on macOS).
+			searchPaths: [repoDetached.dir],
 		};
 		const results = await runDiscovery(settings);
 		expect(results.some((r) => r.path === repoDetached.dir)).toBe(false);

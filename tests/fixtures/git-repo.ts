@@ -16,9 +16,10 @@ export class GitRepoFixture {
 	}
 
 	/** Initialize a new, isolated git repository */
-	static create(): GitRepoFixture {
+	static create(opts?: { parentDir?: string }): GitRepoFixture {
+		const baseDir = opts?.parentDir ?? os.tmpdir();
 		const unresolvedDir = fs.mkdtempSync(
-			path.join(os.tmpdir(), "git-commits-push-tl-repo-"),
+			path.join(baseDir, "git-commits-push-tl-repo-"),
 		);
 		// Canonicalize so `repo.dir` matches the format the orchestrator's discovery
 		// uses internally (via `fs.realpathSync` of search paths and `getWorktrees`
