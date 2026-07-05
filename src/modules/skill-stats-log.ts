@@ -107,7 +107,6 @@ export interface SkillStatsLog {
 		isRetry: boolean;
 		retryKind: string | null;
 		attempt: number;
-		maxAttempts: number | null;
 		model: string;
 		thinking: boolean;
 		diffHash: string;
@@ -208,7 +207,6 @@ export function createSkillStatsLog(): SkillStatsLog {
 				isRetry: params.isRetry,
 				retryKind: params.retryKind,
 				attempt: params.attempt,
-				maxAttempts: params.maxAttempts,
 				model: params.model,
 				thinking: params.thinking,
 				diffHash: params.diffHash,
