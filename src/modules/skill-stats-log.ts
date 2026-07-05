@@ -2,12 +2,13 @@
  * Skill-stats logging module for git-commits-push.
  *
  * Logs run-level events to ~/neelopedia/stats/pi/git-commits-push/events.jsonl.
- * Follows the same atomic-append pattern as Pi extensions.
+ * Uses event-sink for atomic writes and a normalized envelope.
+ *
  * This module runs inside the skill process (bun), not in the Pi agent.
  */
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
 import * as path from "node:path";
+import { createEventSink } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts";
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
@@ -15,25 +16,22 @@ const HOME = process.env.HOME || "/Users/famillesendrison";
 const STATS_DIR =
 	process.env.PI_SKILL_STATS_DIR ??
 	path.join(HOME, "neelopedia", "stats", "pi", "git-commits-push");
-const FILE_PATH = path.join(STATS_DIR, "events.jsonl");
 
-// ── Atomic append ────────────────────────────────────────────────────────────
+// ── Sink factory ─────────────────────────────────────────────────────────────
 
-function atomicAppend(filePath: string, newContent: string): void {
-	try {
-		let existingContent = "";
-		if (fs.existsSync(filePath)) {
-			existingContent = fs.readFileSync(filePath, "utf-8");
-		}
-		const combinedContent = existingContent + newContent;
-		const tmpPath = `${filePath}.tmp.${process.pid}`;
-		fs.writeFileSync(tmpPath, combinedContent);
-		fs.renameSync(tmpPath, filePath);
-	} catch (err) {
-		process.stderr.write(
-			`[git-commits-push:stats-log] Error writing stats: ${err}\n`,
-		);
+let sink: ReturnType<typeof createEventSink> | null = null;
+
+function getSink(): ReturnType<typeof createEventSink> {
+	if (!sink) {
+		sink = createEventSink({
+			statsDir: STATS_DIR,
+			agent: "pi",
+			namespace: "git-commits-push",
+			sessionId: process.env.PI_SESSION_ID,
+			workspace: process.cwd(),
+		});
 	}
+	return sink;
 }
 
 // ── Event writer ─────────────────────────────────────────────────────────────
@@ -45,18 +43,13 @@ function appendEvent(
 ): void {
 	if (process.env.PI_SKILL_STATS_MODE === "test") return;
 
-	const event = {
-		timestamp: timestamp || new Date().toISOString(),
-		eventId: crypto.randomUUID(),
-		extension: "git-commits-push",
+	getSink().append(
 		eventType,
-		agent: "pi",
-		workspace: process.cwd(),
-		sessionId: process.env.PI_SESSION_ID || "unknown",
-		cycleId: crypto.randomUUID(),
-		details,
-	};
-	atomicAppend(FILE_PATH, `${JSON.stringify(event)}\n`);
+		{ ...details, cycleId: crypto.randomUUID() },
+		{
+			...(timestamp ? { timestamp } : {}),
+		},
+	);
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -155,8 +148,7 @@ export interface SkillStatsLog {
 // ── Factory ──────────────────────────────────────────────────────────────────
 
 export function createSkillStatsLog(): SkillStatsLog {
-	fs.mkdirSync(STATS_DIR, { recursive: true });
-
+	// Sink is created lazily on first append (not here)
 	return {
 		logRunStart(params) {
 			appendEvent("run_start", {
