@@ -316,7 +316,6 @@ const config: OrchestratorConfig<GlobalState> = {
 					previousDiffHash: null,
 					diffChanged: null,
 					pendingFilesCount: null,
-					hasFeedback: false,
 					feedbackHistoryItems: 0,
 				});
 			}
@@ -473,8 +472,7 @@ const config: OrchestratorConfig<GlobalState> = {
 								(repoState.diffHash ?? "") !==
 								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: null,
-							hasFeedback: true,
-							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+									feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;
@@ -556,8 +554,7 @@ const config: OrchestratorConfig<GlobalState> = {
 							(repoState.diffHash ?? "") !==
 							(retryResult.repoState.diffHash ?? ""),
 						pendingFilesCount: null,
-						hasFeedback: true,
-						feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 					});
 					if (retryResult.kind === "loop-detected") {
 						nextRepos[result.id] = {
@@ -614,8 +611,7 @@ const config: OrchestratorConfig<GlobalState> = {
 								(repoState.diffHash ?? "") !==
 								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: null,
-							hasFeedback: true,
-							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+									feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						if (retryResult.kind === "loop-detected") {
 							nextRepos[result.id] = {
@@ -797,8 +793,7 @@ const config: OrchestratorConfig<GlobalState> = {
 								(repoState.diffHash ?? "") !==
 								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: pendingFiles?.length ?? null,
-							hasFeedback: true,
-							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+									feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 						});
 						nextRepos[result.id] = retryResult.repoState;
 						continue;

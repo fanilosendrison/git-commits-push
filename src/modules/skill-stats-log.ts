@@ -114,7 +114,6 @@ export interface SkillStatsLog {
 		previousDiffHash: string | null;
 		diffChanged: boolean | null;
 		pendingFilesCount: number | null;
-		hasFeedback: boolean;
 		feedbackHistoryItems: number;
 	}): void;
 
@@ -214,7 +213,6 @@ export function createSkillStatsLog(): SkillStatsLog {
 				previousDiffHash: params.previousDiffHash,
 				diffChanged: params.diffChanged,
 				pendingFilesCount: params.pendingFilesCount,
-				hasFeedback: params.hasFeedback,
 				feedbackHistoryItems: params.feedbackHistoryItems,
 			});
 		},
