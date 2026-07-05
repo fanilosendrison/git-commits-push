@@ -115,6 +115,7 @@ export interface SkillStatsLog {
 		diffChanged: boolean | null;
 		pendingFilesCount: number | null;
 		feedbackHistoryItems: number;
+		retryReason?: string;
 	}): void;
 
 	/** @deprecated — logDelegation now covers this */
@@ -214,6 +215,7 @@ export function createSkillStatsLog(): SkillStatsLog {
 				diffChanged: params.diffChanged,
 				pendingFilesCount: params.pendingFilesCount,
 				feedbackHistoryItems: params.feedbackHistoryItems,
+				retryReason: params.retryReason,
 			});
 		},
 

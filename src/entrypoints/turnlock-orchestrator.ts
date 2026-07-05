@@ -468,6 +468,7 @@ const config: OrchestratorConfig<GlobalState> = {
 							model: settings.model,
 							thinking: settings.thinking ?? false,
 							diffHash: retryResult.repoState.diffHash ?? "",
+							retryReason: result.error?.slice(0, 200),
 							diffSizeBytes: null,
 							previousDiffHash: repoState.diffHash ?? "",
 							diffChanged:
@@ -548,6 +549,7 @@ const config: OrchestratorConfig<GlobalState> = {
 						retryKind: "validation",
 						attempt: validationAttempts + 1,
 						model: settings.model,
+						retryReason: validationErrors.map(e => e.message).join("; ").slice(0, 200),
 						thinking: settings.thinking ?? false,
 						diffHash: retryResult.repoState.diffHash ?? "",
 						diffSizeBytes: null,
