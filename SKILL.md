@@ -11,4 +11,4 @@ When this skill is activated or referenced, you **MUST** immediately run the fol
 cd /Users/famillesendrison/.agents/skills/git-commits-push && bun run start
 ```
 
-⚠️ **No external timeout.** The skill manages its own deadlines (600s/delegation). A short timeout orphans runs — retries are emitted but never consumed, and `--resume` fails. Run bare.
+⚠️ **No external timeout.** The skill manages its own. Run bare.
