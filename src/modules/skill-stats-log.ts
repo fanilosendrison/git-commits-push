@@ -81,7 +81,6 @@ export interface SkillStatsLog {
 		totalRepos: number;
 		totalRetries: number;
 		loopCount: number;
-		model: string;
 		error?: string;
 	}): void;
 
@@ -180,7 +179,6 @@ export function createSkillStatsLog(): SkillStatsLog {
 				totalRepos: params.totalRepos,
 				totalRetries: params.totalRetries,
 				loopCount: params.loopCount,
-				model: params.model,
 				error: params.error,
 			});
 		},

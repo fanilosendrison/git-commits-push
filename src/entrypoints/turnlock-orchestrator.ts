@@ -241,7 +241,6 @@ const config: OrchestratorConfig<GlobalState> = {
 				skillLog.logRunEnd({
 					runId: currentRunId,
 					durationMs: 0,
-					model: currentSkillModel,
 					successCount: 0,
 					failCount: Object.values(nextRepos).filter(
 						(r) => r.status === "FAILED",
@@ -615,7 +614,9 @@ const config: OrchestratorConfig<GlobalState> = {
 							diffHash: retryResult.repoState.diffHash ?? "",
 							diffSizeBytes: null,
 							previousDiffHash: repoState.diffHash ?? "",
-							diffChanged: (repoState.diffHash ?? "") !== (retryResult.repoState.diffHash ?? ""),
+							diffChanged:
+								(repoState.diffHash ?? "") !==
+								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: null,
 							hasFeedback: true,
 							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
@@ -797,7 +798,9 @@ const config: OrchestratorConfig<GlobalState> = {
 							diffHash: retryResult.repoState.diffHash ?? "",
 							diffSizeBytes: null,
 							previousDiffHash: repoState.diffHash ?? "",
-							diffChanged: (repoState.diffHash ?? "") !== (retryResult.repoState.diffHash ?? ""),
+							diffChanged:
+								(repoState.diffHash ?? "") !==
+								(retryResult.repoState.diffHash ?? ""),
 							pendingFilesCount: pendingFiles?.length ?? null,
 							hasFeedback: true,
 							feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
@@ -862,7 +865,6 @@ const config: OrchestratorConfig<GlobalState> = {
 			skillLog.logRunEnd({
 				runId: currentRunId,
 				durationMs: Date.now() - (io.clock?.now?.() ?? Date.now()),
-				model: currentSkillModel,
 				successCount,
 				failCount,
 				totalRepos,
