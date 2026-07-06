@@ -39,11 +39,12 @@ let sink: ReturnType<typeof createEventSink> | null = null;
 function getSink(): ReturnType<typeof createEventSink> {
 	if (!sink) {
 		const agentName = getAgentName();
+		const sessionId = isAntigravity ? process.env.ANTIGRAVITY_TRAJECTORY_ID : process.env.PI_SESSION_ID;
 		sink = createEventSink({
 			statsDir: STATS_DIR,
 			agent: agentName,
 			namespace: "git-commits-push",
-			sessionId: isAntigravity ? process.env.ANTIGRAVITY_TRAJECTORY_ID : process.env.PI_SESSION_ID,
+			...(sessionId ? { sessionId } : {}),
 			workspace: process.cwd(),
 		});
 	}
