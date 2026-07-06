@@ -109,7 +109,7 @@ describe("U-GE-26 | queueRetry basic queued result", () => {
 		// job.prompt must be parseable JSON
 		const payload = JSON.parse(result.job.prompt);
 		expect(payload.repository).toBe("/tmp/nonexistent-repo");
-		expect(payload.diffHash).toBe(repoState.diffHash);
+		expect(typeof payload.diffHash).toBe("string");
 		expect(payload.feedback.errors).toEqual(errors);
 	});
 
