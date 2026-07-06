@@ -145,10 +145,16 @@ function getSecretSink(): ReturnType<typeof createEventSink> {
 	const currentStatsDir = process.env.SECRET_SCANNER_STATS_DIR;
 	if (!secretSink || currentStatsDir !== lastStatsDir) {
 		lastStatsDir = currentStatsDir;
+		let statsDir = currentStatsDir;
+		if (!statsDir) {
+			if (process.env.PI_SKILL_STATS_DIR) {
+				statsDir = path.join(process.env.PI_SKILL_STATS_DIR, "..", "secret-scanner");
+			} else {
+				statsDir = path.join(os.homedir(), "neelopedia", "stats", "pi", "secret-scanner");
+			}
+		}
 		secretSink = createEventSink({
-			statsDir:
-				currentStatsDir ||
-				path.join(os.homedir(), "neelopedia", "stats", "pi", "secret-scanner"),
+			statsDir,
 			agent: "pi",
 			namespace: "secret-scanner",
 		});
@@ -163,6 +169,13 @@ function logSecretBlock(opts: {
 	details: string;
 }): void {
 	if (process.env.PI_SKILL_STATS_MODE === "test") return;
+	if (
+		process.env.NODE_ENV === "test" &&
+		!process.env.SECRET_SCANNER_STATS_DIR &&
+		!process.env.PI_SKILL_STATS_DIR
+	) {
+		return;
+	}
 	const findings = opts.details
 		.split(", ")
 		.filter(Boolean)
@@ -193,6 +206,13 @@ function logSecretPass(opts: {
 	repoPath: string;
 }): void {
 	if (process.env.PI_SKILL_STATS_MODE === "test") return;
+	if (
+		process.env.NODE_ENV === "test" &&
+		!process.env.SECRET_SCANNER_STATS_DIR &&
+		!process.env.PI_SKILL_STATS_DIR
+	) {
+		return;
+	}
 	getSecretSink().append(
 		"passed",
 		{
