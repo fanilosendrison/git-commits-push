@@ -162,7 +162,7 @@ Configurable via `skipTests: true` dans `settings.json`.
 
 ## Observabilité (skill-stats-log)
 
-Le module `skill-stats-log.ts` logue tous les événements dans `~/neelopedia/stats/pi/git-commits-push/events.jsonl` :
+Le module `skill-stats-log.ts` logue tous les événements dans `~/neelopedia/stats/<agent>/git-commits-push/events.jsonl` (où `<agent>` est `pi` ou `antigravity` selon l'environnement de l'agent hôte) :
 
 | Event | Quand |
 |---|---|
@@ -193,5 +193,5 @@ Le module `skill-stats-log.ts` logue tous les événements dans `~/neelopedia/st
 | Ressource | Emplacement |
 |---|---|
 | États Turnlock (runs) | `~/.turnlock/runs/git-commits-push-tl/<runId>/` |
-| Stats d'exécution | `~/neelopedia/stats/pi/git-commits-push/events.jsonl` |
-| Stats secret scanner | `~/neelopedia/stats/pi/secret-scanner/events.jsonl` |
+| Stats d'exécution | `~/neelopedia/stats/<agent>/git-commits-push/events.jsonl` |
+| Stats secret scanner | `~/neelopedia/stats/<agent>/secret-scanner/events.jsonl` |
