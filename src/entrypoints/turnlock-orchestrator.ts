@@ -506,12 +506,13 @@ const config: OrchestratorConfig<GlobalState> = {
 				const validationErrors: FeedbackError[] = [];
 				for (const plan of result.commits) {
 					const msgStr = formatConventionalCommit(plan.commit);
+					const subject = msgStr.split("\n")[0]!;
 					const valRes = validateCommitMessage(msgStr);
 					if (!valRes.valid) {
 						for (const e of valRes.errors) {
 							validationErrors.push({
 								kind: "validation",
-								message: `[${msgStr}] ${e}`,
+								message: `${e} on "${subject}"`,
 								resolution_hint:
 									"Rewrite the commit message to comply with Conventional Commits.",
 							});
@@ -549,7 +550,10 @@ const config: OrchestratorConfig<GlobalState> = {
 						retryKind: "validation",
 						attempt: validationAttempts + 1,
 						model: settings.model,
-						retryReason: validationErrors.map(e => e.message).join("; ").slice(0, 200),
+						retryReason: validationErrors
+							.map((e) => e.message)
+							.join("; ")
+							.slice(0, 200),
 						thinking: settings.thinking ?? false,
 						diffHash: retryResult.repoState.diffHash ?? "",
 						diffSizeBytes: null,
