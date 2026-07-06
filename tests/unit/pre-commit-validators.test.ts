@@ -123,6 +123,45 @@ describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns
 	});
 });
 
+// ─── U-VA-03b : logs passed event when scanner detects no secrets ─────────────
+
+describe("U-VA-03b | processRepoValidationAndDiff — logs passed event when scanner returns hasSecrets: false", () => {
+	let repo: GitRepoFixture;
+	let statsDir: string;
+
+	beforeAll(() => {
+		repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.writeAndStage("safe.ts", "export const x = 1;\n");
+		statsDir = path.join(os.tmpdir(), "ss-pass-test-" + Date.now());
+		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
+	});
+	afterAll(() => {
+		repo.dispose();
+		delete process.env.SECRET_SCANNER_STATS_DIR;
+		if (fs.existsSync(statsDir))
+			fs.rmSync(statsDir, { recursive: true, force: true });
+	});
+
+	test("logs a passed event", async () => {
+		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
+		await processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, CLEAN_SCANNER);
+
+		const eventsPath = path.join(statsDir, "events.jsonl");
+		expect(fs.existsSync(eventsPath)).toBe(true);
+		const events = fs
+			.readFileSync(eventsPath, "utf-8")
+			.trim()
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => JSON.parse(l));
+		expect(events.length).toBe(1);
+		expect(events[0].eventType).toBe("passed");
+		expect(events[0].namespace).toBe("secret-scanner");
+		expect(events[0].details.findingsCount).toBe(0);
+	});
+});
+
 // ─── U-VA-04 : fail-closed when scanner throws ───────────────────────────────
 
 describe("U-VA-04 | processRepoValidationAndDiff — fail-closed when scanner throws", () => {

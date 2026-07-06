@@ -139,12 +139,15 @@ function hasFilesMatching(repoPath: string, pattern: RegExp): boolean {
 import { createEventSink } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts";
 
 let secretSink: ReturnType<typeof createEventSink> | null = null;
+let lastStatsDir: string | undefined = undefined;
 
 function getSecretSink(): ReturnType<typeof createEventSink> {
-	if (!secretSink) {
+	const currentStatsDir = process.env.SECRET_SCANNER_STATS_DIR;
+	if (!secretSink || currentStatsDir !== lastStatsDir) {
+		lastStatsDir = currentStatsDir;
 		secretSink = createEventSink({
 			statsDir:
-				process.env.SECRET_SCANNER_STATS_DIR ||
+				currentStatsDir ||
 				path.join(os.homedir(), "neelopedia", "stats", "pi", "secret-scanner"),
 			agent: "pi",
 			namespace: "secret-scanner",
@@ -176,6 +179,25 @@ function logSecretBlock(opts: {
 		{
 			findingsCount: opts.matchCount,
 			findings,
+			_source: "git-commits-push-skill",
+		},
+		{
+			sessionId: `skill-${opts.repoId}`,
+			workspace: opts.repoPath,
+		},
+	);
+}
+
+function logSecretPass(opts: {
+	repoId: string;
+	repoPath: string;
+}): void {
+	if (process.env.PI_SKILL_STATS_MODE === "test") return;
+	getSecretSink().append(
+		"passed",
+		{
+			findingsCount: 0,
+			findings: [],
 			_source: "git-commits-push-skill",
 		},
 		{
@@ -245,6 +267,11 @@ export async function processRepoValidationAndDiff(
 			`Security Exception: Secret detected in diff. ${scanResult.details ?? ""}`,
 		);
 	}
+
+	logSecretPass({
+		repoId: repo.id,
+		repoPath: repo.path,
+	});
 
 	return { diff, diffHash };
 }
