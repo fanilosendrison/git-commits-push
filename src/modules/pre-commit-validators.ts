@@ -146,16 +146,17 @@ function getSecretSink(): ReturnType<typeof createEventSink> {
 	if (!secretSink || currentStatsDir !== lastStatsDir) {
 		lastStatsDir = currentStatsDir;
 		let statsDir = currentStatsDir;
+		const agent = process.env.ANTIGRAVITY_AGENT === "1" ? "antigravity" : "pi";
 		if (!statsDir) {
 			if (process.env.PI_SKILL_STATS_DIR) {
 				statsDir = path.join(process.env.PI_SKILL_STATS_DIR, "..", "secret-scanner");
 			} else {
-				statsDir = path.join(os.homedir(), "neelopedia", "stats", "pi", "secret-scanner");
+				statsDir = path.join(os.homedir(), "neelopedia", "stats", agent, "secret-scanner");
 			}
 		}
 		secretSink = createEventSink({
 			statsDir,
-			agent: "pi",
+			agent,
 			namespace: "secret-scanner",
 		});
 	}

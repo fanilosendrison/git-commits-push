@@ -13,9 +13,11 @@ import { createEventSink } from "/Users/famillesendrison/Developper/Projects/tel
 // ── Paths ────────────────────────────────────────────────────────────────────
 
 const HOME = process.env.HOME || "/Users/famillesendrison";
+const isAntigravity = process.env.ANTIGRAVITY_AGENT === "1";
+const agent = isAntigravity ? "antigravity" : "pi";
 const STATS_DIR =
 	process.env.PI_SKILL_STATS_DIR ??
-	path.join(HOME, "neelopedia", "stats", "pi", "git-commits-push");
+	path.join(HOME, "neelopedia", "stats", agent, "git-commits-push");
 
 // ── Sink factory ─────────────────────────────────────────────────────────────
 
@@ -25,9 +27,9 @@ function getSink(): ReturnType<typeof createEventSink> {
 	if (!sink) {
 		sink = createEventSink({
 			statsDir: STATS_DIR,
-			agent: "pi",
+			agent,
 			namespace: "git-commits-push",
-			sessionId: process.env.PI_SESSION_ID,
+			sessionId: isAntigravity ? process.env.ANTIGRAVITY_TRAJECTORY_ID : process.env.PI_SESSION_ID,
 			workspace: process.cwd(),
 		});
 	}
