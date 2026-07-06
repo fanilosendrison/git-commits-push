@@ -159,13 +159,14 @@ function logSecretBlock(opts: {
 	matchCount: number;
 	details: string;
 }): void {
+	if (process.env.PI_SKILL_STATS_MODE === "test") return;
 	const findings = opts.details
 		.split(", ")
 		.filter(Boolean)
 		.map((d) => {
 			const match = d.match(/^(.*) at line (\d+)$/);
 			if (match) {
-				return { name: match[1], line: "", lineNumber: parseInt(match[2], 10) };
+				return { name: match[1] || "", line: "", lineNumber: parseInt(match[2] || "0", 10) };
 			}
 			return { name: d, line: "", lineNumber: 0 };
 		});
