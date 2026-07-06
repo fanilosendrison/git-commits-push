@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { RepositoryInfo, Settings } from "../types.ts";
 import { scanDiff } from "./secret-scanner";
+import { getAgentName } from "./skill-stats-log.ts";
 
 // ─── Secret Scanner Adapter ──────────────────────────────────────────────────
 
@@ -146,7 +147,7 @@ function getSecretSink(): ReturnType<typeof createEventSink> {
 	if (!secretSink || currentStatsDir !== lastStatsDir) {
 		lastStatsDir = currentStatsDir;
 		let statsDir = currentStatsDir;
-		const agent = process.env.ANTIGRAVITY_AGENT === "1" ? "antigravity" : "pi";
+		const agent = getAgentName();
 		if (!statsDir) {
 			if (process.env.PI_SKILL_STATS_DIR) {
 				statsDir = path.join(process.env.PI_SKILL_STATS_DIR, "..", "secret-scanner");
