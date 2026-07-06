@@ -13,7 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { RepositoryInfo, Settings } from "../types.ts";
 import { scanDiff } from "./secret-scanner";
-import { getAgentName } from "./skill-stats-log.ts";
+import { createSkillStatsLog } from "./skill-stats-log.ts";
 
 // ─── Secret Scanner Adapter ──────────────────────────────────────────────────
 
@@ -137,97 +137,7 @@ function hasFilesMatching(repoPath: string, pattern: RegExp): boolean {
 	}
 }
 
-import { createEventSink } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts";
-
-let secretSink: ReturnType<typeof createEventSink> | null = null;
-let lastStatsDir: string | undefined = undefined;
-
-function getSecretSink(): ReturnType<typeof createEventSink> {
-	const currentStatsDir = process.env.SECRET_SCANNER_STATS_DIR;
-	if (!secretSink || currentStatsDir !== lastStatsDir) {
-		lastStatsDir = currentStatsDir;
-		let statsDir = currentStatsDir;
-		const agent = getAgentName();
-		if (!statsDir) {
-			if (process.env.PI_SKILL_STATS_DIR) {
-				statsDir = path.join(process.env.PI_SKILL_STATS_DIR, "..", "secret-scanner");
-			} else {
-				statsDir = path.join(os.homedir(), "neelopedia", "stats", agent, "secret-scanner");
-			}
-		}
-		secretSink = createEventSink({
-			statsDir,
-			agent,
-			namespace: "secret-scanner",
-		});
-	}
-	return secretSink;
-}
-
-function logSecretBlock(opts: {
-	repoId: string;
-	repoPath: string;
-	matchCount: number;
-	details: string;
-}): void {
-	if (process.env.PI_SKILL_STATS_MODE === "test") return;
-	if (
-		process.env.NODE_ENV === "test" &&
-		!process.env.SECRET_SCANNER_STATS_DIR &&
-		!process.env.PI_SKILL_STATS_DIR
-	) {
-		return;
-	}
-	const findings = opts.details
-		.split(", ")
-		.filter(Boolean)
-		.map((d) => {
-			const match = d.match(/^(.*) at line (\d+)$/);
-			if (match) {
-				return { name: match[1] || "", line: "", lineNumber: parseInt(match[2] || "0", 10) };
-			}
-			return { name: d, line: "", lineNumber: 0 };
-		});
-
-	getSecretSink().append(
-		"block",
-		{
-			findingsCount: opts.matchCount,
-			findings,
-			_source: "git-commits-push-skill",
-		},
-		{
-			sessionId: `skill-${opts.repoId}`,
-			workspace: opts.repoPath,
-		},
-	);
-}
-
-function logSecretPass(opts: {
-	repoId: string;
-	repoPath: string;
-}): void {
-	if (process.env.PI_SKILL_STATS_MODE === "test") return;
-	if (
-		process.env.NODE_ENV === "test" &&
-		!process.env.SECRET_SCANNER_STATS_DIR &&
-		!process.env.PI_SKILL_STATS_DIR
-	) {
-		return;
-	}
-	getSecretSink().append(
-		"passed",
-		{
-			findingsCount: 0,
-			findings: [],
-			_source: "git-commits-push-skill",
-		},
-		{
-			sessionId: `skill-${opts.repoId}`,
-			workspace: opts.repoPath,
-		},
-	);
-}
+const skillLog = createSkillStatsLog();
 
 function execCwd(cmd: string, cwd: string): void {
 	execSync(cmd, {
@@ -278,7 +188,7 @@ export async function processRepoValidationAndDiff(
 	const scanResult = await scanner(diff);
 	if (scanResult.hasSecrets) {
 		// Log to Pi stats events.jsonl
-		logSecretBlock({
+		skillLog.logSecretBlock({
 			repoId: repo.id,
 			repoPath: repo.path,
 			matchCount: scanResult.matchCount,
@@ -290,7 +200,7 @@ export async function processRepoValidationAndDiff(
 		);
 	}
 
-	logSecretPass({
+	skillLog.logSecretPass({
 		repoId: repo.id,
 		repoPath: repo.path,
 	});

@@ -7,6 +7,7 @@
  * This module runs inside the skill process (bun), not in the Pi agent.
  */
 import * as crypto from "node:crypto";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createEventSink } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts";
 
@@ -47,6 +48,31 @@ function getSink(): ReturnType<typeof createEventSink> {
 		});
 	}
 	return sink;
+}
+
+let secretSink: ReturnType<typeof createEventSink> | null = null;
+let lastStatsDir: string | undefined = undefined;
+
+function getSecretSink(): ReturnType<typeof createEventSink> {
+	const currentStatsDir = process.env.SECRET_SCANNER_STATS_DIR;
+	if (!secretSink || currentStatsDir !== lastStatsDir) {
+		lastStatsDir = currentStatsDir;
+		let statsDir = currentStatsDir;
+		const agentName = getAgentName();
+		if (!statsDir) {
+			if (process.env.PI_SKILL_STATS_DIR) {
+				statsDir = path.join(process.env.PI_SKILL_STATS_DIR, "..", "secret-scanner");
+			} else {
+				statsDir = path.join(os.homedir(), "neelopedia", "stats", agentName, "secret-scanner");
+			}
+		}
+		secretSink = createEventSink({
+			statsDir,
+			agent: agentName,
+			namespace: "secret-scanner",
+		});
+	}
+	return secretSink;
 }
 
 // ── Event writer ─────────────────────────────────────────────────────────────
@@ -158,6 +184,20 @@ export interface SkillStatsLog {
 		loopDetected?: { kind: string; planHash: string };
 		committedCount: number;
 	}): void;
+
+	/** Secret scanner validation block */
+	logSecretBlock(params: {
+		repoId: string;
+		repoPath: string;
+		matchCount: number;
+		details: string;
+	}): void;
+
+	/** Secret scanner validation success */
+	logSecretPass(params: {
+		repoId: string;
+		repoPath: string;
+	}): void;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────────────
@@ -260,6 +300,63 @@ export function createSkillStatsLog(): SkillStatsLog {
 				loopDetected: params.loopDetected,
 				committedCount: params.committedCount,
 			});
+		},
+
+		logSecretBlock(params) {
+			if (process.env.PI_SKILL_STATS_MODE === "test") return;
+			if (
+				process.env.NODE_ENV === "test" &&
+				!process.env.SECRET_SCANNER_STATS_DIR &&
+				!process.env.PI_SKILL_STATS_DIR
+			) {
+				return;
+			}
+			const findings = params.details
+				.split(", ")
+				.filter(Boolean)
+				.map((d) => {
+					const match = d.match(/^(.*) at line (\d+)$/);
+					if (match) {
+						return { name: match[1] || "", line: "", lineNumber: parseInt(match[2] || "0", 10) };
+					}
+					return { name: d, line: "", lineNumber: 0 };
+				});
+
+			getSecretSink().append(
+				"block",
+				{
+					findingsCount: params.matchCount,
+					findings,
+					_source: "git-commits-push-skill",
+				},
+				{
+					sessionId: `skill-${params.repoId}`,
+					workspace: params.repoPath,
+				},
+			);
+		},
+
+		logSecretPass(params) {
+			if (process.env.PI_SKILL_STATS_MODE === "test") return;
+			if (
+				process.env.NODE_ENV === "test" &&
+				!process.env.SECRET_SCANNER_STATS_DIR &&
+				!process.env.PI_SKILL_STATS_DIR
+			) {
+				return;
+			}
+			getSecretSink().append(
+				"passed",
+				{
+					findingsCount: 0,
+					findings: [],
+					_source: "git-commits-push-skill",
+				},
+				{
+					sessionId: `skill-${params.repoId}`,
+					workspace: params.repoPath,
+				},
+			);
 		},
 	};
 }
