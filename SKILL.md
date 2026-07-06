@@ -1,6 +1,6 @@
 ---
 name: git-commits-push
-description: Enforce Conventional Commits convention for writing commit messages, then auto-push. Use when the user says "commit", "commit ça", wants to commit changes, asks how to write a commit, wants their message reviewed, needs to understand commit types, or asks about breaking changes.
+description: Discover dirty repos, validate (tests + secret scan), generate Conventional Commits via LLM, commit with file-level splitting, auto-push with retry loop. Use when the user says "commit", wants to publish changes, or asks about commit messages.
 ---
 
 # Git Commits Push
