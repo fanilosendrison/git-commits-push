@@ -3,13 +3,7 @@
  *
  * Implements NIB-M-VALIDATION §3.
  *
- * secret-scanner is an external dependency that does NOT exist in this
- * monorepo yet (DC-SECRET-SCANNER §0). To keep the module testable and
- * fail-closed by default, the scanner is injected as a parameter with a
- * strict default that throws if not provided in production.
- *
- * Integration note: the Turnlock orchestrator (turnlock-orchestrator.ts) must
- * instantiate this module with the real scanner once it is available.
+ * secret-scanner is inlined in ./secret-scanner.ts.
  */
 
 import { execSync } from "node:child_process";
@@ -18,6 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { RepositoryInfo, Settings } from "../types.ts";
+import { scanDiff } from "./secret-scanner";
 
 // ─── Secret Scanner Adapter ──────────────────────────────────────────────────
 
@@ -31,36 +26,15 @@ export type SecretScanner = (diffContent: string) => Promise<ScanResult>;
 
 /**
  * Default scanner used in production.
- * Dynamically imports the scanner from the agent-enforcers directory since
- * it is a standalone script, not an npm package.
+ * Uses the inlined secret-scanner module.
  */
 const defaultScanner: SecretScanner = async (
 	diff: string,
 ): Promise<ScanResult> => {
-	const scannerPath = path.resolve(
-		__dirname,
-		"../../../../agent-enforcers/secret-scanner/src/core/scanner.ts",
-	);
-	if (!fs.existsSync(scannerPath)) {
-		throw new Error(
-			`secret-scanner is not installed or not found at ${scannerPath}. ` +
-				"Provide a custom scanner via the scanner parameter.",
-		);
-	}
-
 	try {
-		// Import the module dynamically (works in bun)
-		// We use import() because the module might not be compiled
-		const module = await import(scannerPath);
-		const result = module.scanDiff(diff) as {
-			clean: boolean;
-			findings?: { name: string; lineNumber: number }[];
-		};
+		const result = scanDiff(diff);
 		const details = result.findings
-			?.map(
-				(f: { name: string; lineNumber: number }) =>
-					`${f.name} at line ${f.lineNumber}`,
-			)
+			?.map((f) => `${f.name} at line ${f.lineNumber}`)
 			.join(", ");
 		return {
 			hasSecrets: !result.clean,
@@ -69,7 +43,7 @@ const defaultScanner: SecretScanner = async (
 		};
 	} catch (err) {
 		throw new Error(
-			`Failed to execute secret-scanner at ${scannerPath}: ${err instanceof Error ? err.message : String(err)}`,
+			`Failed to execute secret-scanner: ${err instanceof Error ? err.message : String(err)}`,
 		);
 	}
 };
