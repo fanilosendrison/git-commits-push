@@ -15,10 +15,15 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { OrchestratorConfig } from "turnlock";
-import { definePhase, runOrchestrator } from "turnlock";
+import { definePhase, runOrchestrator, type OrchestratorConfig } from "turnlock";
 import { z } from "zod";
 import { readSettings } from "../config/settings.ts";
+import {
+	checkAndAcquireLock,
+	releaseLockAndTriggerNext,
+	startHeartbeat,
+	setupCleanupHooks,
+} from "../utils/order.ts";
 import { validateCommitMessage } from "../modules/commit-message-validator.ts";
 import { runDiscovery } from "../modules/discovery.ts";
 import {
@@ -191,6 +196,7 @@ const config: OrchestratorConfig<GlobalState> = {
 					"[orchestrator] No repositories with changes found. Exiting.\n",
 				);
 				printReport({});
+				releaseLockAndTriggerNext(io.runId);
 				return io.done({});
 			}
 
@@ -250,6 +256,7 @@ const config: OrchestratorConfig<GlobalState> = {
 					totalRetries: 0,
 					loopCount: 0,
 				});
+				releaseLockAndTriggerNext(io.runId);
 				const hasFailedRepo = Object.values(nextRepos).some(
 					(r) => r.status === "FAILED",
 				);
@@ -883,6 +890,8 @@ const config: OrchestratorConfig<GlobalState> = {
 				loopCount,
 			});
 
+			releaseLockAndTriggerNext(io.runId);
+
 			const hasFailedRepo = failCount > 0;
 			if (hasFailedRepo) {
 				return io.fail(
@@ -899,10 +908,55 @@ const config: OrchestratorConfig<GlobalState> = {
 
 // Start orchestrator only if called directly
 if (import.meta.main) {
-	runOrchestrator(config).catch((err) => {
-		process.stderr.write(
-			`[Fatal Error] ${err instanceof Error ? err.message : String(err)}\n`,
-		);
-		process.exit(1);
-	});
+	const args = process.argv.slice(2);
+	const isResume = args.includes("--resume");
+	let runId = "";
+	const runIdIdx = args.indexOf("--run-id");
+	if (runIdIdx !== -1 && args[runIdIdx + 1]) {
+		runId = args[runIdIdx + 1];
+	}
+
+	if (!isResume) {
+		if (!runId) {
+			const d = new Date();
+			const formattedDate = d.toISOString().replace(/[:.-]/g, "").toLowerCase();
+			runId = `run-${formattedDate}-${Math.random().toString(36).substring(2, 6)}`;
+			process.argv.push("--run-id", runId);
+		}
+
+		let callerName = "CLI/User";
+		if (process.env.PI_AGENT === "1" || process.env.PI_AGENT_SESSION_ID) {
+			callerName = "Pi Agent";
+		} else if (process.env.CLAUDE_CODE === "1") {
+			callerName = "Claude Code";
+		} else if (process.env.ANTIGRAVITY_AGENT === "1") {
+			callerName = "Antigravity Agent";
+		} else if (process.env.USER) {
+			callerName = process.env.USER;
+		}
+
+		const lockResult = checkAndAcquireLock(runId, callerName);
+		if (lockResult === "QUEUED") {
+			process.exit(0);
+		}
+
+		startHeartbeat();
+		setupCleanupHooks(runId);
+	} else {
+		if (runId) {
+			startHeartbeat();
+			setupCleanupHooks(runId);
+		}
+	}
+
+	runOrchestrator(config)
+		.then(() => {
+			process.exit(0);
+		})
+		.catch((err) => {
+			process.stderr.write(
+				`[Fatal Error] ${err instanceof Error ? err.message : String(err)}\n`,
+			);
+			process.exit(1);
+		});
 }

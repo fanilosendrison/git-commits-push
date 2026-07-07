@@ -9,6 +9,7 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { startHeartbeat, stopHeartbeat, setupCleanupHooks } from "../utils/order.ts";
 import {
 	buildSimplePrompt,
 	createAnthropicAdapter,
@@ -151,6 +152,9 @@ export async function handleTurnlockDelegation(
 	const manifestContent = fs.readFileSync(manifestPath, "utf-8");
 	const manifest: TurnlockBatchManifest = JSON.parse(manifestContent);
 
+	startHeartbeat();
+	setupCleanupHooks(manifest.runId);
+
 	console.log(
 		`\n[Pi Wrapper] Received batch delegation for '${manifest.label}' with ${manifest.jobs.length} jobs.`,
 	);
@@ -258,6 +262,9 @@ export async function handleTurnlockDelegation(
 	console.log(
 		`\n[Pi Wrapper] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
+
+	stopHeartbeat();
+
 	// Print the resumed orchestrator's output even if it fails (report is in stdout)
 	let output = "";
 	try {
