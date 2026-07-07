@@ -12,10 +12,8 @@ import type { GlobalState } from "../types.ts";
 import type { OrchestratorConfig } from "turnlock";
 
 if (import.meta.main) {
-	console.error("[DEBUG] Before bootstrap process.argv:", process.argv);
 	// 1. Run bootstrap synchronously to set process.argv before Turnlock is imported
 	bootstrapOrchestratorRun(process.argv.slice(2));
-	console.error("[DEBUG] After bootstrap process.argv:", process.argv);
 
 	// 2. Dynamically import Turnlock so it parses the mutated process.argv
 	const { definePhase, runOrchestrator } = await import("turnlock");
