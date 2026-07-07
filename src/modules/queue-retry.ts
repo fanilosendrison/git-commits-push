@@ -137,8 +137,8 @@ export function queueRetry(
 	repoState: RepoState,
 	errors: FeedbackError[],
 	options: {
-		committedShas?: CommittedSha[];
-		pendingFiles?: string[];
+		committedShas?: CommittedSha[] | undefined;
+		pendingFiles?: string[] | undefined;
 	},
 	settings: Settings,
 	systemPrompt: string,

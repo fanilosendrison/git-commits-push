@@ -25,9 +25,9 @@ export interface RepositoryInfo {
 
 export interface CommitMessage {
 	type: string;
-	scope?: string | undefined;
+	scope?: string | null | undefined;
 	description: string;
-	body?: string | undefined;
+	body?: string | null | undefined;
 	isBreaking: boolean;
 }
 
@@ -50,8 +50,8 @@ export interface CommitPlan {
 export interface FeedbackError {
 	kind: "validation" | "structural" | "race" | "git" | "network";
 	message: string;
-	resolution_hint?: string;
-	files?: string[];
+	resolution_hint?: string | undefined;
+	files?: string[] | undefined;
 }
 
 // ── CommittedSha ─────────────────────────────────────────────────────────
@@ -79,16 +79,17 @@ export interface Feedback {
 	/** Structured error list (one per failed plan) */
 	errors: FeedbackError[];
 	/** Present only for PartialCommitError — SHAs that already landed */
-	committed_shas?: CommittedSha[];
+	committed_shas?: CommittedSha[] | undefined;
 	/** Present only for PartialCommitError — files planned but not yet committed */
-	pending_files?: string[];
+	pending_files?: string[] | undefined;
 	/** Round 8 (Decision 16): optional context hints for escalation */
 	recommended_action?:
 		| "git-reset-and-recommit"
 		| "manual-fix-needed"
-		| "unknown";
+		| "unknown"
+		| undefined;
 	/** Set when a consecutive identical plan is detected */
-	loop_detected?: { kind: FeedbackError["kind"]; planHash: string };
+	loop_detected?: { kind: FeedbackError["kind"]; planHash: string } | undefined;
 }
 
 // ── AttemptsByKind ───────────────────────────────────────────────────────
@@ -122,9 +123,9 @@ export interface CommitJobPayload {
 	 * Replaced validation_errors string[] with structured Feedback
 	 * (Phase 2 — Feedback interface).
 	 */
-	feedback?: Feedback;
+	feedback?: Feedback | undefined;
 	/** Enable thinking/reasoning for supported providers (e.g. DeepSeek) */
-	thinking?: boolean;
+	thinking?: boolean | undefined;
 }
 
 /** Written by the Pi wrapper to each job's resultPath on success */
@@ -146,26 +147,26 @@ export type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
 export interface RepoState {
 	repository: string;
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-	diffHash?: string;
+	diffHash?: string | undefined;
 	/**
 	 * Plural commits. Legacy singular `commit?: CommitMessage` is silently
 	 * dropped by the migration shim (never written by any code path).
 	 */
-	commits?: CommitPlan[];
-	error?: string;
+	commits?: CommitPlan[] | undefined;
+	error?: string | undefined;
 	/**
 	 * CHANGED (Phase 2): per-kind counter replacing legacy `number`.
 	 * Migration shim converts legacy `attempts: number` to `{}` (zeroed).
 	 */
-	attempts?: AttemptsByKind;
+	attempts?: AttemptsByKind | undefined;
 	/** NEW: cumulative across retries (Decision 3) */
-	committedShas?: CommittedSha[];
+	committedShas?: CommittedSha[] | undefined;
 	/** NEW: HEAD SHA before any commit in this invocation */
-	originalHead?: string;
+	originalHead?: string | undefined;
 	/** NEW: rolling previous_commit history for the LLM (capped, Decision 11) */
-	feedbackHistory?: string[];
+	feedbackHistory?: string[] | undefined;
 	/** NEW: loop detection — hash of the last plan structure (Decision 12) */
-	lastPlanHash?: string;
+	lastPlanHash?: string | undefined;
 	/**
 	 * R62 fix: dedicated field for loop-detected outcome.
 	 * Set by the orchestrator when classifyError or queueRetry detects a loop.
@@ -174,9 +175,9 @@ export interface RepoState {
 	loopDetected?: {
 		kind: FeedbackError["kind"];
 		planHash: string;
-	};
+	} | undefined;
 	/** NEW: true when the fallback model has been tried for this repo */
-	fallbackAttempted?: boolean;
+	fallbackAttempted?: boolean | undefined;
 }
 // ── RepoReport (Phase 8) ───────────────────────────────────────────────
 
@@ -188,11 +189,11 @@ export interface RepoState {
 export interface RepoReport {
 	repository: string;
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-	error?: string;
+	error?: string | undefined;
 	committedShas: CommittedSha[];
 	attempts: Partial<Record<FeedbackError["kind"], number>>;
 	totalRetries: number;
-	loopDetected?: { kind: FeedbackError["kind"]; planHash: string };
+	loopDetected?: { kind: FeedbackError["kind"]; planHash: string } | undefined;
 }
 
 export interface GlobalState {

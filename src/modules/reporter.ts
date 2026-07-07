@@ -11,7 +11,7 @@
  *   - generateReport() renders the new fields
  */
 
-import type { RepoReport, RepoState } from "../types.ts";
+import type { FeedbackError, RepoReport, RepoState } from "../types.ts";
 
 /**
  * Build a structured RepoReport array from the final repos state.
@@ -32,7 +32,7 @@ export function buildReport(repos: Record<string, RepoState>): RepoReport[] {
 			totalRetries,
 			loopDetected: r.loopDetected
 				? {
-						kind: r.loopDetected.kind as RepoReport["loopDetected"]["kind"],
+						kind: r.loopDetected.kind as FeedbackError["kind"],
 						planHash: r.loopDetected.planHash,
 					}
 				: undefined,
