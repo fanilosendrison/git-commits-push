@@ -5,7 +5,7 @@ export const commitMessageSchema = z.object({
 	scope: z.string().optional().nullable(),
 	description: z.string(),
 	body: z.string().optional().nullable(),
-	isBreaking: z.boolean(),
+	isBreaking: z.boolean().optional().default(false),
 });
 
 export const commitPlanSchema = z.object({
