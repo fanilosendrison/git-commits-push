@@ -4,7 +4,7 @@ import {
 	setupCleanupHooks,
 } from "./order.ts";
 
-export async function bootstrapOrchestratorRun(args: string[]): Promise<void> {
+export function bootstrapOrchestratorRun(args: string[]): void {
 	const isResume = args.includes("--resume");
 	let runId = "";
 	const runIdIdx = args.indexOf("--run-id");
