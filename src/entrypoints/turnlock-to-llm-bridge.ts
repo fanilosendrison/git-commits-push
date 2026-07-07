@@ -36,6 +36,7 @@ export async function invokeLlm(payload: {
 	systemPrompt: string;
 	userPrompt: string;
 	stripJsonFence?: boolean;
+	thinking?: boolean;
 }): Promise<string> {
 	const commonConfig = {
 		model: payload.model,
@@ -73,7 +74,7 @@ export async function invokeLlm(payload: {
 }
 
 import { formatFeedbackBlock } from "../modules/feedback-formatter.ts";
-import type { CommitJobPayload, CommitJobResult } from "../types.ts";
+import type { CommitJobPayload, CommitJobResult, CommitPlan } from "../types.ts";
 
 interface TurnlockBatchManifest {
 	manifestVersion: number;
