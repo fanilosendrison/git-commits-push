@@ -142,7 +142,13 @@ const stateSchema = z.object({
 			// R62 fix: dedicated loopDetected field
 			loopDetected: z
 				.object({
-					kind: z.string(),
+					kind: z.enum([
+						"validation",
+						"structural",
+						"race",
+						"git",
+						"network",
+					]),
 					planHash: z.string(),
 				})
 				.optional(),
@@ -419,7 +425,6 @@ const config: OrchestratorConfig<GlobalState> = {
 								(a, b) => a + b,
 								0,
 							),
-							loopDetected: undefined,
 							committedCount: 0,
 						});
 						continue;
@@ -503,7 +508,6 @@ const config: OrchestratorConfig<GlobalState> = {
 							(a, b) => a + b,
 							0,
 						),
-						loopDetected: undefined,
 						committedCount: repoState.committedShas?.length ?? 0,
 					});
 					continue;
@@ -830,7 +834,6 @@ const config: OrchestratorConfig<GlobalState> = {
 							(a, b) => a + b,
 							0,
 						),
-						loopDetected: undefined,
 						committedCount: repoState.committedShas?.length ?? 0,
 					});
 				}
@@ -846,6 +849,7 @@ const config: OrchestratorConfig<GlobalState> = {
 						jobs: jobsSnapshot,
 						timeout: { perDelegationMs: 600_000 },
 						retry: {
+							maxAttempts: 1,
 							backoffBaseMs: 1000,
 							maxBackoffMs: 30000,
 						},
@@ -912,8 +916,9 @@ if (import.meta.main) {
 	const isResume = args.includes("--resume");
 	let runId = "";
 	const runIdIdx = args.indexOf("--run-id");
-	if (runIdIdx !== -1 && args[runIdIdx + 1]) {
-		runId = args[runIdIdx + 1];
+	const argRunId = runIdIdx !== -1 ? args[runIdIdx + 1] : undefined;
+	if (argRunId) {
+		runId = argRunId;
 	}
 
 	if (!isResume) {
