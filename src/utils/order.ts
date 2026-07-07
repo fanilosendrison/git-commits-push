@@ -12,8 +12,10 @@ function resolveHome(filepath: string): string {
 }
 
 function getStateDir(): string {
-	const dir = process.env.ORDER_STATE_DIR || "~/.agents/state/git-commits-push/orders";
-	return resolveHome(dir);
+	if (process.env.ORDER_STATE_DIR) {
+		return resolveHome(process.env.ORDER_STATE_DIR);
+	}
+	return path.join(import.meta.dir, "../../.state/orders");
 }
 
 export function checkAndAcquireLock(runId: string, callerName: string): "ACQUIRED" | "QUEUED" {
@@ -72,7 +74,7 @@ export function checkAndAcquireLock(runId: string, callerName: string): "ACQUIRE
 				const match = f.match(/^order-(\d+)-(.*)\.flag$/);
 				return {
 					name: f,
-					timestamp: match ? parseInt(match[1], 10) : 0,
+					timestamp: match ? parseInt(match[1]!, 10) : 0,
 				};
 			})
 			.sort((a, b) => a.timestamp - b.timestamp);
@@ -130,7 +132,7 @@ export function releaseLockAndTriggerNext(runId: string): void {
 				const match = f.match(/^order-(\d+)-(.*)\.flag$/);
 				return {
 					name: f,
-					timestamp: match ? parseInt(match[1], 10) : 0,
+					timestamp: match ? parseInt(match[1]!, 10) : 0,
 				};
 			})
 			.sort((a, b) => a.timestamp - b.timestamp);
