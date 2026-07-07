@@ -22,7 +22,7 @@ export async function bootstrapOrchestratorRun(args: string[]): Promise<void> {
 		}
 
 		let callerName = "CLI/User";
-		if (process.env.PI_AGENT === "1" || process.env.PI_AGENT_SESSION_ID) {
+		if (process.env.PI_AGENT === "1" || process.env.PI_SESSION_ID) {
 			callerName = "Pi Agent";
 		} else if (process.env.CLAUDE_CODE === "1") {
 			callerName = "Claude Code";
