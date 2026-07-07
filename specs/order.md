@@ -29,7 +29,7 @@
 - **Sortie :** 
   - `"ACQUIRED"` : Verrou posé avec succès.
   - `"QUEUED"` : Un verrou concurrent existait. La session s'est insérée dans la file d'attente. L'orchestrateur fera un `process.exit(0)` immédiat en affichant : 
-    `"Une session est déjà en cours (gérée par : [callerName]). Commande enregistrée. Vous êtes en position Y dans la file d'attente. Vos commits seront poussés de manière asynchrone par la session parente."`
+    `"ℹ️ Order registered! A session is already in progress (managed by: 🤖 [callerName]). You are in position Y in the queue. Your commits will be pushed asynchronously in the parent session."`
 
 ### `releaseLockAndTriggerNext(runId: string): void`
 - **Rôle :** Libère le verrou courant de manière sécurisée et amorce le traitement de la commande suivante.
