@@ -9,7 +9,6 @@
 import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { RepositoryInfo, Settings } from "../types.ts";
 import { scanDiff } from "./secret-scanner";
