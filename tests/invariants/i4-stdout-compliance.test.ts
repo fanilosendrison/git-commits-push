@@ -1,7 +1,7 @@
 // NIB-T — Test I4: Turnlock stdout Compliance (DC-TURNLOCK)
 // Given: any full execution of the orchestrator.
 // Expected: stdout contains ONLY valid @@TURNLOCK@@ protocol blocks — no other bytes.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -18,7 +18,7 @@ const SKILL_ENTRYPOINT = path.resolve(
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(() => {
+beforeEach(() => {
 	env = MockTurnlockEnvironment.create();
 	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "i4-"));
 	repoDirty = GitRepoFixture.create({ parentDir: searchRoot });
@@ -36,7 +36,7 @@ beforeAll(() => {
 	});
 });
 
-afterAll(() => {
+afterEach(() => {
 	repoDirty.dispose();
 	env.dispose();
 	fs.rmSync(searchRoot, { recursive: true, force: true });
@@ -58,9 +58,8 @@ describe("I4 — Turnlock stdout Compliance", () => {
 		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
+				...env.env(),
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-initial"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
-				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});
@@ -73,9 +72,8 @@ describe("I4 — Turnlock stdout Compliance", () => {
 		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
+				...env.env(),
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-stderr"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
-				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});
@@ -90,9 +88,8 @@ describe("I4 — Turnlock stdout Compliance", () => {
 		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
+				...env.env(),
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-debug"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
-				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});

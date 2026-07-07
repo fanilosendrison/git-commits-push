@@ -49,6 +49,7 @@ export class MockTurnlockEnvironment {
 			TURNLOCK_SKILL_SETTINGS_PATH: path.join(this.runDir, "settings.json"),
 			PI_SKILL_STATS_DIR: this.statsDir,
 			SECRET_SCANNER_STATS_DIR: this.statsDir,
+			ORDER_STATE_DIR: path.join(this.runDir, "orders"),
 		};
 	}
 
