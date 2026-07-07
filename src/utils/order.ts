@@ -138,7 +138,7 @@ export function releaseLockAndTriggerNext(runId: string): void {
 			.sort((a, b) => a.timestamp - b.timestamp);
 
 		if (flags.length > 0) {
-			const oldestFlag = flags[0].name;
+			const oldestFlag = flags[0]!.name;
 			try {
 				fs.unlinkSync(path.join(dir, oldestFlag));
 			} catch {
