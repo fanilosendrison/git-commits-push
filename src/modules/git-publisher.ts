@@ -255,8 +255,7 @@ export async function executeMultiCommitAndPush(
 	const committedShas: CommittedSha[] = [];
 
 	try {
-		for (let i = 0; i < plans.length; i++) {
-			const plan = plans[i];
+		for (const [i, plan] of plans.entries()) {
 			try {
 				// Stage the plan's files
 				gitExec(
