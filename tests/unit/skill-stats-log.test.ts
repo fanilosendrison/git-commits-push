@@ -9,7 +9,15 @@ describe("skill-stats-log Core Unit Tests", () => {
 	let gitStatsDir: string;
 	let log: ReturnType<typeof createSkillStatsLog>;
 
+	let originalAntigravityAgent: string | undefined;
+	let originalAntigravityTrajectoryId: string | undefined;
+
 	beforeEach(() => {
+		originalAntigravityAgent = process.env.ANTIGRAVITY_AGENT;
+		originalAntigravityTrajectoryId = process.env.ANTIGRAVITY_TRAJECTORY_ID;
+		delete process.env.ANTIGRAVITY_AGENT;
+		delete process.env.ANTIGRAVITY_TRAJECTORY_ID;
+
 		statsDir = path.join(os.tmpdir(), `skill-stats-log-test-${Date.now()}`);
 		gitStatsDir = path.join(statsDir, "git-commits-push");
 		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
