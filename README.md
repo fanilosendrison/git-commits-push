@@ -189,6 +189,15 @@ Secret scanner events are written to:
 ~/neelopedia/stats/<agent>/secret-scanner/events.jsonl
 ```
 
+Secret scanner results are fail-closed for production-looking secrets. Obvious
+non-production contexts are tolerated instead:
+
+- files under `test/`, `tests/`, `__tests__/`, `specs/`, or `fixtures/` emit a
+  non-blocking `warning`;
+- `.env.example`, `.env.template`, and `.env.sample` files are skipped;
+- same-line `mock`, `dummy`, `test`, `example`, or `fake` values are skipped;
+- same-line `git-commits-push: allow-secret` annotations are skipped.
+
 Core event types:
 
 - `order_started`;
@@ -202,7 +211,7 @@ Core event types:
 - `loop_detected`;
 - `repo_outcome`;
 - `run_end`;
-- secret scanner `passed` and `block`.
+- secret scanner `passed`, `warning`, and `block`.
 
 When `GCP_ORDER_*` environment variables are present, normal run events are
 automatically enriched with order context. This makes it possible to distinguish

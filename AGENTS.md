@@ -24,6 +24,8 @@ When iterating:
 ## Important Invariants
 
 - Secret scanning is fail-closed.
+- Secret scanner `warning` events are non-blocking and must stay limited to
+  explicit non-production contexts.
 - Git commands must be non-interactive.
 - Parallel validation must not leak state across repositories.
 - Orchestrator stdout must stay Turnlock-protocol clean.
@@ -201,6 +203,12 @@ Secret scanner events are written to:
 ```text
 ~/neelopedia/stats/<agent>/secret-scanner/events.jsonl
 ```
+
+Secret scanner event types:
+
+- `passed`: no suspicious findings;
+- `warning`: tolerated finding in an explicit non-production context;
+- `block`: commit flow stopped because a production-looking secret was found.
 
 Important order events:
 
