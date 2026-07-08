@@ -1,8 +1,6 @@
 import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as path from "node:path";
-import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
-import { reconstructRemainingDiff } from "../git/diff.ts";
 import type {
 	CommitJobPayload,
 	CommitPlan,
@@ -12,6 +10,8 @@ import type {
 	RepoState,
 	Settings,
 } from "../../types.ts";
+import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
+import { reconstructRemainingDiff } from "../git/diff.ts";
 
 // ── Module-scope retry queue ─────────────────────────────────────────────────
 
@@ -177,7 +177,7 @@ export function queueRetry(
 	const displayEntry = formatFailedPlans(failedPlans);
 	const truncatedEntry =
 		displayEntry.length > MAX_FEEDBACK_ENTRY_BYTES
-			? displayEntry.slice(0, MAX_FEEDBACK_ENTRY_BYTES) + "\n[truncated]"
+			? `${displayEntry.slice(0, MAX_FEEDBACK_ENTRY_BYTES)}\n[truncated]`
 			: displayEntry;
 
 	const history = repoState.feedbackHistory ?? [];
@@ -189,7 +189,7 @@ export function queueRetry(
 	const joinedHistory = nextHistory.join("\n\n--- NEXT ATTEMPT ---\n\n");
 	const previousCommit =
 		joinedHistory.length > MAX_FEEDBACK_TOTAL_BYTES
-			? joinedHistory.slice(0, MAX_FEEDBACK_TOTAL_BYTES) + "\n[truncated]"
+			? `${joinedHistory.slice(0, MAX_FEEDBACK_TOTAL_BYTES)}\n[truncated]`
 			: joinedHistory;
 
 	// 6. Build payload

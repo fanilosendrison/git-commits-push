@@ -149,7 +149,7 @@ describe("trailing period", () => {
 
 describe("subject line too long", () => {
 	test("rejects subject exceeding 72 chars", () => {
-		const longSubject = "feat: " + "x".repeat(70);
+		const longSubject = `feat: ${"x".repeat(70)}`;
 		expect(longSubject.length).toBeGreaterThan(72);
 		const r = validateCommitMessage(longSubject);
 		expect(r.valid).toBe(false);
@@ -157,15 +157,14 @@ describe("subject line too long", () => {
 	});
 
 	test("accepts subject of exactly 72 chars", () => {
-		const msg = "feat: " + "x".repeat(66);
+		const msg = `feat: ${"x".repeat(66)}`;
 		expect(msg.length).toBe(72);
 		const r = validateCommitMessage(msg);
 		expect(r.valid).toBe(true);
 	});
 
 	test("checks subject line only, not body length", () => {
-		const msg =
-			"feat: short subject\n\n" + "x".repeat(200) + "\n" + "y".repeat(300);
+		const msg = `feat: short subject\n\n${"x".repeat(200)}\n${"y".repeat(300)}`;
 		const r = validateCommitMessage(msg);
 		expect(r.valid).toBe(true); // body can be any length
 	});

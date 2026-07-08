@@ -1,5 +1,5 @@
-import { gitExec } from "./git-exec.ts";
 import { PushError } from "../core/errors.ts";
+import { gitExec } from "./git-exec.ts";
 
 const PERMANENT_PUSH_SIGNATURES: readonly string[] = [
 	"Permission denied",

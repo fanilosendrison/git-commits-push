@@ -19,8 +19,8 @@ import {
 	CommitPlanError,
 	DiffHashMismatchError,
 } from "../../src/modules/core/errors.ts";
-import { classifyTransient } from "../../src/modules/git/push.ts";
 import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
+import { classifyTransient } from "../../src/modules/git/push.ts";
 import type { CommitPlan, Settings } from "../../src/types.ts";
 import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";

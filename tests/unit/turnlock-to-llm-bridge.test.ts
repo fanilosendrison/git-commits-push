@@ -104,14 +104,17 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 	buildSimplePrompt: <T>(p: T) => p,
 }));
 
-mock.module(path.resolve(__dirname, "../../src/modules/core/auth-resolver"), () => ({
-	resolveAuthToken: async (provider: string) => {
-		if (provider === "fail") {
-			throw new Error("mock auth fail");
-		}
-		return "mock-token";
-	},
-}));
+mock.module(
+	path.resolve(__dirname, "../../src/modules/core/auth-resolver"),
+	() => ({
+		resolveAuthToken: async (provider: string) => {
+			if (provider === "fail") {
+				throw new Error("mock auth fail");
+			}
+			return "mock-token";
+		},
+	}),
+);
 
 // Now import the functions to test
 import {

@@ -4,12 +4,12 @@
  */
 import * as os from "node:os";
 import * as path from "node:path";
+import type { OrchestratorConfig } from "turnlock";
 import { stateSchema } from "../config/state-schema.ts";
 import { runDiscoveryAndValidationPhase } from "../phases/step1-discovery-validation.ts";
 import { runCommitAndPushPhase } from "../phases/step2-commit-push.ts";
-import { bootstrapOrchestratorRun } from "../utils/cli-bootstrap.ts";
 import type { GlobalState } from "../types.ts";
-import type { OrchestratorConfig } from "turnlock";
+import { bootstrapOrchestratorRun } from "../utils/cli-bootstrap.ts";
 
 if (import.meta.main) {
 	// 1. Run bootstrap synchronously to set process.argv before Turnlock is imported
@@ -43,4 +43,3 @@ if (import.meta.main) {
 			process.exit(1);
 		});
 }
-

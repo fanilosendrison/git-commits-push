@@ -8,7 +8,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { buildReport, generateReport } from "../../src/modules/core/reporter.ts";
+import {
+	buildReport,
+	generateReport,
+} from "../../src/modules/core/reporter.ts";
 import type { RepoState } from "../../src/types.ts";
 
 // ── buildReport ──────────────────────────────────────────────────────────────

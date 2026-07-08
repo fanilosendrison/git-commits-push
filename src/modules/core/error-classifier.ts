@@ -98,9 +98,7 @@ export function getResolutionHint(kind: CommitPlanErrorKind): string {
 }
 
 const LLM_BRIDGE_ERROR_PREFIX = "LLM Fatal Error:";
-const LLM_FATAL_SIGNATURES: readonly string[] = [
-	LLM_BRIDGE_ERROR_PREFIX,
-];
+const LLM_FATAL_SIGNATURES: readonly string[] = [LLM_BRIDGE_ERROR_PREFIX];
 
 export function classifyLLMFailure(
 	error: string,

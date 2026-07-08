@@ -90,7 +90,7 @@ describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns
 			`export const key = "AKIAIOSFODNN7EXAMPLE";\n`,
 		);
 		// Redirect stats to temp dir for test isolation
-		statsDir = path.join(os.tmpdir(), "ss-test-" + Date.now());
+		statsDir = path.join(os.tmpdir(), `ss-test-${Date.now()}`);
 		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
 	});
 	afterAll(() => {
@@ -133,7 +133,7 @@ describe("U-VA-03b | processRepoValidationAndDiff — logs passed event when sca
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("safe.ts", "export const x = 1;\n");
-		statsDir = path.join(os.tmpdir(), "ss-pass-test-" + Date.now());
+		statsDir = path.join(os.tmpdir(), `ss-pass-test-${Date.now()}`);
 		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
 	});
 	afterAll(() => {

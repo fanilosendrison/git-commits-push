@@ -172,10 +172,12 @@ export interface RepoState {
 	 * Set by the orchestrator when classifyError or queueRetry detects a loop.
 	 * The reporter reads it directly (no regex extraction from error string).
 	 */
-	loopDetected?: {
-		kind: FeedbackError["kind"];
-		planHash: string;
-	} | undefined;
+	loopDetected?:
+		| {
+				kind: FeedbackError["kind"];
+				planHash: string;
+		  }
+		| undefined;
 	/** NEW: true when the fallback model has been tried for this repo */
 	fallbackAttempted?: boolean | undefined;
 }

@@ -2,9 +2,9 @@ import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { scanDiff } from "../secret-scanner.ts";
-import { createSkillStatsLog } from "../../telemetry/stats-logger.ts";
 import type { RepositoryInfo, Settings } from "../../../types.ts";
+import { createSkillStatsLog } from "../../telemetry/stats-logger.ts";
+import { scanDiff } from "../secret-scanner.ts";
 
 export interface ScanResult {
 	hasSecrets: boolean;
