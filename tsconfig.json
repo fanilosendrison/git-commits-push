@@ -27,12 +27,7 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true,
-
-    "paths": {
-      "turnlock": ["../../../VegaCorp/turnlock/src/index.ts"],
-      "turnlock/*": ["../../../VegaCorp/turnlock/src/*.ts"]
-    }
+    "skipLibCheck": true
   },
   "include": ["src/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist"]
