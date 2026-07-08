@@ -1,44 +1,210 @@
-# Spécification Technique : Algorithme "Commande" (Order)
+# Order Algorithm Specification
 
-*Pour le contexte philosophique et les décisions d'architecture, voir le Rationale : [docs/order-rationale.md](../docs/order-rationale.md).*
+For the design rationale, see
+[`docs/order-rationale.md`](../docs/order-rationale.md).
 
-## 1. Arborescence Cible
+## Purpose
 
-- **Utilitaire métier :** `src/utils/lock-manager.ts`
-- **Dossier d'état système :** `~/.agents/state/git-commits-push/orders/`
-  - Fichier verrou : `running.lock` (contient des métadonnées JSON : `runId`, `callerName`, `timestamp`)
-  - Fichiers de file d'attente : `order-<timestamp>-<uuid>.flag`
+The order algorithm serializes local `git-commits-push` executions. It prevents
+two agent sessions from mutating the same repositories, Git indexes, Turnlock
+state, or telemetry stream at the same time.
 
-## 2. Comportement du Système
+The algorithm deliberately separates these identities:
 
-- **Règle 1 (Acquisition & File d'attente) :** Si une session démarre et que `running.lock` appartient à un autre processus, elle doit s'enregistrer dans la file d'attente (en créant un fichier `order-*.flag`), calculer sa position, notifier l'utilisateur (ou l'agent parent via stdout), puis s'arrêter avec un code de succès (`exit(0)`).
-- **Règle 2 (Passage de relais) :** Lorsqu'une session active se termine (succès ou échec après épuisement des retries), elle doit libérer le verrou. S'il reste des commandes dans le dossier d'état, elle doit supprimer la plus ancienne et relancer la commande CLI globale de l'outil (`git-commits-push`) en processus arrière-plan (spawn détaché).
-- **Règle 3 (Nettoyage Best-Effort) :** L'application doit s'efforcer de supprimer son `running.lock` en interceptant les signaux d'arrêt brutaux (ex: `SIGINT`, `uncaughtException`).
-- **Règle 4 (Sécurité Anti-Deadlock & Heartbeat) :** Pour détecter avec certitude les crashs brutaux sans timeout arbitraire, l'outil implémente un "Heartbeat" (battement de cœur).
-  - L'orchestrateur et le bridge doivent mettre à jour la date de modification (`mtime`) de `running.lock` toutes les 10 secondes.
-  - Le relais du Heartbeat se passe de l'orchestrateur au bridge au moment de la délégation.
-  - Si une nouvelle session trouve un `running.lock` dont le `mtime` est plus vieux que 40 secondes, la session est certifiée morte. Elle écrase alors le verrou orphelin et s'exécute normalement.
+- `runId`: one Turnlock execution.
+- `orderId`: one user or agent request, even if queued and executed later.
 
-## 3. Contrats I/O (Exportations de `src/utils/lock-manager.ts`)
+This separation is required for observability. A retry stays inside one `runId`.
+A queued second agent session receives its own `orderId`, exits, and is later
+executed by a fresh run in the parent session.
 
-### `checkAndAcquireLock(runId: string, forceUnlock: boolean): "ACQUIRED" | "QUEUED"`
-- **Rôle :** Tente d'acquérir le verrou exclusif ou place la demande en file d'attente.
-- **Entrées :**
-  - `runId` (string) : L'identifiant Turnlock de la session courante (utilisé pour autoriser un `--resume` sans se bloquer soi-même).
-  - `forceUnlock` (boolean) : Si `true`, détruit tout état système existant avant de s'approprier le verrou.
-- **Sortie :** 
-  - `"ACQUIRED"` : Verrou posé avec succès.
-  - `"QUEUED"` : Un verrou concurrent existait. La session s'est insérée dans la file d'attente. L'orchestrateur fera un `process.exit(0)` immédiat en affichant : 
-    `"ℹ️ Order registered! A session is already in progress (managed by: 🤖 [callerName]). You are in position Y in the queue. Your commits will be pushed asynchronously in the parent session."`
+## State Directory
 
-### `releaseLockAndTriggerNext(runId: string): void`
-- **Rôle :** Libère le verrou courant de manière sécurisée et amorce le traitement de la commande suivante.
-- **Entrées :**
-  - `runId` (string) : Identifiant de la session courante (pour éviter de supprimer le verrou d'un autre si on s'est fait écraser).
-- **Sortie :** Ne retourne rien. Si une commande est en attente, le script lance un `spawn` détaché de `bun run start` avec le bon `cwd` (`/Users/famillesendrison/.agents/skills/git-commits-push`).
+The state directory is resolved as follows:
 
-### `startHeartbeat(): void` / `stopHeartbeat(): void`
-- **Rôle :** Fonctions à appeler au démarrage et à la fin de l'orchestrateur (et du bridge) pour maintenir la date de modification du fichier `running.lock` à jour toutes les 10 secondes.
+1. `ORDER_STATE_DIR`, when present.
+2. The skill-local `.state/orders` directory.
 
-### `setupCleanupHooks(): void`
-- **Rôle :** Initialise les écouteurs sur le processus hôte (`SIGINT`, `uncaughtException`) pour garantir la suppression propre du fichier lock en cas d'interruption interceptable, évitant ainsi d'attendre les 40 secondes du Heartbeat.
+The directory contains:
+
+- `running.lock`;
+- `order-<queuedAtEpochMs>-<orderId>.json`;
+- legacy `order-*.flag` files during migration only.
+
+## Lock File
+
+`running.lock` is JSON.
+
+Required fields:
+
+- `runId`;
+- `callerName`;
+- `timestamp`.
+
+Optional fields:
+
+- `orderId`;
+- `originSessionId`;
+- `originAgent`.
+
+The active process updates the lock file `mtime` every 10 seconds. If another
+process finds the lock older than 40 seconds, it treats the active execution as
+dead, removes the stale lock, clears queued files, and acquires the lock.
+
+## Queued Order File
+
+Queued order files are JSON.
+
+Required fields:
+
+- `orderId`;
+- `requestedRunId`;
+- `originAgent`;
+- `callerName`;
+- `queuedAtEpochMs`.
+
+Optional fields:
+
+- `originSessionId`;
+- `blockedByRunId`;
+- `blockedByCallerName`;
+- `triggeredByRunId`;
+- `queuePosition`.
+
+The filename starts with `queuedAtEpochMs` so FIFO order is inspectable even
+without parsing the file. The JSON body is the canonical data.
+
+## Environment Contract
+
+Queued orders are passed into spawned child runs with these environment
+variables:
+
+- `GCP_ORDER_ID`;
+- `GCP_ORDER_ORIGIN_SESSION_ID`;
+- `GCP_ORDER_ORIGIN_AGENT`;
+- `GCP_ORDER_CALLER_NAME`;
+- `GCP_ORDER_QUEUED_AT_EPOCH_MS`;
+- `GCP_ORDER_TRIGGERED_BY_RUN_ID`;
+- `GCP_ORDER_IS_QUEUED`.
+
+`src/utils/cli-bootstrap.ts` reads these variables before Turnlock is imported.
+It also creates fresh values for direct, non-queued invocations.
+
+## Acquisition Rules
+
+`checkAndAcquireLock(runId, orderContext)` returns an `AcquireLockResult`.
+
+If no lock exists:
+
+- create `running.lock`;
+- return `kind: "ACQUIRED"`;
+- allow Turnlock startup to continue;
+- log `order_started` from bootstrap.
+
+If the lock belongs to the same `runId`:
+
+- return `kind: "ACQUIRED"`;
+- treat this as a resume of the same run.
+
+If the lock is malformed:
+
+- overwrite it;
+- return `kind: "ACQUIRED"`.
+
+If the lock is stale:
+
+- remove it;
+- remove queued order files;
+- create a fresh lock;
+- return `kind: "ACQUIRED"`.
+
+If the lock is active and belongs to another run:
+
+- create an `order-*.json` file;
+- calculate FIFO queue position;
+- log `order_queued`;
+- return `kind: "QUEUED"`;
+- print a queue-registration message;
+- exit with status `0`.
+
+## Release Rules
+
+`releaseLockAndTriggerNext(runId)` returns a `ReleaseLockResult`.
+
+If no lock exists:
+
+- stop heartbeat;
+- return `kind: "missing-lock"`.
+
+If the lock is malformed:
+
+- stop heartbeat;
+- return `kind: "malformed-lock"`.
+
+If the lock belongs to another run:
+
+- stop heartbeat;
+- return `kind: "not-owner"`.
+
+If the lock belongs to the current run:
+
+- remove `running.lock`;
+- stop heartbeat;
+- inspect queued orders.
+
+When the queue is empty:
+
+- log `queue_empty`;
+- return `kind: "released"` with `remainingQueuedOrders: 0`.
+
+When the queue is not empty:
+
+- delete the oldest queued order;
+- add `triggeredByRunId`;
+- log `order_dequeued`;
+- spawn `bun run start` in the skill root unless `DISABLE_REAL_SPAWN=1`;
+- pass `GCP_ORDER_*` variables to the child process;
+- return `kind: "released"` with the triggered order.
+
+## Telemetry Rules
+
+The order algorithm emits:
+
+- `order_started`;
+- `order_queued`;
+- `order_dequeued`;
+- `order_finished`;
+- `queue_empty`.
+
+All standard git-commits-push telemetry events are enriched with order context
+when `GCP_ORDER_*` variables exist. This is how consumers distinguish:
+
+- a retry attempt inside the same run;
+- a queued order from another session;
+- a queued order later executed by the parent session.
+
+## Safety Rules
+
+The order algorithm must not depend on an OS PID lock. Turnlock intentionally
+terminates and resumes processes between delegations, so PID ownership would be
+misleading.
+
+The queued process must not sleep, poll, or keep the terminal open. It registers
+its order and exits.
+
+The parent process must spawn the full `bun run start` command for the next
+order. Restarting only the orchestrator would bypass the bridge and break LLM
+delegation.
+
+Telemetry failures must never prevent lock cleanup or queued-order execution.
+
+## Tests
+
+Important tests:
+
+- `tests/unit/order-store.test.ts`;
+- `tests/unit/lock-manager.test.ts`;
+- `tests/unit/skill-stats-log.test.ts`;
+- `tests/acceptance/a4-queued-order-observability.test.ts`;
+- `tests/invariants/i4-stdout-compliance.test.ts`;
+- `tests/invariants/i5-test-environment-safety.test.ts`.
