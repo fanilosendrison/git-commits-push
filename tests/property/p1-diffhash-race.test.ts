@@ -75,7 +75,6 @@ afterAll(() => {
 });
 
 describe("P1 — DiffHash Race Condition Prevention", () => {
-	let stderr: string;
 	let stdout: string;
 
 	test("P1-01 | process exits with code 0 (partial success path)", () => {
@@ -90,7 +89,6 @@ describe("P1 — DiffHash Race Condition Prevention", () => {
 				encoding: "utf-8",
 			},
 		);
-		stderr = result.stderr ?? "";
 		stdout = result.stdout ?? "";
 		// The orchestration itself succeeds but the repo worker fails gracefully
 		expect(result.status).toBe(0);

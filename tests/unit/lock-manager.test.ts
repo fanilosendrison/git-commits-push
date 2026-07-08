@@ -1,16 +1,22 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { checkAndAcquireLock, releaseLockAndTriggerNext, startHeartbeat, stopHeartbeat } from "../../src/utils/lock-manager.ts";
-
-
+import {
+	checkAndAcquireLock,
+	releaseLockAndTriggerNext,
+	startHeartbeat,
+	stopHeartbeat,
+} from "../../src/utils/lock-manager.ts";
 
 describe("Order Queue and Heartbeat Unit Tests", () => {
 	let testStateDir: string;
 
 	beforeEach(() => {
-		testStateDir = path.join(os.tmpdir(), "turnlock-order-test-" + Math.random().toString(36).substring(2));
+		testStateDir = path.join(
+			os.tmpdir(),
+			`turnlock-order-test-${Math.random().toString(36).substring(2)}`,
+		);
 		fs.mkdirSync(testStateDir, { recursive: true });
 		process.env.ORDER_STATE_DIR = testStateDir;
 		process.env.DISABLE_REAL_SPAWN = "1";
@@ -46,7 +52,7 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 
 		// Check that order flag is created
 		const files = fs.readdirSync(testStateDir);
-		const flags = files.filter(f => f.startsWith("order-"));
+		const flags = files.filter((f) => f.startsWith("order-"));
 		expect(flags.length).toBe(1);
 	});
 
@@ -58,15 +64,19 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 
 	test("checkAndAcquireLock overwrites lock if stale (> 40 seconds)", () => {
 		const lockPath = path.join(testStateDir, "running.lock");
-		
+
 		// Create a stale lock manually
 		const now = Date.now();
 		const staleTime = now - 50000; // 50 seconds ago
-		fs.writeFileSync(lockPath, JSON.stringify({
-			runId: "run-stale",
-			callerName: "AgentStale",
-			timestamp: staleTime
-		}), "utf-8");
+		fs.writeFileSync(
+			lockPath,
+			JSON.stringify({
+				runId: "run-stale",
+				callerName: "AgentStale",
+				timestamp: staleTime,
+			}),
+			"utf-8",
+		);
 		fs.utimesSync(lockPath, new Date(staleTime), new Date(staleTime));
 
 		// Create a stale order flag
@@ -92,7 +102,7 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 		startHeartbeat(10);
 
 		// Wait 25ms
-		await new Promise(resolve => setTimeout(resolve, 25));
+		await new Promise((resolve) => setTimeout(resolve, 25));
 
 		const newMtime = fs.statSync(lockPath).mtimeMs;
 		expect(newMtime).toBeGreaterThan(initialMtime);
@@ -101,7 +111,7 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 
 	test("releaseLockAndTriggerNext deletes lock and triggers next if queue exists", () => {
 		checkAndAcquireLock("run-1", "AgentA");
-		
+
 		// Create flags
 		const time = Date.now();
 		const flag1 = path.join(testStateDir, `order-${time}-1.flag`);
@@ -118,6 +128,5 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 		// Oldest flag should be deleted (flag1)
 		expect(fs.existsSync(flag1)).toBe(false);
 		expect(fs.existsSync(flag2)).toBe(true);
-
 	});
 });
