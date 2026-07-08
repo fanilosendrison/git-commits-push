@@ -574,6 +574,14 @@ export async function runCommitAndPushPhase(
 		totalRetries,
 		loopCount,
 	});
+	skillLog.logOrderFinished({
+		runId: currentRunId,
+		outcome: failCount > 0 ? "failed" : "success",
+		successCount,
+		failCount,
+		totalRepos,
+		totalRetries,
+	});
 
 	releaseLockAndTriggerNext(io.runId);
 

@@ -1,13 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { PhaseIO } from "turnlock";
+import type { PhaseIO, PhaseResult } from "turnlock";
 import { readSettings } from "../config/settings.ts";
-import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
 import { runDiscovery } from "../modules/core/discovery.ts";
-import { processRepoValidationAndDiff } from "../modules/core/validators/pre-commit-validators.ts";
 import { printReport } from "../modules/core/reporter.ts";
+import { processRepoValidationAndDiff } from "../modules/core/validators/pre-commit-validators.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import type { CommitJobPayload, GlobalState } from "../types.ts";
+import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
 
 const skillLog = createSkillStatsLog();
 const currentParentModel = process.env.PI_PARENT_MODEL || "unknown";
@@ -17,7 +17,7 @@ let runStartEpochMs = 0;
 export async function runDiscoveryAndValidationPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
-): Promise<any> {
+): Promise<PhaseResult<GlobalState, unknown>> {
 	const settings = readSettings(path.resolve(import.meta.dir, "../config"));
 
 	// ── Log run_start on first invocation ───────────────────────────
@@ -44,14 +44,20 @@ export async function runDiscoveryAndValidationPhase(
 	// Phase 1: Discovery
 	process.stderr.write("[DEBUG] Starting runDiscovery...\n");
 	const repos = await runDiscovery(settings);
-	process.stderr.write(
-		"[DEBUG] runDiscovery done: " + repos.length + " repos\n",
-	);
+	process.stderr.write(`[DEBUG] runDiscovery done: ${repos.length} repos\n`);
 	if (repos.length === 0) {
 		process.stderr.write(
 			"[orchestrator] No repositories with changes found. Exiting.\n",
 		);
 		printReport({});
+		skillLog.logOrderFinished({
+			runId: currentRunId,
+			outcome: "no_changes",
+			successCount: 0,
+			failCount: 0,
+			totalRepos: 0,
+			totalRetries: 0,
+		});
 		releaseLockAndTriggerNext(io.runId);
 		return io.done({});
 	}
@@ -67,7 +73,7 @@ export async function runDiscoveryAndValidationPhase(
 
 	for (const repo of repos) {
 		try {
-			process.stderr.write("[DEBUG] Validating repo: " + repo.path + "\n");
+			process.stderr.write(`[DEBUG] Validating repo: ${repo.path}\n`);
 			const t0 = Date.now();
 			const { diff, diffHash } = await processRepoValidationAndDiff(
 				repo,
@@ -100,17 +106,27 @@ export async function runDiscoveryAndValidationPhase(
 		process.stderr.write(
 			"[orchestrator] No repositories passed validation. Exiting.\n",
 		);
+		const failCount = Object.values(nextRepos).filter(
+			(r) => r.status === "FAILED",
+		).length;
+		const totalRepos = Object.keys(nextRepos).length;
 		printReport(nextRepos);
 		skillLog.logRunEnd({
 			runId: currentRunId,
 			durationMs: Date.now() - runStartEpochMs,
 			successCount: 0,
-			failCount: Object.values(nextRepos).filter(
-				(r) => r.status === "FAILED",
-			).length,
-			totalRepos: Object.keys(nextRepos).length,
+			failCount,
+			totalRepos,
 			totalRetries: 0,
 			loopCount: 0,
+		});
+		skillLog.logOrderFinished({
+			runId: currentRunId,
+			outcome: failCount > 0 ? "failed" : "no_valid_repos",
+			successCount: 0,
+			failCount,
+			totalRepos,
+			totalRetries: 0,
 		});
 		releaseLockAndTriggerNext(io.runId);
 		const hasFailedRepo = Object.values(nextRepos).some(

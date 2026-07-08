@@ -1,8 +1,24 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import {
+	deleteQueuedOrder,
+	deleteQueuedOrderFiles,
+	listQueuedOrders,
+	readLock,
+	writeLock,
+	writeQueuedOrder,
+} from "../modules/orders/order-store.ts";
+import {
+	type AcquireLockResult,
+	type LockMetadata,
+	ORDER_ENV_KEYS,
+	type OrderContext,
+	type OrderMetadata,
+	type ReleaseLockResult,
+} from "../modules/orders/types.ts";
+import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 
 function resolveHome(filepath: string): string {
 	if (filepath.startsWith("~")) {
@@ -18,7 +34,112 @@ function getStateDir(): string {
 	return path.join(import.meta.dir, "../../.state/orders");
 }
 
-export function checkAndAcquireLock(runId: string, callerName: string): "ACQUIRED" | "QUEUED" {
+function buildLock(runId: string, context: OrderContext): LockMetadata {
+	const timestamp = Date.now();
+	return {
+		runId,
+		callerName: context.callerName,
+		timestamp,
+		orderId: context.orderId,
+		originAgent: context.originAgent,
+		...(context.originSessionId
+			? { originSessionId: context.originSessionId }
+			: {}),
+	};
+}
+
+function buildOrder(
+	runId: string,
+	context: OrderContext,
+	queuedAtEpochMs: number,
+	blockedBy?: LockMetadata,
+): OrderMetadata {
+	return {
+		orderId: context.orderId,
+		requestedRunId: runId,
+		originAgent: context.originAgent,
+		callerName: context.callerName,
+		queuedAtEpochMs,
+		...(context.originSessionId
+			? { originSessionId: context.originSessionId }
+			: {}),
+		...(context.triggeredByRunId
+			? { triggeredByRunId: context.triggeredByRunId }
+			: {}),
+		...(blockedBy
+			? {
+					blockedByRunId: blockedBy.runId,
+					blockedByCallerName: blockedBy.callerName,
+				}
+			: {}),
+	};
+}
+
+function logOrderQueueEvent(
+	event:
+		| {
+				type: "queued";
+				order: OrderMetadata;
+				position: number;
+				blockedByRunId: string;
+				blockedByCallerName: string;
+		  }
+		| {
+				type: "dequeued";
+				order: OrderMetadata;
+				triggeredByRunId: string;
+				remainingQueuedOrders: number;
+		  }
+		| {
+				type: "queue_empty";
+				runId: string;
+		  },
+): void {
+	try {
+		const log = createSkillStatsLog();
+		if (event.type === "queued") {
+			log.logOrderQueued({
+				orderId: event.order.orderId,
+				requestedRunId: event.order.requestedRunId,
+				originAgent: event.order.originAgent,
+				callerName: event.order.callerName,
+				queuedAtEpochMs: event.order.queuedAtEpochMs,
+				position: event.position,
+				blockedByRunId: event.blockedByRunId,
+				blockedByCallerName: event.blockedByCallerName,
+				...(event.order.originSessionId
+					? { originSessionId: event.order.originSessionId }
+					: {}),
+			});
+			return;
+		}
+
+		if (event.type === "dequeued") {
+			log.logOrderDequeued({
+				orderId: event.order.orderId,
+				requestedRunId: event.order.requestedRunId,
+				originAgent: event.order.originAgent,
+				callerName: event.order.callerName,
+				queuedAtEpochMs: event.order.queuedAtEpochMs,
+				triggeredByRunId: event.triggeredByRunId,
+				remainingQueuedOrders: event.remainingQueuedOrders,
+				...(event.order.originSessionId
+					? { originSessionId: event.order.originSessionId }
+					: {}),
+			});
+			return;
+		}
+
+		log.logQueueEmpty({ runId: event.runId });
+	} catch {
+		// Telemetry must never prevent lock cleanup.
+	}
+}
+
+export function checkAndAcquireLock(
+	runId: string,
+	context: OrderContext,
+): AcquireLockResult {
 	const dir = getStateDir();
 	if (!fs.existsSync(dir)) {
 		fs.mkdirSync(dir, { recursive: true });
@@ -27,17 +148,32 @@ export function checkAndAcquireLock(runId: string, callerName: string): "ACQUIRE
 	const lockPath = path.join(dir, "running.lock");
 
 	if (fs.existsSync(lockPath)) {
-		let lockContent: { runId: string; callerName: string; timestamp: number };
-		try {
-			lockContent = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
-		} catch {
+		const lockContent = readLock(lockPath);
+		if (!lockContent) {
 			// Malformed lock file -> treat as stale
-			writeLock(lockPath, runId, callerName);
-			return "ACQUIRED";
+			const lock = buildLock(runId, context);
+			writeLock(lockPath, lock);
+			return {
+				kind: "ACQUIRED",
+				order: buildOrder(
+					runId,
+					context,
+					context.queuedAtEpochMs ?? lock.timestamp,
+				),
+				lock,
+			};
 		}
 
 		if (lockContent.runId === runId) {
-			return "ACQUIRED";
+			return {
+				kind: "ACQUIRED",
+				order: buildOrder(
+					runId,
+					context,
+					context.queuedAtEpochMs ?? lockContent.timestamp,
+				),
+				lock: lockContent,
+			};
 		}
 
 		const stat = fs.statSync(lockPath);
@@ -47,116 +183,169 @@ export function checkAndAcquireLock(runId: string, callerName: string): "ACQUIRE
 			// Stale lock: clean up old lock and any stale queues
 			try {
 				fs.unlinkSync(lockPath);
-				const files = fs.readdirSync(dir);
-				for (const f of files) {
-					if (f.startsWith("order-") && f.endsWith(".flag")) {
-						fs.unlinkSync(path.join(dir, f));
-					}
-				}
+				deleteQueuedOrderFiles(dir);
 			} catch {
 				// ignore race conditions during deletion
 			}
 
-			writeLock(lockPath, runId, callerName);
-			return "ACQUIRED";
+			const lock = buildLock(runId, context);
+			writeLock(lockPath, lock);
+			return {
+				kind: "ACQUIRED",
+				order: buildOrder(
+					runId,
+					context,
+					context.queuedAtEpochMs ?? lock.timestamp,
+				),
+				lock,
+			};
 		}
 
 		// Active lock exists -> queue the order
-		const myFlagName = `order-${Date.now()}-${randomUUID()}.flag`;
-		const myFlagPath = path.join(dir, myFlagName);
-		fs.writeFileSync(myFlagPath, "", "utf-8");
+		const queuedAtEpochMs = context.queuedAtEpochMs ?? Date.now();
+		const orderWithoutPosition = buildOrder(
+			runId,
+			context,
+			queuedAtEpochMs,
+			lockContent,
+		);
+		const filePath = writeQueuedOrder(dir, orderWithoutPosition);
+		const queuedOrders = listQueuedOrders(dir);
+		const position =
+			queuedOrders.findIndex((record) => record.filePath === filePath) + 1 ||
+			queuedOrders.length;
+		const order = { ...orderWithoutPosition, queuePosition: position };
+		writeQueuedOrder(dir, order);
+		logOrderQueueEvent({
+			type: "queued",
+			order,
+			position,
+			blockedByRunId: lockContent.runId,
+			blockedByCallerName: lockContent.callerName,
+		});
 
-		// Calculate position in queue
-		const files = fs.readdirSync(dir);
-		const flags = files
-			.filter(f => f.startsWith("order-") && f.endsWith(".flag"))
-			.map(f => {
-				const match = f.match(/^order-(\d+)-(.*)\.flag$/);
-				return {
-					name: f,
-					timestamp: match ? parseInt(match[1]!, 10) : 0,
-				};
-			})
-			.sort((a, b) => a.timestamp - b.timestamp);
-
-		const myIndex = flags.findIndex(f => f.name === myFlagName);
-		const position = myIndex !== -1 ? myIndex + 1 : flags.length;
-
-		console.log(`ℹ️ Order registered! A session is already in progress (managed by: 🤖 ${lockContent.callerName}). You are in position ${position} in the queue. Your commits will be pushed asynchronously in the parent session.`);
-		return "QUEUED";
+		return {
+			kind: "QUEUED",
+			order,
+			position,
+			blockedByRunId: lockContent.runId,
+			blockedByCallerName: lockContent.callerName,
+		};
 	}
 
-	writeLock(lockPath, runId, callerName);
-	return "ACQUIRED";
+	const lock = buildLock(runId, context);
+	writeLock(lockPath, lock);
+	return {
+		kind: "ACQUIRED",
+		order: buildOrder(
+			runId,
+			context,
+			context.queuedAtEpochMs ?? lock.timestamp,
+		),
+		lock,
+	};
 }
 
-function writeLock(lockPath: string, runId: string, callerName: string) {
-	fs.writeFileSync(lockPath, JSON.stringify({
-		runId,
-		callerName,
-		timestamp: Date.now()
-	}), "utf-8");
+function buildChildEnv(
+	order: OrderMetadata,
+	triggeredByRunId: string,
+): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		[ORDER_ENV_KEYS.orderId]: order.orderId,
+		[ORDER_ENV_KEYS.originAgent]: order.originAgent,
+		[ORDER_ENV_KEYS.callerName]: order.callerName,
+		[ORDER_ENV_KEYS.queuedAtEpochMs]: String(order.queuedAtEpochMs),
+		[ORDER_ENV_KEYS.triggeredByRunId]: triggeredByRunId,
+		[ORDER_ENV_KEYS.isQueuedOrder]: "1",
+	};
+
+	if (order.originSessionId) {
+		env[ORDER_ENV_KEYS.originSessionId] = order.originSessionId;
+	}
+
+	return env;
 }
 
-export function releaseLockAndTriggerNext(runId: string): void {
+export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
 	const dir = getStateDir();
 	const lockPath = path.join(dir, "running.lock");
 
-	if (fs.existsSync(lockPath)) {
-		let lockContent: { runId: string };
-		try {
-			lockContent = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
-		} catch {
-			return;
-		}
+	if (!fs.existsSync(lockPath)) {
+		stopHeartbeat();
+		return { kind: "missing-lock" };
+	}
 
-		if (lockContent.runId !== runId) {
-			return; // Lock does not belong to us
-		}
+	const lockContent = readLock(lockPath);
+	if (!lockContent) {
+		stopHeartbeat();
+		return { kind: "malformed-lock" };
+	}
 
-		try {
-			fs.unlinkSync(lockPath);
-		} catch {
-			// ignore
-		}
+	if (lockContent.runId !== runId) {
+		stopHeartbeat();
+		return { kind: "not-owner" };
+	}
+
+	try {
+		fs.unlinkSync(lockPath);
+	} catch {
+		// ignore
 	}
 
 	stopHeartbeat();
 
 	// Trigger next in queue if any
 	if (fs.existsSync(dir)) {
-		const files = fs.readdirSync(dir);
-		const flags = files
-			.filter(f => f.startsWith("order-") && f.endsWith(".flag"))
-			.map(f => {
-				const match = f.match(/^order-(\d+)-(.*)\.flag$/);
-				return {
-					name: f,
-					timestamp: match ? parseInt(match[1]!, 10) : 0,
-				};
-			})
-			.sort((a, b) => a.timestamp - b.timestamp);
-
-		if (flags.length > 0) {
-			const oldestFlag = flags[0]!.name;
-			try {
-				fs.unlinkSync(path.join(dir, oldestFlag));
-			} catch {
-				// ignore
-			}
-
-			if (process.env.DISABLE_REAL_SPAWN === "1") {
-				return;
-			}
-
-			// Run next job in the foreground of the current session
-			const skillRoot = path.resolve(__dirname, "../..");
-			spawnSync("bun", ["run", "start"], {
-				cwd: skillRoot,
-				stdio: "inherit"
-			});
+		const queuedOrders = listQueuedOrders(dir);
+		const next = queuedOrders[0];
+		if (!next) {
+			logOrderQueueEvent({ type: "queue_empty", runId });
+			return { kind: "released", remainingQueuedOrders: 0 };
 		}
+
+		try {
+			deleteQueuedOrder(next);
+		} catch {
+			// ignore
+		}
+
+		const remainingQueuedOrders = listQueuedOrders(dir).length;
+		const triggeredOrder: OrderMetadata = {
+			...next.order,
+			triggeredByRunId: runId,
+		};
+		logOrderQueueEvent({
+			type: "dequeued",
+			order: triggeredOrder,
+			triggeredByRunId: runId,
+			remainingQueuedOrders,
+		});
+
+		if (process.env.DISABLE_REAL_SPAWN === "1") {
+			return {
+				kind: "released",
+				triggeredOrder,
+				remainingQueuedOrders,
+			};
+		}
+
+		// Run next job in the foreground of the current session
+		const skillRoot = path.resolve(__dirname, "../..");
+		spawnSync("bun", ["run", "start"], {
+			cwd: skillRoot,
+			env: buildChildEnv(triggeredOrder, runId),
+			stdio: "inherit",
+		});
+
+		return {
+			kind: "released",
+			triggeredOrder,
+			remainingQueuedOrders,
+		};
 	}
+
+	return { kind: "released", remainingQueuedOrders: 0 };
 }
 
 let heartbeatInterval: Timer | null = null;
@@ -192,8 +381,8 @@ export function setupCleanupHooks(runId: string): void {
 		const lockPath = path.join(dir, "running.lock");
 		try {
 			if (fs.existsSync(lockPath)) {
-				const lockContent = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
-				if (lockContent.runId === runId) {
+				const lockContent = readLock(lockPath);
+				if (lockContent?.runId === runId) {
 					fs.unlinkSync(lockPath);
 				}
 			}
