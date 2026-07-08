@@ -2,7 +2,7 @@ import {
 	checkAndAcquireLock,
 	startHeartbeat,
 	setupCleanupHooks,
-} from "./order.ts";
+} from "./lock-manager.ts";
 
 export function bootstrapOrchestratorRun(args: string[]): void {
 	const isResume = args.includes("--resume");

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PhaseIO } from "turnlock";
 import { readSettings } from "../config/settings.ts";
-import { releaseLockAndTriggerNext } from "../utils/order.ts";
+import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
 import { validateCommitMessage } from "../modules/core/validators/commit-message-validator.ts";
 import { classifyError, classifyLLMFailure } from "../modules/core/error-classifier.ts";
 import { CommitPlanError, PartialCommitError } from "../modules/core/errors.ts";

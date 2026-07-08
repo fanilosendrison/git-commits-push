@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PhaseIO } from "turnlock";
 import { readSettings } from "../config/settings.ts";
-import { releaseLockAndTriggerNext } from "../utils/order.ts";
+import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
 import { runDiscovery } from "../modules/core/discovery.ts";
 import { processRepoValidationAndDiff } from "../modules/core/validators/pre-commit-validators.ts";
 import { printReport } from "../modules/core/reporter.ts";
