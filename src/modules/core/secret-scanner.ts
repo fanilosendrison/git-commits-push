@@ -95,7 +95,8 @@ export function scanDiff(diff: string): ScanResult {
 	const lines = diff.split("\n");
 
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i]!;
+		const line = lines[i];
+		if (line === undefined) continue;
 		if (!line.startsWith("+")) continue;
 		if (line.startsWith("+++")) continue;
 
