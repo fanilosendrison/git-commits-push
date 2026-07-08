@@ -120,6 +120,27 @@ function getOrderTelemetryContext(): Record<string, unknown> {
 	};
 }
 
+function parseSecretDetails(details: string): Array<{
+	name: string;
+	line: string;
+	lineNumber: number;
+}> {
+	return details
+		.split(", ")
+		.filter(Boolean)
+		.map((d) => {
+			const match = d.match(/^(.*) at line (\d+)$/);
+			if (match) {
+				return {
+					name: match[1] || "",
+					line: "",
+					lineNumber: parseInt(match[2] || "0", 10),
+				};
+			}
+			return { name: d, line: "", lineNumber: 0 };
+		});
+}
+
 function appendEvent(
 	eventType: string,
 	details: Record<string, unknown>,
@@ -265,6 +286,13 @@ export interface SkillStatsLog {
 	}): void;
 
 	logSecretBlock(params: {
+		repoId: string;
+		repoPath: string;
+		matchCount: number;
+		details: string;
+	}): void;
+
+	logSecretWarning(params: {
 		repoId: string;
 		repoPath: string;
 		matchCount: number;
@@ -440,23 +468,35 @@ export function createSkillStatsLog(): SkillStatsLog {
 			) {
 				return;
 			}
-			const findings = params.details
-				.split(", ")
-				.filter(Boolean)
-				.map((d) => {
-					const match = d.match(/^(.*) at line (\d+)$/);
-					if (match) {
-						return {
-							name: match[1] || "",
-							line: "",
-							lineNumber: parseInt(match[2] || "0", 10),
-						};
-					}
-					return { name: d, line: "", lineNumber: 0 };
-				});
+			const findings = parseSecretDetails(params.details);
 
 			getSecretSink().append(
 				"block",
+				{
+					findingsCount: params.matchCount,
+					findings,
+					_source: "git-commits-push-skill",
+				},
+				{
+					sessionId: `skill-${params.repoId}`,
+					workspace: params.repoPath,
+				},
+			);
+		},
+
+		logSecretWarning(params) {
+			if (process.env.PI_SKILL_STATS_MODE === "test") return;
+			if (
+				process.env.NODE_ENV === "test" &&
+				!process.env.SECRET_SCANNER_STATS_DIR &&
+				!process.env.PI_SKILL_STATS_DIR
+			) {
+				return;
+			}
+			const findings = parseSecretDetails(params.details);
+
+			getSecretSink().append(
+				"warning",
 				{
 					findingsCount: params.matchCount,
 					findings,

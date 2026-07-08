@@ -26,7 +26,7 @@ describe("secret-scanner Core Unit Tests", () => {
 	});
 
 	test("detects AWS access key", () => {
-		const diff = "+AKIAIOSFODNN7EXAMPLE";
+		const diff = "+AKIA1234567890ABCDEF";
 		const r = scanDiff(diff);
 		expect(r.clean).toBe(false);
 		expect(r.findings.some((f) => f.name === "AWS Access Key")).toBe(true);
@@ -108,9 +108,82 @@ describe("secret-scanner Core Unit Tests", () => {
 
 	test("tracks line numbers", () => {
 		const diff = ` line 1
-+AKIAIOSFODNN7EXAMPLE
++AKIA1234567890ABCDEF
  line 3`;
 		const r = scanDiff(diff);
 		expect(r.findings[0]?.lineNumber).toBe(2);
+	});
+
+	test("warns without blocking for secrets in non-production paths", () => {
+		const diff = `diff --git a/tests/secrets.test.ts b/tests/secrets.test.ts
+--- a/tests/secrets.test.ts
++++ b/tests/secrets.test.ts
+@@ -0,0 +1 @@
++const api_key = "abcdefghijklmnopqrstuvwxyz123456";`;
+		const r = scanDiff(diff);
+		expect(r.clean).toBe(true);
+		expect(r.findings).toHaveLength(0);
+		expect(r.warnings).toHaveLength(1);
+		expect(r.warnings[0]?.filePath).toBe("tests/secrets.test.ts");
+		expect(r.warnings[0]?.reason).toBe("non-production path");
+	});
+
+	test("keeps file context scoped across multi-file diffs", () => {
+		const diff = `diff --git a/tests/mock.ts b/tests/mock.ts
+--- a/tests/mock.ts
++++ b/tests/mock.ts
+@@ -0,0 +1 @@
++const api_key = "abcdefghijklmnopqrstuvwxyz123456";
+diff --git a/src/config.ts b/src/config.ts
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -0,0 +1 @@
++const access_token = "abcdefghijklmnopqrstuvwxyz123456";`;
+		const r = scanDiff(diff);
+		expect(r.clean).toBe(false);
+		expect(r.warnings).toHaveLength(1);
+		expect(r.findings).toHaveLength(1);
+		expect(r.warnings[0]?.filePath).toBe("tests/mock.ts");
+		expect(r.findings[0]?.filePath).toBe("src/config.ts");
+	});
+
+	test("skips secrets in environment example files", () => {
+		for (const filename of [".env.example", ".env.template", ".env.sample"]) {
+			const diff = `diff --git a/${filename} b/${filename}
+--- a/${filename}
++++ b/${filename}
+@@ -0,0 +1 @@
++OPENAI_API_KEY=abcdefghijklmnopqrstuvwxyz123456`;
+			const r = scanDiff(diff);
+			expect(r.clean).toBe(true);
+			expect(r.findings).toHaveLength(0);
+			expect(r.warnings).toHaveLength(0);
+		}
+	});
+
+	test("skips secrets with an inline allow annotation", () => {
+		const diff =
+			'+const API_KEY = "abcdefghijklmnopqrstuvwxyz123456"; // git-commits-push: allow-secret';
+		const r = scanDiff(diff);
+		expect(r.clean).toBe(true);
+		expect(r.findings).toHaveLength(0);
+		expect(r.warnings).toHaveLength(0);
+	});
+
+	test("skips obvious same-line mock, dummy, test, example, and fake values", () => {
+		const lines = [
+			'+const API_KEY = "sk-mock-abcdefghijklmnopqrstuvwxyz123456";',
+			'+const API_KEY = "sk-dummy-abcdefghijklmnopqrstuvwxyz123456";',
+			'+const API_KEY = "sk-test-abcdefghijklmnopqrstuvwxyz123456";',
+			'+const API_KEY = "sk-example-abcdefghijklmnopqrstuvwxyz123456";',
+			'+const API_KEY = "sk-fake-abcdefghijklmnopqrstuvwxyz123456";',
+		];
+
+		for (const line of lines) {
+			const r = scanDiff(line);
+			expect(r.clean).toBe(true);
+			expect(r.findings).toHaveLength(0);
+			expect(r.warnings).toHaveLength(0);
+		}
 	});
 });

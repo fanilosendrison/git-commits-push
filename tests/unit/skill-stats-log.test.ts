@@ -71,6 +71,25 @@ describe("skill-stats-log Core Unit Tests", () => {
 		expect(findings[0]?.lineNumber).toBe(42);
 	});
 
+	test("logSecretWarning writes warning event with structured findings", () => {
+		log.logSecretWarning({
+			repoId: "test-repo",
+			repoPath: "/workspace/repo",
+			matchCount: 1,
+			details: "Generic API Key at line 12",
+		});
+		const event = readLatestEvent(statsDir);
+		expect(event.eventType).toBe("warning");
+		expect(event.namespace).toBe("secret-scanner");
+		expect(event.details.findingsCount).toBe(1);
+		const findings = event.details.findings as Array<{
+			name: string;
+			lineNumber: number;
+		}>;
+		expect(findings[0]?.name).toBe("Generic API Key");
+		expect(findings[0]?.lineNumber).toBe(12);
+	});
+
 	test("git-commits-push events include order context from environment", () => {
 		process.env.GCP_ORDER_ID = "order-session-2";
 		process.env.GCP_ORDER_ORIGIN_SESSION_ID = "session-2";

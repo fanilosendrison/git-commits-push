@@ -30,6 +30,12 @@ const SECRET_SCANNER: SecretScanner = async () => ({
 	details: "Found: AWS_KEY",
 	matchCount: 1,
 });
+const WARNING_SCANNER: SecretScanner = async () => ({
+	hasSecrets: false,
+	matchCount: 0,
+	warningCount: 1,
+	warningDetails: "Generic API Key at line 12",
+});
 const THROWING_SCANNER: SecretScanner = async () => {
 	throw new Error("Scanner internal error");
 };
@@ -159,6 +165,50 @@ describe("U-VA-03b | processRepoValidationAndDiff — logs passed event when sca
 		expect(events[0].eventType).toBe("passed");
 		expect(events[0].namespace).toBe("secret-scanner");
 		expect(events[0].details.findingsCount).toBe(0);
+	});
+});
+
+// ─── U-VA-03c : logs warning event for tolerated scanner matches ─────────────
+
+describe("U-VA-03c | processRepoValidationAndDiff — logs warning event without blocking", () => {
+	let repo: GitRepoFixture;
+	let statsDir: string;
+
+	beforeAll(() => {
+		repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.writeAndStage("safe.ts", "export const x = 1;\n");
+		statsDir = path.join(os.tmpdir(), `ss-warning-test-${Date.now()}`);
+		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
+	});
+	afterAll(() => {
+		repo.dispose();
+		delete process.env.SECRET_SCANNER_STATS_DIR;
+		if (fs.existsSync(statsDir))
+			fs.rmSync(statsDir, { recursive: true, force: true });
+	});
+
+	test("resolves and logs a warning event", async () => {
+		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
+		await expect(
+			processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, WARNING_SCANNER),
+		).resolves.toMatchObject({
+			diffHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+		});
+
+		const eventsPath = path.join(statsDir, "events.jsonl");
+		expect(fs.existsSync(eventsPath)).toBe(true);
+		const events = fs
+			.readFileSync(eventsPath, "utf-8")
+			.trim()
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => JSON.parse(l));
+		expect(events.length).toBe(1);
+		expect(events[0].eventType).toBe("warning");
+		expect(events[0].namespace).toBe("secret-scanner");
+		expect(events[0].details.findingsCount).toBe(1);
+		expect(events[0].details.findings[0].name).toBe("Generic API Key");
 	});
 });
 

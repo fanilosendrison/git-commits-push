@@ -10,6 +10,8 @@ export interface ScanResult {
 	hasSecrets: boolean;
 	details?: string;
 	matchCount: number;
+	warningCount?: number;
+	warningDetails?: string;
 }
 
 export type SecretScanner = (diffContent: string) => Promise<ScanResult>;
@@ -22,10 +24,15 @@ const defaultScanner: SecretScanner = async (
 		const details = result.findings
 			?.map((f) => `${f.name} at line ${f.lineNumber}`)
 			.join(", ");
+		const warningDetails = result.warnings
+			?.map((f) => `${f.name} at line ${f.lineNumber}`)
+			.join(", ");
 		return {
 			hasSecrets: !result.clean,
 			matchCount: result.findings?.length ?? 0,
+			warningCount: result.warnings?.length ?? 0,
 			...(details ? { details } : {}),
+			...(warningDetails ? { warningDetails } : {}),
 		};
 	} catch (err) {
 		throw new Error(
@@ -154,10 +161,19 @@ export async function processRepoValidationAndDiff(
 		);
 	}
 
-	skillLog.logSecretPass({
-		repoId: repo.id,
-		repoPath: repo.path,
-	});
+	if (scanResult.warningCount && scanResult.warningCount > 0) {
+		skillLog.logSecretWarning({
+			repoId: repo.id,
+			repoPath: repo.path,
+			matchCount: scanResult.warningCount,
+			details: scanResult.warningDetails ?? "",
+		});
+	} else {
+		skillLog.logSecretPass({
+			repoId: repo.id,
+			repoPath: repo.path,
+		});
+	}
 
 	return { diff, diffHash };
 }
