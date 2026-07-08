@@ -3,10 +3,10 @@ import * as path from "node:path";
 import type { PhaseIO } from "turnlock";
 import { readSettings } from "../config/settings.ts";
 import { releaseLockAndTriggerNext } from "../utils/order.ts";
-import { runDiscovery } from "../modules/discovery.ts";
-import { processRepoValidationAndDiff } from "../modules/pre-commit-validators.ts";
-import { printReport } from "../modules/reporter.ts";
-import { createSkillStatsLog } from "../modules/skill-stats-log.ts";
+import { runDiscovery } from "../modules/core/discovery.ts";
+import { processRepoValidationAndDiff } from "../modules/core/validators/pre-commit-validators.ts";
+import { printReport } from "../modules/core/reporter.ts";
+import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import type { CommitJobPayload, GlobalState } from "../types.ts";
 
 const skillLog = createSkillStatsLog();

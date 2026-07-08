@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { validateCommitMessage } from "../../src/modules/commit-message-validator";
+import { validateCommitMessage } from "../../src/modules/core/validators/commit-message-validator";
 
 // ─── Valid messages ──────────────────────────────────────────────────────
 

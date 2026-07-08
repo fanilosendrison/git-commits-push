@@ -11,21 +11,16 @@ import {
 	classifyError,
 	classifyLLMFailure,
 	getResolutionHint,
-} from "../../src/modules/error-classifier.ts";
+} from "../../src/modules/core/error-classifier.ts";
 import {
 	CommitPlanError,
 	DiffHashMismatchError,
 	GitExecError,
 	PartialCommitError,
 	PushError,
-} from "../../src/modules/errors.ts";
-import type { FeedbackError } from "../../src/types.ts";
+} from "../../src/modules/core/errors.ts";
 
 // ── classifyError ────────────────────────────────────────────────────────────
-
-type ClassifyResult =
-	| { kind: "retry" | "fail"; error: FeedbackError }
-	| { kind: "success" };
 
 describe("classifyError", () => {
 	// ── CommitPlanError ────────────────────────────────────────────────────
@@ -52,14 +47,14 @@ describe("classifyError", () => {
 		["missing-file", ["b.ts"]],
 		["nonexistent-file", ["c.ts"]],
 	] as const)("CommitPlanError(%s) → structural retry with resolution_hint", (kind, files) => {
-		const err = new CommitPlanError(`test ${kind}`, kind, files);
+		const err = new CommitPlanError(`test ${kind}`, kind, [...files]);
 		const result = classifyError(err, true);
 		expect(result).not.toEqual({ kind: "success" });
 		if (result.kind !== "success") {
 			expect(result.kind).toBe("retry");
 			expect(result.error.kind).toBe("structural");
 			expect(result.error.message).toBe(`test ${kind}`);
-			expect(result.error.files).toEqual(files);
+			expect(result.error.files).toEqual([...files]);
 			expect(result.error.resolution_hint).toBeTruthy();
 		}
 	});

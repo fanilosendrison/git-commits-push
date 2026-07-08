@@ -3,11 +3,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { SecretScanner } from "../../src/modules/pre-commit-validators.ts";
+import type { SecretScanner } from "../../src/modules/core/validators/pre-commit-validators.ts";
 import {
 	processRepoValidationAndDiff,
 	runTestCascade,
-} from "../../src/modules/pre-commit-validators.ts";
+} from "../../src/modules/core/validators/pre-commit-validators.ts";
 import type { RepositoryInfo, Settings } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 

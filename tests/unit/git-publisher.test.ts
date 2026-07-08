@@ -4,11 +4,9 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-	executeCommitAndPush,
-	executeMultiCommitAndPush,
-	formatConventionalCommit,
-} from "../../src/modules/git-publisher.ts";
+import { executeCommitAndPush } from "../../src/modules/git/legacy.ts";
+import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
+import { formatConventionalCommit } from "../../src/modules/formatters/commit-formatter.ts";
 import type { CommitMessage, CommitPlan, Settings } from "../../src/types.ts";
 import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";

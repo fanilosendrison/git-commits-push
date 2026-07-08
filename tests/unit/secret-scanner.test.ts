@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { scanDiff } from "../../src/modules/secret-scanner";
+import { scanDiff } from "../../src/modules/core/secret-scanner";
 
 describe("secret-scanner Core Unit Tests", () => {
 	test("empty diff is clean", () => {

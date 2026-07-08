@@ -26,7 +26,7 @@ type OpenAICompatibleProvider =
 	| "together"
 	| "ollama";
 
-import { resolveAuthToken } from "../modules/auth-resolver.ts";
+import { resolveAuthToken } from "../modules/core/auth-resolver.ts";
 
 export async function invokeLlm(payload: {
 	provider: string;
@@ -73,7 +73,7 @@ export async function invokeLlm(payload: {
 	return response.content;
 }
 
-import { formatFeedbackBlock } from "../modules/feedback-formatter.ts";
+import { formatFeedbackBlock } from "../modules/core/feedback-formatter.ts";
 import type { CommitJobPayload, CommitJobResult, CommitPlan } from "../types.ts";
 
 interface TurnlockBatchManifest {

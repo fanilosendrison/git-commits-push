@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { shouldUseFallback } from "../../src/modules/fallback-model.ts";
+import { shouldUseFallback } from "../../src/modules/core/fallback-model.ts";
 import type { Settings } from "../../src/types.ts";
 
 const BASE_SETTINGS: Settings = {
@@ -84,7 +84,7 @@ describe("buildFallbackSettings", () => {
 		// Import dynamic
 		const {
 			buildFallbackSettings,
-		} = require("../../src/modules/fallback-model.ts");
+		} = require("../../src/modules/core/fallback-model.ts");
 		const result = buildFallbackSettings(settings);
 
 		expect(result.provider).toBe("openai");
@@ -100,7 +100,7 @@ describe("buildFallbackSettings", () => {
 
 		const {
 			buildFallbackSettings,
-		} = require("../../src/modules/fallback-model.ts");
+		} = require("../../src/modules/core/fallback-model.ts");
 		const result = buildFallbackSettings(settings);
 
 		expect(result.temperature).toBe(0);

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createSkillStatsLog } from "../../src/modules/skill-stats-log.ts";
+import { createSkillStatsLog } from "../../src/modules/telemetry/stats-logger.ts";
 
 describe("skill-stats-log Core Unit Tests", () => {
 	let statsDir: string;
@@ -28,7 +28,7 @@ describe("skill-stats-log Core Unit Tests", () => {
 		const logFile = path.join(statsDir, "events.jsonl");
 		expect(fs.existsSync(logFile)).toBe(true);
 		const lines = fs.readFileSync(logFile, "utf-8").trim().split("\n");
-		const event = JSON.parse(lines[lines.length - 1]);
+		const event = JSON.parse(lines[lines.length - 1] ?? "");
 		expect(event.eventType).toBe("passed");
 		expect(event.namespace).toBe("secret-scanner");
 	});
@@ -42,7 +42,7 @@ describe("skill-stats-log Core Unit Tests", () => {
 		});
 		const logFile = path.join(statsDir, "events.jsonl");
 		const lines = fs.readFileSync(logFile, "utf-8").trim().split("\n");
-		const event = JSON.parse(lines[lines.length - 1]);
+		const event = JSON.parse(lines[lines.length - 1] ?? "");
 		expect(event.eventType).toBe("block");
 		expect(event.namespace).toBe("secret-scanner");
 		expect(event.details.findingsCount).toBe(1);

@@ -104,7 +104,7 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 	buildSimplePrompt: <T>(p: T) => p,
 }));
 
-mock.module(path.resolve(__dirname, "../../src/modules/auth-resolver"), () => ({
+mock.module(path.resolve(__dirname, "../../src/modules/core/auth-resolver"), () => ({
 	resolveAuthToken: async (provider: string) => {
 		if (provider === "fail") {
 			throw new Error("mock auth fail");

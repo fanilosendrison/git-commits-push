@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resolveAuthToken } from "../../src/modules/auth-resolver.ts";
+import { resolveAuthToken } from "../../src/modules/core/auth-resolver.ts";
 
 const MOCK_AGENTS_DIR = path.join(os.homedir(), ".agents");
 const AUTH_JSON_PATH = path.join(MOCK_AGENTS_DIR, "agent-credentials.json");

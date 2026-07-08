@@ -16,7 +16,7 @@ import {
 	GitExecError,
 	PartialCommitError,
 	PushError,
-} from "../../src/modules/errors.ts";
+} from "../../src/modules/core/errors.ts";
 
 // ── CommitPlanError ─────────────────────────────────────────────────────────
 

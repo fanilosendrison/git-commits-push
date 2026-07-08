@@ -1,6 +1,6 @@
 // tests/unit/reporter.test.ts — Unit tests for src/modules/reporter.ts
 import { describe, expect, spyOn, test } from "bun:test";
-import { generateReport, printReport } from "../../src/modules/reporter.ts";
+import { generateReport, printReport } from "../../src/modules/core/reporter.ts";
 import type { RepoState } from "../../src/types.ts";
 
 const SUCCESS_REPO: RepoState = {

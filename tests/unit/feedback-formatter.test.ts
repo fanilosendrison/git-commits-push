@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { formatFeedbackBlock } from "../../src/modules/feedback-formatter.ts";
+import { formatFeedbackBlock } from "../../src/modules/core/feedback-formatter.ts";
 import type { Feedback } from "../../src/types.ts";
 
 // ── No feedback ─────────────────────────────────────────────────────────────

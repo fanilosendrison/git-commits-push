@@ -18,11 +18,9 @@ import * as path from "node:path";
 import {
 	CommitPlanError,
 	DiffHashMismatchError,
-} from "../../src/modules/errors.ts";
-import {
-	classifyTransient,
-	executeMultiCommitAndPush,
-} from "../../src/modules/git-publisher.ts";
+} from "../../src/modules/core/errors.ts";
+import { classifyTransient } from "../../src/modules/git/push.ts";
+import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import type { CommitPlan, Settings } from "../../src/types.ts";
 import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
@@ -437,7 +435,7 @@ describe("U-GE-16 | mid-loop failure preserves committed SHAs in context", () =>
 			expect(caught.kind).toBe("nonexistent-file");
 			// R59: context captures plan 1's landed commit
 			expect(caught.context?.committedShas).toHaveLength(1);
-			expect(caught.context?.committedShas[0]?.files).toEqual(["a.ts"]);
+			expect(caught.context?.committedShas?.[0]?.files).toEqual(["a.ts"]);
 			expect(caught.context?.pendingFiles).toContain("c.ts");
 			expect(caught.context?.pendingFiles).not.toContain("a.ts");
 			// ghost.ts from the failed plan IS in pendingFiles (planned but not committed)

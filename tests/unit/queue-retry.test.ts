@@ -13,12 +13,12 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import * as crypto from "node:crypto";
-import { queueRetry, retryJobs } from "../../src/modules/queue-retry.ts";
+import { queueRetry, retryJobs } from "../../src/modules/core/queue-retry.ts";
 import type {
 	CommitPlan,
 	CommittedSha,
 	FeedbackError,
+	RepoState,
 	Settings,
 } from "../../src/types.ts";
 
@@ -100,7 +100,7 @@ describe("U-GE-26 | queueRetry basic queued result", () => {
 
 		// feedbackHistory initialized
 		expect(result.repoState.feedbackHistory).toHaveLength(1);
-		expect(result.repoState.feedbackHistory[0]).toBeTruthy();
+		expect(result.repoState.feedbackHistory?.[0]).toBeTruthy();
 
 		// job structure
 		expect(result.job.id).toBe("repo-1");
@@ -282,7 +282,7 @@ describe("U-GE-31 | pendingFiles filtered against committedShas", () => {
 
 describe("U-GE-32 | feedbackHistory capped at MAX_FEEDBACK_HISTORY", () => {
 	test("after 15 calls with distinct plans, history respects the cap", () => {
-		let repoState = makeRepoState();
+		let repoState: RepoState = makeRepoState();
 		const errors: FeedbackError[] = [{ kind: "structural", message: "err" }];
 
 		// Make more calls than the default cap (which is 14 with current MAX_ATTEMPTS)
