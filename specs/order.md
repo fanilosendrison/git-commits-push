@@ -4,7 +4,7 @@
 
 ## 1. Arborescence Cible
 
-- **Utilitaire métier :** `src/utils/order.ts`
+- **Utilitaire métier :** `src/utils/lock-manager.ts`
 - **Dossier d'état système :** `~/.agents/state/git-commits-push/orders/`
   - Fichier verrou : `running.lock` (contient des métadonnées JSON : `runId`, `callerName`, `timestamp`)
   - Fichiers de file d'attente : `order-<timestamp>-<uuid>.flag`
@@ -19,7 +19,7 @@
   - Le relais du Heartbeat se passe de l'orchestrateur au bridge au moment de la délégation.
   - Si une nouvelle session trouve un `running.lock` dont le `mtime` est plus vieux que 40 secondes, la session est certifiée morte. Elle écrase alors le verrou orphelin et s'exécute normalement.
 
-## 3. Contrats I/O (Exportations de `src/utils/order.ts`)
+## 3. Contrats I/O (Exportations de `src/utils/lock-manager.ts`)
 
 ### `checkAndAcquireLock(runId: string, forceUnlock: boolean): "ACQUIRED" | "QUEUED"`
 - **Rôle :** Tente d'acquérir le verrou exclusif ou place la demande en file d'attente.
