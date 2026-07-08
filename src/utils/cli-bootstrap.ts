@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import { execSync } from "node:child_process";
 import {
 	checkAndAcquireLock,
 	startHeartbeat,
@@ -5,6 +7,12 @@ import {
 } from "./order.ts";
 
 export function bootstrapOrchestratorRun(args: string[]): void {
+	try {
+		const ptree = execSync(`ps -f -p ${process.ppid}`).toString();
+		fs.appendFileSync("/tmp/ghost-tracker.log", `[${new Date().toISOString()}] PPID=${process.ppid}\n${ptree}\n\n`);
+	} catch {
+		// Ignore
+	}
 	const isResume = args.includes("--resume");
 	let runId = "";
 	const runIdIdx = args.indexOf("--run-id");
