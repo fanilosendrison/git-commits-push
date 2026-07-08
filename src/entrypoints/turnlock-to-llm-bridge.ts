@@ -9,7 +9,6 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { startHeartbeat, stopHeartbeat, setupCleanupHooks } from "../utils/lock-manager.ts";
 import {
 	buildSimplePrompt,
 	createAnthropicAdapter,
@@ -18,6 +17,11 @@ import {
 	createOpenAICompatibleAdapter,
 	type ProviderAdapter,
 } from "@fanilosendrison/llm-runtime";
+import {
+	setupCleanupHooks,
+	startHeartbeat,
+	stopHeartbeat,
+} from "../utils/lock-manager.ts";
 
 type OpenAICompatibleProvider =
 	| "deepseek"
@@ -74,7 +78,11 @@ export async function invokeLlm(payload: {
 }
 
 import { formatFeedbackBlock } from "../modules/core/feedback-formatter.ts";
-import type { CommitJobPayload, CommitJobResult, CommitPlan } from "../types.ts";
+import type {
+	CommitJobPayload,
+	CommitJobResult,
+	CommitPlan,
+} from "../types.ts";
 
 interface TurnlockBatchManifest {
 	manifestVersion: number;
@@ -201,7 +209,6 @@ export async function handleTurnlockDelegation(
 						stripJsonFence: true, // Mandatory per specs
 					});
 
-
 					console.log(
 						`[Pi Wrapper] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
 					);
@@ -274,7 +281,7 @@ export async function handleTurnlockDelegation(
 		// execSync captures stdout before throwing — preserve it for display
 		output =
 			e && typeof e === "object" && "stdout" in e
-				? String((e as any).stdout)
+				? String((e as { stdout: unknown }).stdout)
 				: output;
 		throw e;
 	} finally {

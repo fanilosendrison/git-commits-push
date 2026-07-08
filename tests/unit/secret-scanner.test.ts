@@ -64,7 +64,7 @@ describe("secret-scanner Core Unit Tests", () => {
 		const clean = [
 			"+const key = process.env.API_KEY;",
 			"+const secret = os.environ['SECRET'];",
-			"+const token = `${API_TOKEN}`;",
+			["+const token = `", "$", "{API_TOKEN}", "`;"].join(""),
 			"+const pw = getenv('DB_PASS');",
 			"+const key = requireEnv('MY_KEY');",
 			"+const api = getApiKey();",
@@ -111,6 +111,6 @@ describe("secret-scanner Core Unit Tests", () => {
 +AKIAIOSFODNN7EXAMPLE
  line 3`;
 		const r = scanDiff(diff);
-		expect(r.findings[0]!.lineNumber).toBe(2);
+		expect(r.findings[0]?.lineNumber).toBe(2);
 	});
 });
