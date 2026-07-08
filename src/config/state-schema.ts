@@ -79,16 +79,11 @@ export const stateSchema = z.object({
 			// R62 fix: dedicated loopDetected field
 			loopDetected: z
 				.object({
-					kind: z.enum([
-						"validation",
-						"structural",
-						"race",
-						"git",
-						"network",
-					]),
+					kind: z.enum(["validation", "structural", "race", "git", "network"]),
 					planHash: z.string(),
 				})
 				.optional(),
+			fallbackAttempted: z.boolean().optional(),
 		}),
 	),
 });

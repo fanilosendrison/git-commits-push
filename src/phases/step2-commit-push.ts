@@ -1,28 +1,38 @@
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { PhaseIO } from "turnlock";
+import type { PhaseIO, PhaseResult } from "turnlock";
 import { readSettings } from "../config/settings.ts";
-import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
-import { validateCommitMessage } from "../modules/core/validators/commit-message-validator.ts";
-import { classifyError, classifyLLMFailure } from "../modules/core/error-classifier.ts";
-import { CommitPlanError, PartialCommitError } from "../modules/core/errors.ts";
-import { buildFallbackSettings, shouldUseFallback } from "../modules/core/fallback-model.ts";
-import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
-import { formatConventionalCommit } from "../modules/formatters/commit-formatter.ts";
-import { MAX_ATTEMPTS_BY_KIND, queueRetry, retryJobs } from "../modules/core/queue-retry.ts";
-import { printReport } from "../modules/core/reporter.ts";
-import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import { commitJobResultSchema } from "../config/state-schema.ts";
+import {
+	classifyError,
+	classifyLLMFailure,
+} from "../modules/core/error-classifier.ts";
+import { CommitPlanError, PartialCommitError } from "../modules/core/errors.ts";
+import {
+	buildFallbackSettings,
+	shouldUseFallback,
+} from "../modules/core/fallback-model.ts";
+import {
+	MAX_ATTEMPTS_BY_KIND,
+	queueRetry,
+	retryJobs,
+} from "../modules/core/queue-retry.ts";
+import { printReport } from "../modules/core/reporter.ts";
+import { validateCommitMessage } from "../modules/core/validators/commit-message-validator.ts";
+import { formatConventionalCommit } from "../modules/formatters/commit-formatter.ts";
+import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
+import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import type { FeedbackError, GlobalState } from "../types.ts";
+import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
 
 const skillLog = createSkillStatsLog();
-let runStartEpochMs = 0;
+const runStartEpochMs = 0;
 
 export async function runCommitAndPushPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
-): Promise<any> {
+): Promise<PhaseResult<GlobalState, unknown>> {
 	const settings = readSettings(path.resolve(import.meta.dir, "../config"));
 
 	// ── Init stats vars for resume flow ────────────────────────────
@@ -50,8 +60,6 @@ export async function runCommitAndPushPhase(
 	// R26 invariant: only safe if Turnlock guarantees single-instance execution.
 	retryJobs.length = 0;
 
-	// Track accumulated stats for run_end
-	let totalRetries = 0;
 	let loopCount = 0;
 
 	for (const result of results) {
@@ -67,8 +75,7 @@ export async function runCommitAndPushPhase(
 				const isLlmEmptyPlans =
 					result.error.includes("empty") ||
 					result.error.includes("non-empty JSON array");
-				const committedShasExist =
-					(repoState.committedShas?.length ?? 0) > 0;
+				const committedShasExist = (repoState.committedShas?.length ?? 0) > 0;
 				if (isLlmEmptyPlans && committedShasExist) {
 					nextRepos[result.id] = {
 						...repoState,
@@ -140,7 +147,6 @@ export async function runCommitAndPushPhase(
 					};
 					continue;
 				}
-				totalRetries++;
 				skillLog.logDelegation({
 					runId: currentRunId,
 					repoId: result.id,
@@ -188,7 +194,7 @@ export async function runCommitAndPushPhase(
 		const validationErrors: FeedbackError[] = [];
 		for (const plan of result.commits) {
 			const msgStr = formatConventionalCommit(plan.commit);
-			const subject = msgStr.split("\n")[0]!;
+			const subject = msgStr.split("\n")[0] ?? "";
 			const valRes = validateCommitMessage(msgStr);
 			if (!valRes.valid) {
 				for (const e of valRes.errors) {
@@ -213,17 +219,19 @@ export async function runCommitAndPushPhase(
 					validation: validationAttempts + 1,
 				},
 			};
+			const validationRetrySettings = repoState.fallbackAttempted
+				? buildFallbackSettings(settings)
+				: settings;
 			// R11 fix: pass the plan structure, not formatted messages
 			const retryResult = queueRetry(
 				result.id,
 				repoState,
 				validationErrors,
 				{},
-				settings,
+				validationRetrySettings,
 				systemPrompt,
 				result.commits,
 			);
-			totalRetries++;
 			skillLog.logDelegation({
 				runId: currentRunId,
 				repoId: result.id,
@@ -231,7 +239,7 @@ export async function runCommitAndPushPhase(
 				isRetry: true,
 				retryKind: "validation",
 				attempt: validationAttempts + 1,
-				model: settings.model,
+				model: validationRetrySettings.model,
 				retryReason: validationErrors
 					.map((e) => e.message)
 					.join("; ")
@@ -241,8 +249,7 @@ export async function runCommitAndPushPhase(
 				diffSizeBytes: null,
 				previousDiffHash: repoState.diffHash ?? "",
 				diffChanged:
-					(repoState.diffHash ?? "") !==
-					(retryResult.repoState.diffHash ?? ""),
+					(repoState.diffHash ?? "") !== (retryResult.repoState.diffHash ?? ""),
 				pendingFilesCount: null,
 				feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
 			});
@@ -284,7 +291,6 @@ export async function runCommitAndPushPhase(
 					systemPrompt,
 					result.commits,
 				);
-				totalRetries++;
 				skillLog.logDelegation({
 					runId: currentRunId,
 					repoId: result.id,
@@ -329,20 +335,16 @@ export async function runCommitAndPushPhase(
 		}
 
 		try {
-			const { committedShas, originalHead } =
-				await executeMultiCommitAndPush(
-					repoState.repository,
-					result.commits,
-					repoState.diffHash,
-					settings,
-				);
+			const { committedShas, originalHead } = await executeMultiCommitAndPush(
+				repoState.repository,
+				result.commits,
+				repoState.diffHash,
+				settings,
+			);
 			// Merge with anything that landed in prior retries
 			repoState = {
 				...repoState,
-				committedShas: [
-					...(repoState.committedShas ?? []),
-					...committedShas,
-				],
+				committedShas: [...(repoState.committedShas ?? []), ...committedShas],
 				originalHead,
 			};
 			nextRepos[result.id] = {
@@ -466,7 +468,6 @@ export async function runCommitAndPushPhase(
 					continue;
 				}
 
-				totalRetries++;
 				skillLog.logDelegation({
 					runId: currentRunId,
 					repoId: result.id,
@@ -540,6 +541,15 @@ export async function runCommitAndPushPhase(
 		(r) => r.status === "FAILED",
 	).length;
 	const totalRepos = Object.keys(nextRepos).length;
+	const totalRetries = Object.values(nextRepos).reduce((sum, repoState) => {
+		return (
+			sum +
+			Object.values(repoState.attempts ?? {}).reduce(
+				(repoSum, count) => repoSum + count,
+				0,
+			)
+		);
+	}, 0);
 
 	// Resolve run start epoch: first invocation sets runStartEpochMs in discovery;
 	// resume must read it from state.json (new process has runStartEpochMs === 0).

@@ -6,7 +6,7 @@ export function shouldUseFallback(
 	attemptCount: number,
 	fallbackAttempted: boolean,
 ): boolean {
-	if (!settings.fallbackProvider) return false;
+	if (!settings.fallbackProvider || !settings.fallbackModel) return false;
 	if (kind !== "validation") return false;
 	if (fallbackAttempted) return false;
 	if (attemptCount < 2) return false;
@@ -14,9 +14,16 @@ export function shouldUseFallback(
 }
 
 export function buildFallbackSettings(settings: Settings): Settings {
+	const fallbackProvider = settings.fallbackProvider;
+	const fallbackModel = settings.fallbackModel;
+	if (!fallbackProvider || !fallbackModel) {
+		throw new Error(
+			"Cannot build fallback settings without fallbackProvider and fallbackModel",
+		);
+	}
 	return {
 		...settings,
-		provider: settings.fallbackProvider!,
-		model: settings.fallbackModel!,
+		provider: fallbackProvider,
+		model: fallbackModel,
 	};
 }

@@ -54,7 +54,16 @@ export function readSettings(skillDir: string): Settings {
 		}
 	}
 
-	return {
+	if (
+		("fallbackProvider" in obj && !("fallbackModel" in obj)) ||
+		("fallbackModel" in obj && !("fallbackProvider" in obj))
+	) {
+		throw new Error(
+			"settings.json fallbackProvider and fallbackModel must be configured together",
+		);
+	}
+
+	const settings: Settings = {
 		searchPaths: Array.isArray(obj.searchPaths)
 			? (obj.searchPaths as string[])
 			: [],
@@ -65,4 +74,16 @@ export function readSettings(skillDir: string): Settings {
 		autoPush: Boolean(obj.autoPush),
 		skipTests: Boolean(obj.skipTests),
 	};
+
+	if (typeof obj.fallbackProvider === "string") {
+		settings.fallbackProvider = obj.fallbackProvider;
+	}
+	if (typeof obj.fallbackModel === "string") {
+		settings.fallbackModel = obj.fallbackModel;
+	}
+	if (typeof obj.thinking === "boolean") {
+		settings.thinking = obj.thinking;
+	}
+
+	return settings;
 }

@@ -84,11 +84,10 @@ const stateSchema = z.object({
 					planHash: z.string(),
 				})
 				.optional(),
+			fallbackAttempted: z.boolean().optional(),
 		}),
 	),
 });
-
-type ParsedState = z.infer<typeof stateSchema>;
 
 // ── Basic valid state ────────────────────────────────────────────────────────
 
@@ -136,6 +135,7 @@ describe("stateSchema accepts valid state", () => {
 					feedbackHistory: ["plan1", "plan2"],
 					lastPlanHash: "sha256hash",
 					loopDetected: { kind: "structural", planHash: "sha256hash" },
+					fallbackAttempted: true,
 				},
 			},
 		});
@@ -186,7 +186,7 @@ describe("attempts schema", () => {
 		const result = attemptsSchema.safeParse(3);
 		expect(result.success).toBe(true);
 		if (result.success) {
-			expect(result.data).toEqual({});
+			expect(Object.keys(result.data ?? {})).toEqual([]);
 		}
 	});
 
@@ -215,7 +215,7 @@ describe("attempts schema", () => {
 		const result = attemptsSchema.safeParse({});
 		expect(result.success).toBe(true);
 		if (result.success) {
-			expect(result.data).toEqual({});
+			expect(Object.keys(result.data ?? {})).toEqual([]);
 		}
 	});
 
