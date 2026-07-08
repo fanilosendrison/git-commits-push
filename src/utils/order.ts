@@ -145,6 +145,10 @@ export function releaseLockAndTriggerNext(runId: string): void {
 				// ignore
 			}
 
+			if (process.env.DISABLE_REAL_SPAWN === "1") {
+				return;
+			}
+
 			// Spawn next run detached
 			const skillRoot = path.resolve(__dirname, "../..");
 			const subprocess = spawn("bun", ["run", "start"], {

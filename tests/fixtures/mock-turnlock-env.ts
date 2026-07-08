@@ -50,6 +50,7 @@ export class MockTurnlockEnvironment {
 			PI_SKILL_STATS_DIR: this.statsDir,
 			SECRET_SCANNER_STATS_DIR: this.statsDir,
 			ORDER_STATE_DIR: path.join(this.runDir, "orders"),
+			DISABLE_REAL_SPAWN: "1",
 		};
 	}
 
