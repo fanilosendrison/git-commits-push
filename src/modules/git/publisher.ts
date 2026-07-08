@@ -3,7 +3,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { gitExec, GIT_ENV } from "./exec.ts";
+import { gitExec, GIT_ENV } from "./git-exec.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { executePush } from "./push.ts";
 import {
