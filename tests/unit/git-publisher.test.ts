@@ -1,10 +1,9 @@
-// tests/unit/git-publisher.test.ts — Unit tests for src/modules/git-publisher.ts
+// tests/unit/git-publisher.test.ts — Unit tests for src/modules/git/publisher.ts
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { executeCommitAndPush } from "../../src/modules/git/legacy.ts";
 import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import { formatConventionalCommit } from "../../src/modules/formatters/commit-formatter.ts";
 import type { CommitMessage, CommitPlan, Settings } from "../../src/types.ts";
@@ -87,60 +86,7 @@ const NO_PUSH_SETTINGS: Settings = {
 
 const AUTO_PUSH_SETTINGS: Settings = { ...NO_PUSH_SETTINGS, autoPush: true };
 
-describe("U-GE-06 | executeCommitAndPush — hash mismatch → throws", () => {
-	let repo: GitRepoFixture;
-	beforeAll(() => {
-		repo = GitRepoFixture.create();
-		repo.commit("initial");
-		repo.writeAndStage("f.ts", "export const a = 1;\n");
-	});
-	afterAll(() => repo.dispose());
-
-	test("throws when expectedDiffHash does not match current staged diff", async () => {
-		const commit: CommitMessage = {
-			type: "feat",
-			description: "test",
-			isBreaking: false,
-		};
-		await expect(
-			executeCommitAndPush(
-				repo.dir,
-				commit,
-				"wrong-hash-00000000",
-				NO_PUSH_SETTINGS,
-			),
-		).rejects.toThrow("DiffHash mismatch");
-	});
-});
-
-describe("U-GE-07 | executeCommitAndPush — correct commit created", () => {
-	let repo: GitRepoFixture;
-	beforeAll(() => {
-		repo = GitRepoFixture.create();
-		repo.commit("initial");
-		repo.writeAndStage("g.ts", "export const b = 2;\n");
-	});
-	afterAll(() => repo.dispose());
-
-	test("git log shows the conventionally formatted commit", async () => {
-		const { diffHash } = await extractDiff(repo.dir);
-		const commit: CommitMessage = {
-			type: "chore",
-			scope: "deps",
-			description: "update packages",
-			isBreaking: false,
-		};
-		await executeCommitAndPush(repo.dir, commit, diffHash, NO_PUSH_SETTINGS);
-
-		const log = spawnSync("git", ["log", "--oneline", "-1"], {
-			cwd: repo.dir,
-			encoding: "utf-8",
-		});
-		expect(log.stdout).toContain("chore(deps): update packages");
-	});
-});
-
-describe("U-GE-08 | executeCommitAndPush — autoPush false → no push attempt", () => {
+describe("U-GE-08 | executeMultiCommitAndPush — autoPush false → no push attempt", () => {
 	let repo: GitRepoFixture;
 	beforeAll(() => {
 		repo = GitRepoFixture.create();
@@ -152,14 +98,19 @@ describe("U-GE-08 | executeCommitAndPush — autoPush false → no push attempt"
 
 	test("does not invoke git push and does not set upstream tracking", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
-		const commit: CommitMessage = {
-			type: "fix",
-			description: "silent fix",
-			isBreaking: false,
-		};
+		const plans: CommitPlan[] = [
+			{
+				commit: {
+					type: "fix",
+					description: "silent fix",
+					isBreaking: false,
+				},
+				files: ["h.ts"],
+			},
+		];
 		await expect(
-			executeCommitAndPush(repo.dir, commit, diffHash, NO_PUSH_SETTINGS),
-		).resolves.toBeUndefined();
+			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
+		).resolves.toBeDefined();
 
 		// Strong assertion: even though `origin` is configured, no upstream tracking
 		// should be set on the local branch. `git push -u` would set both
@@ -191,7 +142,7 @@ describe("U-GE-08 | executeCommitAndPush — autoPush false → no push attempt"
 	});
 });
 
-describe("U-GE-09 | executeCommitAndPush — no remote → push skipped silently", () => {
+describe("U-GE-09 | executeMultiCommitAndPush — no remote → push skipped silently", () => {
 	let repo: GitRepoFixture;
 	beforeAll(() => {
 		repo = GitRepoFixture.create();
@@ -202,14 +153,19 @@ describe("U-GE-09 | executeCommitAndPush — no remote → push skipped silently
 
 	test("does not throw and does not attempt any push variant when no remote is configured", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
-		const commit: CommitMessage = {
-			type: "docs",
-			description: "update readme",
-			isBreaking: false,
-		};
+		const plans: CommitPlan[] = [
+			{
+				commit: {
+					type: "docs",
+					description: "update readme",
+					isBreaking: false,
+				},
+				files: ["i.ts"],
+			},
+		];
 		await expect(
-			executeCommitAndPush(repo.dir, commit, diffHash, AUTO_PUSH_SETTINGS),
-		).resolves.toBeUndefined();
+			executeMultiCommitAndPush(repo.dir, plans, diffHash, AUTO_PUSH_SETTINGS),
+		).resolves.toBeDefined();
 
 		// Strong assertion: still no remote configured (the publisher's no-remote
 		// check should return BEFORE attempting any push command, including the
@@ -223,7 +179,7 @@ describe("U-GE-09 | executeCommitAndPush — no remote → push skipped silently
 	});
 });
 
-describe("U-GE-10 | executeCommitAndPush — no upstream → push -u fallback", () => {
+describe("U-GE-10 | executeMultiCommitAndPush — no upstream → push -u fallback", () => {
 	let repoSource: GitRepoFixture;
 	let bareRepoPath: string;
 	beforeAll(() => {
@@ -245,14 +201,19 @@ describe("U-GE-10 | executeCommitAndPush — no upstream → push -u fallback", 
 
 	test("push -u custom-remote succeeds and commit appears in bare repo", async () => {
 		const { diffHash } = await extractDiff(repoSource.dir);
-		const commit: CommitMessage = {
-			type: "feat",
-			description: "push via fallback",
-			isBreaking: false,
-		};
-		await executeCommitAndPush(
+		const plans: CommitPlan[] = [
+			{
+				commit: {
+					type: "feat",
+					description: "push via fallback",
+					isBreaking: false,
+				},
+				files: ["j.ts"],
+			},
+		];
+		await executeMultiCommitAndPush(
 			repoSource.dir,
-			commit,
+			plans,
 			diffHash,
 			AUTO_PUSH_SETTINGS,
 		);
