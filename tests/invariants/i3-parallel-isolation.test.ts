@@ -125,15 +125,15 @@ describe("I3 — Parallel Validation Isolation", () => {
 		// of running three repos. If it is close to a single run (rather than 3x),
 		// workers ran in parallel.
 		const start = Date.now();
-		spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const res = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
+				...env.env(),
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-timing"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
-				PI_SKILL_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});
+		console.error("DEBUG_TIMING_SPAWN_STDERR:", res.stderr);
 		const total = Date.now() - start;
 		// We cannot guarantee parallelism in a unit test, but we can check that
 		// the total is under a loose sequential upper bound (3 × 3s = 9s).

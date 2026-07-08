@@ -117,10 +117,8 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
+				...env.env(),
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i1-04"),
-				TURNLOCK_SKILL_SETTINGS_PATH: path.join(env.runDir, "settings.json"),
-				PI_SKILL_STATS_DIR: env.statsDir,
-				SECRET_SCANNER_STATS_DIR: env.statsDir,
 			},
 			encoding: "utf-8",
 		});
