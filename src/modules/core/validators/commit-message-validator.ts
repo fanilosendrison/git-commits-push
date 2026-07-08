@@ -48,7 +48,7 @@ export function validateCommitMessage(message: string): ValidationResult {
 		return { valid: false, errors: ["Message de commit vide"] };
 	}
 
-	const subject = trimmed.split("\n")[0]!.trim();
+	const subject = trimmed.split("\n")[0]?.trim() ?? "";
 
 	const errors: string[] = [];
 
@@ -60,8 +60,14 @@ export function validateCommitMessage(message: string): ValidationResult {
 		};
 	}
 
-	const type = match[1]!;
-	const description = match[4]!;
+	const type = match[1];
+	const description = match[4];
+	if (!type || !description) {
+		return {
+			valid: false,
+			errors: ["Format invalide. Attendu: <type>(<scope>): <description>"],
+		};
+	}
 
 	if (!VALID_TYPES.includes(type as (typeof VALID_TYPES)[number])) {
 		errors.push(
