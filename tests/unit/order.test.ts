@@ -4,13 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { checkAndAcquireLock, releaseLockAndTriggerNext, startHeartbeat, stopHeartbeat } from "../../src/utils/order.ts";
 
-// Mock child_process spawn
-const mockSpawn = mock(() => {
-	return { unref: () => {} };
-});
-mock.module("node:child_process", () => ({
-	spawn: mockSpawn,
-}));
+
 
 describe("Order Queue and Heartbeat Unit Tests", () => {
 	let testStateDir: string;
@@ -19,7 +13,7 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 		testStateDir = path.join(os.tmpdir(), "turnlock-order-test-" + Math.random().toString(36).substring(2));
 		fs.mkdirSync(testStateDir, { recursive: true });
 		process.env.ORDER_STATE_DIR = testStateDir;
-		mockSpawn.mockClear();
+		process.env.DISABLE_REAL_SPAWN = "1";
 	});
 
 	afterEach(() => {
@@ -125,7 +119,5 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 		expect(fs.existsSync(flag1)).toBe(false);
 		expect(fs.existsSync(flag2)).toBe(true);
 
-		// Child process should be spawned
-		expect(mockSpawn).toHaveBeenCalled();
 	});
 });

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 function resolveHome(filepath: string): string {
@@ -149,14 +149,12 @@ export function releaseLockAndTriggerNext(runId: string): void {
 				return;
 			}
 
-			// Spawn next run detached
+			// Run next job in the foreground of the current session
 			const skillRoot = path.resolve(__dirname, "../..");
-			const subprocess = spawn("bun", ["run", "start"], {
+			spawnSync("bun", ["run", "start"], {
 				cwd: skillRoot,
-				detached: true,
-				stdio: "ignore"
+				stdio: "inherit"
 			});
-			subprocess.unref();
 		}
 	}
 }
