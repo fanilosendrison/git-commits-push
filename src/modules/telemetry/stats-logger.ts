@@ -6,6 +6,7 @@ import { createEventSink } from "/Users/famillesendrison/Developper/Projects/tel
 export function getAgentName(): string {
 	if (process.env.ANTIGRAVITY_AGENT === "1") return "antigravity";
 	if (process.env.PI_SESSION_ID !== undefined) return "pi";
+	if (process.env.CODEX_THREAD_ID !== undefined) return "codex";
 	if (
 		process.env.NODE_ENV === "test" ||
 		process.env.PI_SKILL_STATS_MODE === "test"
@@ -14,8 +15,8 @@ export function getAgentName(): string {
 	}
 	throw new Error(
 		"Error: Git-Commits-Push skill cannot determine the active agent from the environment.\n" +
-			"Ensure you are running this skill from within the Antigravity IDE or the Pi Coding Agent.\n" +
-			"Missing required environment variables (neither ANTIGRAVITY_AGENT nor PI_SESSION_ID is present).",
+			"Ensure you are running this skill from within Antigravity, Pi, or Codex.\n" +
+			"Missing required environment variables (ANTIGRAVITY_AGENT, PI_SESSION_ID, or CODEX_THREAD_ID).",
 	);
 }
 
@@ -31,11 +32,14 @@ function getStatsDir(): string {
 	);
 }
 
-function getActiveSessionId(): string | undefined {
+export function getActiveSessionId(): string | undefined {
 	if (process.env.ANTIGRAVITY_AGENT === "1") {
 		return process.env.ANTIGRAVITY_TRAJECTORY_ID;
 	}
-	return process.env.PI_SESSION_ID;
+	if (process.env.PI_SESSION_ID) {
+		return process.env.PI_SESSION_ID;
+	}
+	return process.env.CODEX_THREAD_ID;
 }
 
 function getSink(): ReturnType<typeof createEventSink> {

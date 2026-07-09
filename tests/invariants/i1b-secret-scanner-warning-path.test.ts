@@ -50,7 +50,6 @@ afterAll(() => {
 });
 
 describe("I1b — Secret Scanner Warning Path", () => {
-	let stdout: string;
 	let exitCode: number;
 
 	test("I1b-01 | process exits with code 0", () => {
@@ -61,7 +60,6 @@ describe("I1b — Secret Scanner Warning Path", () => {
 			},
 			encoding: "utf-8",
 		});
-		stdout = result.stdout ?? "";
 		exitCode = result.status ?? -1;
 		expect(exitCode).toBe(0);
 	});

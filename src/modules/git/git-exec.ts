@@ -1,6 +1,10 @@
 import { execSync } from "node:child_process";
 
-export const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0", BYPASS_GIT_ENFORCER: "1" };
+export const GIT_ENV = {
+	...process.env,
+	GIT_TERMINAL_PROMPT: "0",
+	BYPASS_GIT_ENFORCER: "1",
+};
 
 /**
  * Run a git command and return trimmed stdout.
