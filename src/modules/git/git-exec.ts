@@ -1,5 +1,10 @@
 import { execSync } from "node:child_process";
-import { createTrustToken, TRUSTED_MARKER_ENV, TRUSTED_MARKER_VALUE, TRUSTED_TOKEN_ENV } from "../../../../../agent-enforcers/git-commits-push-enforcer/src/core/trust-store";
+import {
+	createTrustToken,
+	TRUSTED_MARKER_ENV,
+	TRUSTED_MARKER_VALUE,
+	TRUSTED_TOKEN_ENV,
+} from "../../../../../agent-enforcers/git-commits-push-enforcer/src/core/trust-store";
 
 function buildGitEnv(): Record<string, string> {
 	return {
