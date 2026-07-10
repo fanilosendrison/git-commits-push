@@ -11,7 +11,7 @@ import {
 	PartialCommitError,
 } from "../core/errors.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
-import { GIT_ENV, gitExec } from "./git-exec.ts";
+import { gitExec } from "./git-exec.ts";
 import { executePush } from "./push.ts";
 
 /**
@@ -66,7 +66,7 @@ export async function executeMultiCommitAndPush(
 		cwd: repoPath,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
-		env: GIT_ENV,
+		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
 	});
 	const currentHash = crypto
 		.createHash("sha256")

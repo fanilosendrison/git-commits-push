@@ -7,6 +7,16 @@ import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createTrustToken, TRUSTED_MARKER_ENV, TRUSTED_MARKER_VALUE, TRUSTED_TOKEN_ENV } from "../../../../agent-enforcers/git-commits-push-enforcer/src/core/trust-store";
+
+function trustedGitEnv(): Record<string, string> {
+	return {
+		...process.env,
+		GIT_TERMINAL_PROMPT: "0",
+		[TRUSTED_MARKER_ENV]: TRUSTED_MARKER_VALUE,
+		[TRUSTED_TOKEN_ENV]: createTrustToken(),
+	} as Record<string, string>;
+}
 
 /** Execute a git command in the given directory, return trimmed stdout. Throws on non-zero exit. */
 function gitExec(args: string, repoPath: string): string {
@@ -14,7 +24,7 @@ function gitExec(args: string, repoPath: string): string {
 		cwd: repoPath,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_COMMITS_PUSH_ENFORCER_SOURCE: "skill" },
+		env: trustedGitEnv(),
 	}).trim();
 }
 
@@ -29,7 +39,7 @@ export function extractDiff(
 		cwd: repoPath,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+		env: trustedGitEnv(),
 	});
 	const diffHash = crypto.createHash("sha256").update(diff).digest("hex");
 	return Promise.resolve({ diff, diffHash });
