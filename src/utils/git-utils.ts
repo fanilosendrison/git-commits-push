@@ -14,7 +14,7 @@ function gitExec(args: string, repoPath: string): string {
 		cwd: repoPath,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+		env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_COMMITS_PUSH_ENFORCER_SOURCE: "skill" },
 	}).trim();
 }
 
