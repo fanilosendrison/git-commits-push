@@ -3,6 +3,20 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+const GRAVITY_GIT_WRAPPER_BIN = path.join(
+	os.homedir(),
+	".gravity/wrappers/git-commits-push-enforcer/bin",
+);
+
+function pathWithoutGravityGitWrapper(): string {
+	return (process.env.PATH ?? "")
+		.split(path.delimiter)
+		.filter(
+			(entry) => path.resolve(entry) !== path.resolve(GRAVITY_GIT_WRAPPER_BIN),
+		)
+		.join(path.delimiter);
+}
+
 /**
  * GitRepoFixture — NIB-T §2
  * Creates an isolated, real git repository under a system temp directory.
@@ -79,6 +93,10 @@ export class GitRepoFixture {
 			cwd: this.dir,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
+			env: {
+				...process.env,
+				PATH: pathWithoutGravityGitWrapper(),
+			},
 		});
 	}
 }
