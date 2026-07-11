@@ -91,7 +91,7 @@ interface TurnlockBatchManifest {
 	phase: string;
 	resumeAt: string;
 	label: string;
-	kind: "agent-batch";
+	kind: "batch";
 	jobs: { id: string; prompt: string; resultPath: string }[];
 }
 

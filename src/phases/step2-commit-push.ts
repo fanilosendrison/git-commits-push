@@ -513,10 +513,10 @@ export async function runCommitAndPushPhase(
 
 	if (retryJobs.length > 0) {
 		const jobsSnapshot = retryJobs.slice();
-		return io.delegateAgentBatch(
+		return io.delegateBatch(
 			{
-				kind: "agent-batch",
-				agentType: "git-commit-generator",
+				kind: "batch",
+				worker: "git-commit-generator",
 				label: `commit-jobs-retry-${Date.now()}`, // unique per retry
 				jobs: jobsSnapshot,
 				timeout: { perDelegationMs: 600_000 },

@@ -201,10 +201,10 @@ export async function runDiscoveryAndValidationPhase(
 		});
 	}
 
-	return io.delegateAgentBatch(
+	return io.delegateBatch(
 		{
-			kind: "agent-batch",
-			agentType: "git-commit-generator",
+			kind: "batch",
+			worker: "git-commit-generator",
 			label: "commit-jobs",
 			jobs,
 			timeout: { perDelegationMs: 600_000 },

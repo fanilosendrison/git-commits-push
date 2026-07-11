@@ -14,7 +14,7 @@
 	},
 	"dependencies": {
 		"zod": "4.3.6",
-		"turnlock": "^0.3.1",
+		"turnlock": "^0.8.0",
 		"@fanilosendrison/llm-runtime": "^0.1.2"
 	},
 	"devDependencies": {
