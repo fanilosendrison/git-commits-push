@@ -314,6 +314,29 @@ for the exact trigger conditions.
 
 ---
 
+## Architecture
+
+The skill is built on **Turnlock v0.8.0+** (v2 delegation protocol). It runs as a
+two-process pipeline:
+
+```
+turnlock-orchestrator.ts | turnlock-to-llm-bridge.ts
+```
+
+The orchestrator owns the finite-state machine and persists snapshots to disk.
+The bridge intercepts delegation blocks, runs LLM inference in parallel, writes
+results, and resumes the orchestrator. This separation lets either process exit
+and restart independently.
+
+### Compatibility with older Turnlock runs
+
+Runs persisted by Turnlock v0.3.x (`schemaVersion: 1`, `kind: "agent-batch"`)
+**will not resume** under v0.8.0. This is intentional fail-closed behavior —
+the skill rejects legacy state rather than risking data corruption from an
+in-place migration. If you encounter this after upgrading, inspect the run
+directory under `~/.turnlock/runs/git-commits-push-tl/` and either let the old
+run complete under the previous version or delete it and start fresh.
+
 ## For contributors
 
 The architecture, runtime contract, invariants, and test expectations are documented

@@ -159,6 +159,47 @@ git-commits-push/
 - Queue-registration stdout is allowed because queued processes exit before
   entering Turnlock.
 
+## Turnlock v2 Protocol
+
+The skill targets **Turnlock v0.8.0+** with the **v2 delegation protocol**
+(`PROTOCOL_VERSION: 2`, `MANIFEST_VERSION: 2`, `STATE_SCHEMA_VERSION: 2`).
+
+### Delegation kinds (v2)
+
+Turnlock v0.8.0 reduced delegation kinds from three to two:
+
+| v0.3.x (legacy) | v0.8.0 (current) |
+|-----------------|-------------------|
+| `"skill"` | *(removed — merged into `"prompt"`)* |
+| `"agent"` | `"prompt"` |
+| `"agent-batch"` | `"batch"` |
+
+The skill exclusively uses `"batch"` delegations via `io.delegateBatch()`.
+
+### Bridge manifest validation
+
+The Turnlock-to-LLM bridge validates every incoming manifest against
+`turnlockV2BatchManifestSchema` (Zod). Manifests missing required v2 fields or
+carrying legacy `manifestVersion < 2` or `kind: "agent-batch"` are rejected
+before any LLM call is made. This is fail-closed by design.
+
+### Persisted v1 runs are intentionally fail-closed
+
+There is **no automatic migration** for pre-existing Turnlock v1 run directories
+(`state.json` with `schemaVersion: 1`). Any run persisted under v0.3.x will fail
+explicitly on resume under v0.8.0 at three independent checkpoints:
+
+1. `readState()` — rejects `schemaVersion !== 2`
+2. `handle-resume` — rejects `manifestVersion !== 2`
+3. Bridge Zod schema — rejects non-v2 manifests
+
+**Do not attempt in-place state migration.** If a v1 run is encountered:
+- Inspect the run directory under `~/.turnlock/runs/git-commits-push-tl/` to
+  assess what was already committed.
+- Delete the run directory and start a fresh run if the run is stale.
+- Never mutate `state.json`, `delegations/`, or `results/` inside a persisted
+  run — this can corrupt the audit trail or produce incorrect commits.
+
 ## Order Queue
 
 The order queue exists to serialize local executions.
@@ -232,6 +273,25 @@ Important run events:
 
 When `GCP_ORDER_*` variables are present, run events should be enriched with
 order context.
+
+## Turnlock Version Bump Procedure
+
+When upgrading the Turnlock dependency:
+
+1. Read the Turnlock changelog and diff the `src/` API surface.
+2. Update `package.json` and run `bun install`.
+3. Adapt `src/phases/` if the delegation API changed (kinds, method names).
+4. Regenerate `tests/helpers/test-helpers.ts` manifests to match the new
+   Turnlock version (canonical manifest shape, schemaVersion, kind).
+5. Update bridge unit fixtures (`tests/unit/turnlock-to-llm-bridge.test.ts`).
+6. Update acceptance test assertions that match protocol string literals.
+7. Run the full pipeline test as a smoke check:
+   ```bash
+   bun test tests/acceptance/a5-v2-full-pipeline.test.ts --timeout 60000
+   ```
+8. Run the full suite and fix any remaining failures.
+9. Document the operational impact of persisted runs from the previous version
+   (see [Persisted v1 runs](#persisted-v1-runs-are-intentionally-fail-closed)).
 
 ## Documentation Notes
 
