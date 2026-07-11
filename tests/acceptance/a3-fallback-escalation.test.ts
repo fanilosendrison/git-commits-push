@@ -13,6 +13,9 @@ const SKILL_ENTRYPOINT = path.resolve(
 );
 
 interface RetryManifest {
+	manifestVersion: number;
+	kind: string;
+	worker?: string;
 	jobs: Array<{ id: string; prompt: string }>;
 }
 
@@ -162,6 +165,9 @@ describe("A3 — Fallback model escalation", () => {
 		expect(result.stdout).toContain("action: DELEGATE");
 
 		const manifest = readRetryManifest(env.runDir, runId);
+		expect(manifest.manifestVersion).toBe(2);
+		expect(manifest.kind).toBe("batch");
+		expect(manifest.worker).toBe("git-commit-generator");
 		expect(manifest.jobs).toHaveLength(1);
 		const job = manifest.jobs[0];
 		expect(job).toBeDefined();

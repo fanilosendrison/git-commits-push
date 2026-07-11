@@ -17,6 +17,38 @@ interface MockCallArgs {
 	readonly messages: { user: string };
 }
 
+interface TurnlockBatchManifestJobFixture {
+	readonly id: string;
+	readonly prompt: string;
+	readonly resultPath: string;
+}
+
+function createTurnlockV2BatchManifest(args: {
+	readonly phase: string;
+	readonly resumeAt: string;
+	readonly label: string;
+	readonly jobs: readonly TurnlockBatchManifestJobFixture[];
+}) {
+	const emittedAtEpochMs = 1_768_000_000_000;
+	return {
+		manifestVersion: 2 as const,
+		runId: "run-123",
+		orchestratorName: "git-commits-push-tl",
+		phase: args.phase,
+		resumeAt: args.resumeAt,
+		label: args.label,
+		kind: "batch" as const,
+		emittedAt: "2026-01-01T00:00:00.000Z",
+		emittedAtEpochMs,
+		timeoutMs: 600_000,
+		deadlineAtEpochMs: emittedAtEpochMs + 600_000,
+		attempt: 0,
+		maxAttempts: 1,
+		worker: "git-commit-generator",
+		jobs: args.jobs,
+	};
+}
+
 mock.module("@fanilosendrison/llm-runtime", () => ({
 	createOpenAIAdapter: (config: MockAdapterConfig) => {
 		if (config.apiKey !== "key" && config.apiKey !== "mock-token") {
@@ -216,14 +248,10 @@ describe("turnlock-to-llm-bridge", () => {
 				systemPrompt: "sys-prompt",
 			};
 
-			const manifest = {
-				manifestVersion: 1,
-				runId: "run-123",
-				orchestratorName: "git-commits-push-tl",
+			const manifest = createTurnlockV2BatchManifest({
 				phase: "discovery-and-validation",
 				resumeAt: "commit-and-push",
 				label: "commit-jobs",
-				kind: "agent-batch",
 				jobs: [
 					{
 						id: "job-1",
@@ -231,7 +259,7 @@ describe("turnlock-to-llm-bridge", () => {
 						resultPath: tempResultPath,
 					},
 				],
-			};
+			});
 
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 			lastExecCmd = null;
@@ -270,14 +298,10 @@ describe("turnlock-to-llm-bridge", () => {
 				systemPrompt: "sys-prompt",
 			};
 
-			const manifest = {
-				manifestVersion: 1,
-				runId: "run-123",
-				orchestratorName: "git-commits-push-tl",
+			const manifest = createTurnlockV2BatchManifest({
 				phase: "discovery-and-validation",
 				resumeAt: "commit-and-push",
 				label: "commit-jobs",
-				kind: "agent-batch",
 				jobs: [
 					{
 						id: "job-2",
@@ -285,7 +309,7 @@ describe("turnlock-to-llm-bridge", () => {
 						resultPath: tempResultPath,
 					},
 				],
-			};
+			});
 
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 
@@ -303,6 +327,44 @@ describe("turnlock-to-llm-bridge", () => {
 			expect(resultData.success).toBe(false);
 			expect(resultData.id).toBe("job-2");
 			expect(resultData.error).toContain("LLM Fatal Error: mock auth fail");
+		});
+
+		test("rejects a legacy manifest before processing jobs", async () => {
+			const legacyManifest = {
+				...createTurnlockV2BatchManifest({
+					phase: "discovery-and-validation",
+					resumeAt: "commit-and-push",
+					label: "commit-jobs",
+					jobs: [
+						{
+							id: "legacy-job",
+							prompt: "{}",
+							resultPath: tempResultPath,
+						},
+					],
+				}),
+				manifestVersion: 1,
+				kind: "agent-batch",
+			};
+			fs.rmSync(tempResultPath, { force: true });
+			fs.writeFileSync(
+				tempManifestPath,
+				JSON.stringify(legacyManifest),
+				"utf-8",
+			);
+			let resumeWasCalled = false;
+
+			await expect(
+				handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => {
+					resumeWasCalled = true;
+					return "";
+				}),
+			).rejects.toThrow(
+				"Turnlock delegation manifest is not a valid v2 batch manifest",
+			);
+
+			expect(resumeWasCalled).toBe(false);
+			expect(fs.existsSync(tempResultPath)).toBe(false);
 		});
 
 		test("injects feedback into prompt if present", async () => {
@@ -328,14 +390,10 @@ describe("turnlock-to-llm-bridge", () => {
 				},
 			};
 
-			const manifest = {
-				manifestVersion: 1,
-				runId: "run-123",
-				orchestratorName: "git-commits-push-tl",
+			const manifest = createTurnlockV2BatchManifest({
 				phase: "commit-and-push",
 				resumeAt: "commit-and-push",
 				label: "commit-jobs-retry",
-				kind: "agent-batch",
 				jobs: [
 					{
 						id: "job-3",
@@ -343,7 +401,7 @@ describe("turnlock-to-llm-bridge", () => {
 						resultPath: tempResultPath,
 					},
 				],
-			};
+			});
 
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 			lastUserPrompt = null;

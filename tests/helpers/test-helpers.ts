@@ -1,18 +1,18 @@
 /**
- * src/test-helpers.ts — Helpers available exclusively to tests.
- * Writes pre-seeded Turnlock state files to simulate a completed Phase 3
- * so that resume-path tests (A2, P1, P3, P4, I2) can start from Phase 4.
+ * Helpers available exclusively to tests.
  *
- * The StateFile format mirrors exactly what Turnlock's state-io.ts expects.
- * Validated against: turnlock/src/services/state-io.ts (schemaVersion: 1).
+ * They seed the persisted Turnlock v2 state used by resume-path tests. The
+ * fixture intentionally mirrors the runtime's post-delegation snapshot so
+ * tests exercise the real resume path rather than a legacy approximation.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { STATE_SCHEMA_VERSION } from "turnlock";
 import type { CommitJobResult, GlobalState } from "../../src/types.ts";
 
-interface PendingDelegationRecord {
+interface PendingBatchDelegationRecord {
 	readonly label: string;
-	readonly kind: "agent-batch";
+	readonly kind: "batch";
 	readonly resumeAt: string;
 	readonly manifestPath: string;
 	readonly emittedAtEpochMs: number;
@@ -23,11 +23,12 @@ interface PendingDelegationRecord {
 		readonly backoffBaseMs: number;
 		readonly maxBackoffMs: number;
 	};
+	/** Required for batch delegations because Turnlock derives result paths from it. */
 	readonly jobIds: readonly string[];
 }
 
-interface StateFile {
-	readonly schemaVersion: 1;
+interface TurnlockV2StateFile {
+	readonly schemaVersion: typeof STATE_SCHEMA_VERSION;
 	readonly runId: string;
 	readonly orchestratorName: string;
 	readonly startedAt: string;
@@ -38,16 +39,35 @@ interface StateFile {
 	readonly phasesExecuted: number;
 	readonly accumulatedDurationMs: number;
 	readonly data: GlobalState;
-	readonly pendingDelegation: PendingDelegationRecord;
+	readonly pendingDelegation: PendingBatchDelegationRecord;
 	readonly usedLabels: readonly string[];
 }
 
+interface TurnlockV2BatchManifest {
+	readonly manifestVersion: 2;
+	readonly runId: string;
+	readonly orchestratorName: string;
+	readonly phase: string;
+	readonly resumeAt: string;
+	readonly label: string;
+	readonly kind: "batch";
+	readonly emittedAt: string;
+	readonly emittedAtEpochMs: number;
+	readonly timeoutMs: number;
+	readonly deadlineAtEpochMs: number;
+	readonly attempt: number;
+	readonly maxAttempts: number;
+	readonly worker: string;
+	readonly jobs: readonly {
+		readonly id: string;
+		readonly prompt: string;
+		readonly resultPath: string;
+	}[];
+}
+
 /**
- * Writes a state.json + the delegations directory into the runDir,
- * simulating what Turnlock writes after emitting a DELEGATE block during Phase 3.
- *
- * The manifest written here is a minimal agent-batch manifest compatible with
- * what Turnlock's handle-resume.ts expects to find at pd.manifestPath.
+ * Writes the state.json and v2 batch manifest that Turnlock persists after
+ * `discovery-and-validation` delegates to `commit-and-push`.
  */
 export function computeStateJson(
 	runDir: string,
@@ -56,124 +76,87 @@ export function computeStateJson(
 ): void {
 	const now = Date.now();
 	const nowIso = new Date(now).toISOString();
+	const label = "commit-jobs";
+	const timeoutMs = 600_000;
+	const maxAttempts = 1;
 	const repoIds = Object.keys(state.repos);
-
-	// Build a minimal manifest file for the pending delegation
-	const delegationsDir = path.join(runDir, "delegations");
-	fs.mkdirSync(delegationsDir, { recursive: true });
-	const manifestPath = path.join(delegationsDir, "commit-jobs-0.json");
-
-	const jobs = repoIds.map((id) => ({
-		id,
-		prompt: JSON.stringify({ repository: state.repos[id]?.repository ?? "" }),
-		resultPath: path.join(runDir, "results", "commit-jobs-0", `${id}.json`),
-	}));
-
-	const manifest = {
-		kind: "agent-batch",
-		agentType: "git-commit-generator",
-		label: "commit-jobs",
-		runId,
-		orchestrator: "git-commits-push-tl",
-		resumeCommand: `bun run src/turnlock-orchestrator.ts --resume --run-id ${runId}`,
-		timeoutMs: 600_000,
-		emittedAt: nowIso,
-		emittedAtEpochMs: now,
-		deadlineAtEpochMs: now + 600_000,
-		attempt: 0,
-		jobs,
-	};
-	fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-
-	// Ensure results directory exists
-	const resultsBatchDir = path.join(runDir, "results", "commit-jobs-0");
-	fs.mkdirSync(resultsBatchDir, { recursive: true });
-
-	const stateFile: StateFile = {
-		schemaVersion: 1,
-		runId,
-		orchestratorName: "git-commits-push-tl",
-		startedAt: nowIso,
-		startedAtEpochMs: now,
-		lastTransitionAt: nowIso,
-		lastTransitionAtEpochMs: now,
-		currentPhase: "commit-and-push",
-		phasesExecuted: 1,
-		accumulatedDurationMs: 0,
-		data: state,
-		pendingDelegation: {
-			label: "commit-jobs",
-			kind: "agent-batch",
-			resumeAt: "commit-and-push",
-			manifestPath,
-			emittedAtEpochMs: now,
-			deadlineAtEpochMs: now + 600_000,
-			attempt: 0,
-			effectiveRetryPolicy: {
-				maxAttempts: 1,
-				backoffBaseMs: 1000,
-				maxBackoffMs: 30_000,
-			},
-			jobIds: repoIds,
-		},
-		usedLabels: ["commit-jobs"],
-	};
-
-	// Write state.json in the exact location Turnlock expects: <runDir>/state.json
-	// But our runDir from tests is the mock env's base dir; Turnlock writes to:
-	// <TURNLOCK_RUN_DIR_ROOT>/git-commits-push-TL/<runId>/state.json
-	// We create that full path here so the resume subprocess finds it.
 	const turnlockRunDir = path.join(
 		runDir,
 		"runs",
 		"git-commits-push-tl",
 		runId,
 	);
-	fs.mkdirSync(turnlockRunDir, { recursive: true });
-	fs.mkdirSync(path.join(turnlockRunDir, "delegations"), { recursive: true });
-	fs.mkdirSync(path.join(turnlockRunDir, "results"), { recursive: true });
+	const delegationsDir = path.join(turnlockRunDir, "delegations");
+	const resultsBatchDir = path.join(turnlockRunDir, "results", `${label}-0`);
+	const manifestPath = path.join(delegationsDir, `${label}-0.json`);
 
-	// Copy manifest to the Turnlock run dir location
-	const tlManifestPath = path.join(
-		turnlockRunDir,
-		"delegations",
-		"commit-jobs-0.json",
-	);
-	fs.copyFileSync(manifestPath, tlManifestPath);
+	fs.mkdirSync(delegationsDir, { recursive: true });
+	fs.mkdirSync(resultsBatchDir, { recursive: true });
 
-	// Rewrite manifest path reference in state to point to TL run dir
-	const tlResultsBatchDir = path.join(
-		turnlockRunDir,
-		"results",
-		"commit-jobs-0",
-	);
-	fs.mkdirSync(tlResultsBatchDir, { recursive: true });
-
-	const tlJobs = repoIds.map((id) => ({
+	const jobs = repoIds.map((id) => ({
 		id,
 		prompt: JSON.stringify({ repository: state.repos[id]?.repository ?? "" }),
-		resultPath: path.join(tlResultsBatchDir, `${id}.json`),
+		resultPath: path.join(resultsBatchDir, `${id}.json`),
 	}));
-	const tlManifest = { ...manifest, jobs: tlJobs };
-	fs.writeFileSync(tlManifestPath, JSON.stringify(tlManifest, null, 2));
 
-	const finalState: StateFile = {
-		...stateFile,
+	const manifest: TurnlockV2BatchManifest = {
+		manifestVersion: 2,
+		runId,
+		orchestratorName: "git-commits-push-tl",
+		phase: "discovery-and-validation",
+		resumeAt: "commit-and-push",
+		label,
+		kind: "batch",
+		emittedAt: nowIso,
+		emittedAtEpochMs: now,
+		timeoutMs,
+		deadlineAtEpochMs: now + timeoutMs,
+		attempt: 0,
+		maxAttempts,
+		worker: "git-commit-generator",
+		jobs,
+	};
+
+	const stateFile: TurnlockV2StateFile = {
+		schemaVersion: STATE_SCHEMA_VERSION,
+		runId,
+		orchestratorName: "git-commits-push-tl",
+		startedAt: nowIso,
+		startedAtEpochMs: now,
+		lastTransitionAt: nowIso,
+		lastTransitionAtEpochMs: now,
+		currentPhase: "discovery-and-validation",
+		phasesExecuted: 1,
+		accumulatedDurationMs: 0,
+		data: state,
 		pendingDelegation: {
-			...stateFile.pendingDelegation,
-			manifestPath: tlManifestPath,
+			label,
+			kind: "batch",
+			resumeAt: "commit-and-push",
+			manifestPath,
+			emittedAtEpochMs: now,
+			deadlineAtEpochMs: now + timeoutMs,
+			attempt: 0,
+			effectiveRetryPolicy: {
+				maxAttempts,
+				backoffBaseMs: 1000,
+				maxBackoffMs: 30_000,
+			},
 			jobIds: repoIds,
 		},
+		usedLabels: [label],
 	};
+
+	fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 	fs.writeFileSync(
 		path.join(turnlockRunDir, "state.json"),
-		JSON.stringify(finalState, null, 2),
+		JSON.stringify(stateFile, null, 2),
 	);
 }
 
 /**
  * Write a single job's LLM result to the location expected by Turnlock.
- * This must be called AFTER computeStateJson so the directory exists.
+ * This must be called after computeStateJson so the directory exists.
  */
 export function writeLLMResultToTurnlockRunDir(
 	mockEnvRunDir: string,

@@ -71,8 +71,9 @@ describe("A1 — End-to-End Initial Run", () => {
 		expect(matches?.length).toBe(1); // one opening marker
 	});
 
-	test("A1-03 | delegation kind is agent-batch", () => {
-		expect(stdout).toContain("kind: agent-batch");
+	test("A1-03 | delegation uses the Turnlock v2 batch protocol", () => {
+		expect(stdout).toContain("version: 2");
+		expect(stdout).toContain("kind: batch");
 	});
 
 	test("A1-05 | repo-clean is NOT included in the delegation", () => {
@@ -97,6 +98,18 @@ describe("A1 — End-to-End Initial Run", () => {
 
 		findState(runsDir);
 		expect(stateFiles.length).toBeGreaterThan(0);
+		const firstStateFile = stateFiles[0];
+		expect(firstStateFile).toBeDefined();
+		if (!firstStateFile) return;
+		const state = JSON.parse(fs.readFileSync(firstStateFile, "utf-8")) as {
+			schemaVersion: number;
+			currentPhase: string;
+			pendingDelegation?: { kind: string; jobIds?: string[] };
+		};
+		expect(state.schemaVersion).toBe(2);
+		expect(state.currentPhase).toBe("discovery-and-validation");
+		expect(state.pendingDelegation?.kind).toBe("batch");
+		expect(state.pendingDelegation?.jobIds?.length ?? 0).toBeGreaterThan(0);
 	});
 
 	test("A1-07 | delegation manifest contains prompt with diff payload", () => {
@@ -121,10 +134,22 @@ describe("A1 — End-to-End Initial Run", () => {
 		findManifest(runsDir);
 		expect(manifest).not.toBeNull();
 		const m = manifest as {
+			manifestVersion: number;
+			orchestratorName: string;
+			phase: string;
+			resumeAt: string;
 			kind: string;
-			jobs: { id: string; prompt: string }[];
+			worker?: string;
+			maxAttempts: number;
+			jobs: { id: string; prompt: string; resultPath: string }[];
 		};
-		expect(m.kind).toBe("agent-batch");
+		expect(m.manifestVersion).toBe(2);
+		expect(m.orchestratorName).toBe("git-commits-push-tl");
+		expect(m.phase).toBe("discovery-and-validation");
+		expect(m.resumeAt).toBe("commit-and-push");
+		expect(m.kind).toBe("batch");
+		expect(m.worker).toBe("git-commit-generator");
+		expect(m.maxAttempts).toBe(1);
 		expect(m.jobs.length).toBeGreaterThan(0);
 
 		// The prompt must be a valid JSON-serialized CommitJobPayload

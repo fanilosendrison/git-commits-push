@@ -102,7 +102,7 @@ export interface Feedback {
 export type AttemptsByKind = Partial<Record<FeedbackError["kind"], number>>;
 
 /**
- * Payload embedded as JSON string inside an AgentBatchDelegationRequest job's `prompt` field.
+ * Payload embedded as JSON string inside a BatchDelegationRequest job's `prompt` field.
  * See: NIB-S §3 > CommitJobPayload, DC-TURNLOCK §4.
  *
  * R41 fix: `diff` semantic is overloaded by design.
@@ -128,14 +128,14 @@ export interface CommitJobPayload {
 	thinking?: boolean | undefined;
 }
 
-/** Written by the Pi wrapper to each job's resultPath on success */
+/** Written by the Turnlock-to-LLM bridge to each job's resultPath on success */
 export interface CommitJobResultSuccess {
 	success: true;
 	id: string;
 	commits: CommitPlan[];
 }
 
-/** Written by the Pi wrapper to each job's resultPath on failure */
+/** Written by the Turnlock-to-LLM bridge to each job's resultPath on failure */
 export interface CommitJobResultError {
 	success: false;
 	id: string;

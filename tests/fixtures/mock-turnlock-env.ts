@@ -15,7 +15,7 @@ import type { CommitJobResult, Settings } from "../../src/types.ts";
  *     delegations/commit-jobs-0.json   (manifest written by Turnlock)
  *     results/
  *       commit-jobs-0/
- *         <jobId>.json                 (written by the Pi wrapper)
+ *         <jobId>.json                 (written by the Turnlock-to-LLM bridge)
  */
 export class MockTurnlockEnvironment {
 	readonly runDir: string;

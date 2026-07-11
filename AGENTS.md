@@ -68,11 +68,14 @@ bun test \
   tests/unit/lock-manager.test.ts \
   tests/unit/skill-stats-log.test.ts \
   tests/acceptance/a4-queued-order-observability.test.ts \
+  tests/acceptance/a5-v2-full-pipeline.test.ts \
   --timeout 60000
 ```
 
 Tests that spawn the orchestrator must use `MockTurnlockEnvironment` and include
-`...env.env()` in `spawnSync` environment objects.
+`...env.env()` in `spawnSync` environment objects. The v2 full-pipeline test
+must exercise the real orchestrator, bridge, resume command, and Git publisher;
+it may mock only the external LLM HTTP boundary.
 
 ## Dependencies
 
@@ -80,7 +83,7 @@ Runtime and package dependencies:
 
 - Bun `>=1.1.0` is the runtime and test runner.
 - TypeScript runs in ESM mode with Bun-compatible imports.
-- `turnlock` comes from the npm registry at `^0.3.1`. Do not reintroduce a
+- `turnlock` comes from the npm registry at `^0.8.0`. Do not reintroduce a
   local `file:` dependency unless actively testing unreleased Turnlock changes.
 - `tsconfig.json` resolves `turnlock` through normal package exports, not through
   a local source path mapping.
