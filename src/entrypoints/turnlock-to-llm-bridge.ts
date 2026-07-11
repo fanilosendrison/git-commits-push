@@ -165,7 +165,7 @@ export async function handleTurnlockDelegation(
 	setupCleanupHooks(manifest.runId);
 
 	console.log(
-		`\n[Pi Wrapper] Received batch delegation for '${manifest.label}' with ${manifest.jobs.length} jobs.`,
+		`\n[Turnlock→LLM] Received batch delegation for '${manifest.label}' with ${manifest.jobs.length} jobs.`,
 	);
 
 	// Run LLM inference in parallel
@@ -174,12 +174,12 @@ export async function handleTurnlockDelegation(
 			try {
 				const payload: CommitJobPayload = JSON.parse(job.prompt);
 				console.log(
-					`[Pi Wrapper] [${job.id}] Resolving token for provider: ${payload.provider}...`,
+					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}...`,
 				);
 				const token = await resolveAuthToken(payload.provider);
 
 				console.log(
-					`[Pi Wrapper] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
+					`[Turnlock→LLM] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
 				);
 				let finalUserPrompt: string;
 				if (payload.feedback?.pending_files) {
@@ -210,14 +210,14 @@ export async function handleTurnlockDelegation(
 					});
 
 					console.log(
-						`[Pi Wrapper] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
+						`[Turnlock→LLM] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
 					);
 					try {
 						commits = JSON.parse(llmResponse);
 						if (Array.isArray(commits)) break;
 					} catch {
 						console.warn(
-							`[Pi Wrapper] [${job.id}] Invalid JSON on attempt ${attempt + 1}, retrying...`,
+							`[Turnlock→LLM] [${job.id}] Invalid JSON on attempt ${attempt + 1}, retrying...`,
 						);
 					}
 				}
@@ -244,11 +244,11 @@ export async function handleTurnlockDelegation(
 					"utf-8",
 				);
 				console.log(
-					`[Pi Wrapper] [${job.id}] Success result written to ${job.resultPath}`,
+					`[Turnlock→LLM] [${job.id}] Success result written to ${job.resultPath}`,
 				);
 			} catch (err: unknown) {
 				const errMsg = err instanceof Error ? err.message : String(err);
-				console.error(`[Pi Wrapper] [${job.id}] Error: ${errMsg}`);
+				console.error(`[Turnlock→LLM] [${job.id}] Error: ${errMsg}`);
 				const errorResult: CommitJobResult = {
 					success: false,
 					id: job.id,
@@ -268,7 +268,7 @@ export async function handleTurnlockDelegation(
 	);
 
 	console.log(
-		`\n[Pi Wrapper] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
+		`\n[Turnlock→LLM] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
 
 	stopHeartbeat();
@@ -293,7 +293,7 @@ export async function handleTurnlockDelegation(
 		extractTurnlockBlocks(output);
 	if (nextManifest && nextResume) {
 		console.log(
-			`\n[Pi Wrapper] Retry delegation detected. Processing next cycle...\n`,
+			`\n[Turnlock→LLM] Retry delegation detected. Processing next cycle...\n`,
 		);
 		await handleTurnlockDelegation(nextManifest, nextResume, execFn);
 	}
@@ -347,7 +347,7 @@ export async function main() {
 				await handleTurnlockDelegation(manifestPath, resumeCmd);
 			} catch (err: unknown) {
 				const errMsg = err instanceof Error ? err.message : String(err);
-				console.error(`[Pi Wrapper] Delegation execution failed: ${errMsg}`);
+				console.error(`[Turnlock→LLM] Delegation execution failed: ${errMsg}`);
 				process.exit(1);
 			}
 		} else {
