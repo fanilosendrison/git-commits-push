@@ -69,6 +69,18 @@ describe("skill-stats-log Core Unit Tests", () => {
 		details: Record<string, unknown>;
 	} {
 		const logFile = path.join(logDir, "events.jsonl");
+		// The event sink writes asynchronously — poll briefly until the file
+		// appears to avoid a race on slow CI / local runs.
+		const deadline = Date.now() + 2000;
+		while (!fs.existsSync(logFile) && Date.now() < deadline) {
+			// yield the event loop so the pending async write can land
+			Bun.sleepSync(5);
+		}
+		if (!fs.existsSync(logFile)) {
+			throw new Error(
+				`Expected events.jsonl to exist at ${logFile} within 2s`,
+			);
+		}
 		const lines = fs.readFileSync(logFile, "utf-8").trim().split("\n");
 		return JSON.parse(lines[lines.length - 1] ?? "");
 	}
