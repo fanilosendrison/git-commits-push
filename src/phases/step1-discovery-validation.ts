@@ -153,6 +153,7 @@ export async function runDiscoveryAndValidationPhase(
 			temperature: settings.temperature,
 			systemPrompt,
 			thinking: settings.thinking,
+			agent: settings.agent,
 		};
 		return {
 			id: r.id,

@@ -210,9 +210,9 @@ export async function handleTurnlockDelegation(
 			try {
 				const payload: CommitJobPayload = JSON.parse(job.prompt);
 				console.log(
-					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}...`,
+					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}${payload.agent ? ` (agent: ${payload.agent})` : ""}...`,
 				);
-				const token = await resolveAuthToken(payload.provider);
+				const token = await resolveAuthToken(payload.provider, payload.agent);
 
 				console.log(
 					`[Turnlock→LLM] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,

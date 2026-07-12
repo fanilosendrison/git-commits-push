@@ -91,4 +91,72 @@ describe("auth-resolver", () => {
 		const token = await resolveAuthToken("testprov");
 		expect(token).toBe("padded-token");
 	});
+
+	test("U-AR-08 | Nested lookup: resolves token via agent in nested provider map", async () => {
+		fs.writeFileSync(
+			AUTH_JSON_PATH,
+			JSON.stringify({
+				testprov: {
+					janet: "echo janet-token",
+					marcus: "echo marcus-token",
+				},
+			}),
+		);
+		const token = await resolveAuthToken("testprov", "janet");
+		expect(token).toBe("janet-token");
+	});
+
+	test("U-AR-09 | Nested lookup: second agent returns its own token", async () => {
+		fs.writeFileSync(
+			AUTH_JSON_PATH,
+			JSON.stringify({
+				testprov: {
+					janet: "echo janet-token",
+					marcus: "echo marcus-token",
+				},
+			}),
+		);
+		const token = await resolveAuthToken("testprov", "marcus");
+		expect(token).toBe("marcus-token");
+	});
+
+	test("U-AR-10 | Nested lookup: absent agent throws descriptive error", async () => {
+		fs.writeFileSync(
+			AUTH_JSON_PATH,
+			JSON.stringify({
+				testprov: {
+					janet: "echo janet-token",
+				},
+			}),
+		);
+		await expect(resolveAuthToken("testprov", "unknown-agent")).rejects.toThrow(
+			"not found",
+		);
+	});
+
+	test("U-AR-11 | Flat provider (has 'key') ignores agent and resolves normally (backward compat)", async () => {
+		fs.writeFileSync(
+			AUTH_JSON_PATH,
+			JSON.stringify({ testprov: "echo flat-token" }),
+		);
+		// Even with agent provided, flat format takes precedence
+		const token = await resolveAuthToken("testprov", "some-agent");
+		expect(token).toBe("flat-token");
+	});
+
+	test("U-AR-12 | Nested lookup without agent: falls back to flat behavior if provider is nested", async () => {
+		// When agent is omitted but provider is a nested map (no 'key'),
+		// the nested map itself is treated as the tokenConfig — malformed.
+		fs.writeFileSync(
+			AUTH_JSON_PATH,
+			JSON.stringify({
+				testprov: {
+					janet: "echo janet-token",
+				},
+			}),
+		);
+		await expect(resolveAuthToken("testprov")).rejects.toThrow(
+			"malformed",
+		);
+	});
 });

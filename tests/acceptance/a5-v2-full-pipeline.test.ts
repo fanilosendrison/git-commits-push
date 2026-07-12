@@ -50,6 +50,7 @@ beforeAll(() => {
 		systemPromptPath: path.join(searchRoot, "missing-system-prompt.md"),
 		autoPush: false,
 		skipTests: true,
+		agent: "git-commits-push",
 	});
 
 	const preloadArgument = shellQuote(MOCK_OPENAI_FETCH_PRELOAD);

@@ -8,5 +8,6 @@
 	"skipTests": false,
 	"thinking": false,
 	"fallbackProvider": "deepseek",
-	"fallbackModel": "deepseek-v4-pro"
+	"fallbackModel": "deepseek-v4-pro",
+	"agent": "git-commits-push"
 }

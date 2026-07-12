@@ -210,6 +210,7 @@ export function queueRetry(
 		systemPrompt,
 		feedback,
 		thinking: settings.thinking,
+		agent: settings.agent,
 	};
 
 	// 7. Log and push

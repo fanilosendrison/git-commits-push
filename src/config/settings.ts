@@ -84,6 +84,9 @@ export function readSettings(skillDir: string): Settings {
 	if (typeof obj.thinking === "boolean") {
 		settings.thinking = obj.thinking;
 	}
+	if (typeof obj.agent === "string") {
+		settings.agent = obj.agent;
+	}
 
 	return settings;
 }

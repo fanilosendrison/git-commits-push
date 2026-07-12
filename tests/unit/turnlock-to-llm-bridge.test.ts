@@ -7,6 +7,7 @@ import * as path from "node:path";
 // Set up module mocks before importing the target wrapper
 let lastExecCmd: string | null = null;
 let lastUserPrompt: string | null = null;
+let lastAgentPassed: string | undefined = undefined;
 
 interface MockAdapterConfig {
 	readonly apiKey?: string;
@@ -139,7 +140,8 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 mock.module(
 	path.resolve(__dirname, "../../src/modules/core/auth-resolver"),
 	() => ({
-		resolveAuthToken: async (provider: string) => {
+		resolveAuthToken: async (provider: string, agent?: string) => {
+			lastAgentPassed = agent;
 			if (provider === "fail") {
 				throw new Error("mock auth fail");
 			}
@@ -425,6 +427,71 @@ describe("turnlock-to-llm-bridge", () => {
 				"→ Resolution: Fix the duplicate file.",
 			);
 			expect(lastUserPrompt ?? "").toContain("→ Affected files: shared.ts");
+		});
+
+		test("passes agent to resolveAuthToken when present in payload", async () => {
+			lastAgentPassed = undefined;
+			const mockJobPayload = {
+				repository: "/path/to/repo",
+				diff: "staged-diff",
+				diffHash: "hash123",
+				provider: "openai",
+				model: "gpt-5.4-mini",
+				temperature: 0,
+				systemPrompt: "sys-prompt",
+				agent: "git-commits-push",
+			};
+
+			const manifest = createTurnlockV2BatchManifest({
+				phase: "discovery-and-validation",
+				resumeAt: "commit-and-push",
+				label: "commit-jobs",
+				jobs: [
+					{
+						id: "job-agent",
+						prompt: JSON.stringify(mockJobPayload),
+						resultPath: tempResultPath,
+					},
+				],
+			});
+
+			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
+
+			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => "");
+
+			expect(lastAgentPassed as string | undefined).toBe("git-commits-push");
+		});
+
+		test("does not pass agent when absent from payload", async () => {
+			lastAgentPassed = undefined;
+			const mockJobPayload = {
+				repository: "/path/to/repo",
+				diff: "staged-diff",
+				diffHash: "hash123",
+				provider: "openai",
+				model: "gpt-5.4-mini",
+				temperature: 0,
+				systemPrompt: "sys-prompt",
+			};
+
+			const manifest = createTurnlockV2BatchManifest({
+				phase: "discovery-and-validation",
+				resumeAt: "commit-and-push",
+				label: "commit-jobs",
+				jobs: [
+					{
+						id: "job-no-agent",
+						prompt: JSON.stringify(mockJobPayload),
+						resultPath: tempResultPath,
+					},
+				],
+			});
+
+			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
+
+			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => "");
+
+			expect(lastAgentPassed).toBeUndefined();
 		});
 	});
 });

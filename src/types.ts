@@ -16,6 +16,8 @@ export interface Settings {
 	fallbackProvider?: string;
 	fallbackModel?: string;
 	thinking?: boolean;
+	/** Agent name for nested credential lookup in agent-credentials.json */
+	agent?: string;
 }
 
 export interface RepositoryInfo {
@@ -126,6 +128,8 @@ export interface CommitJobPayload {
 	feedback?: Feedback | undefined;
 	/** Enable thinking/reasoning for supported providers (e.g. DeepSeek) */
 	thinking?: boolean | undefined;
+	/** Agent name for nested credential lookup in agent-credentials.json */
+	agent?: string | undefined;
 }
 
 /** Written by the Turnlock-to-LLM bridge to each job's resultPath on success */

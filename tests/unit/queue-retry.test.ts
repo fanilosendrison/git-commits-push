@@ -129,6 +129,50 @@ describe("U-GE-26 | queueRetry basic queued result", () => {
 
 		expect(countJobs()).toBe(before + 1);
 	});
+
+	test("retry payload includes agent when settings.agent is set", () => {
+		const settingsWithAgent: Settings = {
+			...MINIMAL_SETTINGS,
+			agent: "git-commits-push",
+		};
+		const repoState = makeRepoState();
+
+		const result = queueRetry(
+			"repo-1",
+			repoState,
+			[{ kind: "structural", message: "err" }],
+			{},
+			settingsWithAgent,
+			SYSTEM_PROMPT,
+			[makePlan(1)],
+		);
+
+		expect(result.kind).toBe("queued");
+		if (result.kind !== "queued") return;
+
+		const payload = JSON.parse(result.job.prompt);
+		expect(payload.agent).toBe("git-commits-push");
+	});
+
+	test("retry payload omits agent when settings.agent is not set", () => {
+		const repoState = makeRepoState();
+
+		const result = queueRetry(
+			"repo-1",
+			repoState,
+			[{ kind: "structural", message: "err" }],
+			{},
+			MINIMAL_SETTINGS,
+			SYSTEM_PROMPT,
+			[makePlan(1)],
+		);
+
+		expect(result.kind).toBe("queued");
+		if (result.kind !== "queued") return;
+
+		const payload = JSON.parse(result.job.prompt);
+		expect(payload.agent).toBeUndefined();
+	});
 });
 
 // ── U-GE-27: Loop detection ─────────────────────────────────────────────────
