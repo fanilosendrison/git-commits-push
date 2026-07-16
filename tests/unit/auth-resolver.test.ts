@@ -155,8 +155,6 @@ describe("auth-resolver", () => {
 				},
 			}),
 		);
-		await expect(resolveAuthToken("testprov")).rejects.toThrow(
-			"malformed",
-		);
+		await expect(resolveAuthToken("testprov")).rejects.toThrow("malformed");
 	});
 });

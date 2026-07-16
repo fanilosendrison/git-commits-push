@@ -77,9 +77,7 @@ describe("skill-stats-log Core Unit Tests", () => {
 			Bun.sleepSync(5);
 		}
 		if (!fs.existsSync(logFile)) {
-			throw new Error(
-				`Expected events.jsonl to exist at ${logFile} within 2s`,
-			);
+			throw new Error(`Expected events.jsonl to exist at ${logFile} within 2s`);
 		}
 		const lines = fs.readFileSync(logFile, "utf-8").trim().split("\n");
 		return JSON.parse(lines[lines.length - 1] ?? "");

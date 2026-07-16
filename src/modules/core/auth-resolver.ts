@@ -42,7 +42,12 @@ export async function resolveAuthToken(
 	// 3. Resolve token config — nested agent map or flat provider entry
 	let tokenConfig: unknown = authData[provider];
 
-	if (agent && tokenConfig && typeof tokenConfig === "object" && !("key" in tokenConfig)) {
+	if (
+		agent &&
+		tokenConfig &&
+		typeof tokenConfig === "object" &&
+		!("key" in tokenConfig)
+	) {
 		// Nested format: { "deepseek": { "janet": { "key": "..." }, ... } }
 		const agentMap = tokenConfig as Record<string, unknown>;
 		tokenConfig = agentMap[agent];

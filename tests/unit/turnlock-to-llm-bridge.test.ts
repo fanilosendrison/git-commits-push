@@ -7,7 +7,7 @@ import * as path from "node:path";
 // Set up module mocks before importing the target wrapper
 let lastExecCmd: string | null = null;
 let lastUserPrompt: string | null = null;
-let lastAgentPassed: string | undefined = undefined;
+let lastAgentPassed: string | undefined;
 
 interface MockAdapterConfig {
 	readonly apiKey?: string;
@@ -457,7 +457,11 @@ describe("turnlock-to-llm-bridge", () => {
 
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 
-			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => "");
+			await handleTurnlockDelegation(
+				tempManifestPath,
+				"resume-cmd --test",
+				() => "",
+			);
 
 			expect(lastAgentPassed as string | undefined).toBe("git-commits-push");
 		});
@@ -489,7 +493,11 @@ describe("turnlock-to-llm-bridge", () => {
 
 			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
 
-			await handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => "");
+			await handleTurnlockDelegation(
+				tempManifestPath,
+				"resume-cmd --test",
+				() => "",
+			);
 
 			expect(lastAgentPassed).toBeUndefined();
 		});
