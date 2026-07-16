@@ -15,6 +15,7 @@
 	"dependencies": {
 		"zod": "4.3.6",
 		"turnlock": "^0.8.0",
+		"ulid": "^2.4.0",
 		"@fanilosendrison/llm-runtime": "^0.1.2"
 	},
 	"devDependencies": {
