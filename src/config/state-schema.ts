@@ -1,6 +1,20 @@
 import { z } from "zod";
+import type {
+	AttemptsByKind,
+	CommitJobResult,
+	CommitPlan,
+	GlobalState,
+} from "../types.ts";
 
-export const commitMessageSchema = z.object({
+const commitMessageStateSchema = z.object({
+	type: z.string(),
+	scope: z.string().optional().nullable(),
+	description: z.string(),
+	body: z.string().optional().nullable(),
+	isBreaking: z.boolean(),
+});
+
+const commitMessageResultSchema = z.object({
 	type: z.string(),
 	scope: z.string().optional().nullable(),
 	description: z.string(),
@@ -8,16 +22,21 @@ export const commitMessageSchema = z.object({
 	isBreaking: z.boolean().optional().default(false),
 });
 
-export const commitPlanSchema = z.object({
-	commit: commitMessageSchema,
+export const commitPlanSchema: z.ZodSchema<CommitPlan> = z.object({
+	commit: commitMessageStateSchema,
 	files: z.array(z.string()),
 });
 
-export const commitJobResultSchema = z.union([
+const commitPlanResultSchema = z.object({
+	commit: commitMessageResultSchema,
+	files: z.array(z.string()),
+});
+
+const commitJobResultRuntimeSchema = z.union([
 	z.object({
 		success: z.literal(true),
 		id: z.string(),
-		commits: z.array(commitPlanSchema),
+		commits: z.array(commitPlanResultSchema),
 	}),
 	z.object({
 		success: z.literal(false),
@@ -25,6 +44,11 @@ export const commitJobResultSchema = z.union([
 		error: z.string(),
 	}),
 ]);
+
+// Turnlock consumes result files as unknown JSON, while ZodSchema<T> fixes input
+// to T. This schema normalizes omitted `isBreaking` values before returning T.
+export const commitJobResultSchema =
+	commitJobResultRuntimeSchema as z.ZodSchema<CommitJobResult>;
 
 const ATTEMPT_KINDS = [
 	"validation",
@@ -35,7 +59,7 @@ const ATTEMPT_KINDS = [
 ] as const;
 type AttemptKind = (typeof ATTEMPT_KINDS)[number];
 
-const attemptsSchema = z.preprocess(
+const attemptsRuntimeSchema = z.preprocess(
 	(v) => {
 		if (typeof v === "number") return {}; // legacy: zero out
 		return v;
@@ -55,7 +79,13 @@ const attemptsSchema = z.preprocess(
 		.optional(),
 );
 
-export const stateSchema = z.object({
+// Accepts the legacy persisted `attempts: number`, but normalizes to the
+// current per-kind map before Turnlock stores state again.
+const attemptsSchema = attemptsRuntimeSchema as z.ZodSchema<
+	AttemptsByKind | undefined
+>;
+
+export const stateSchema: z.ZodSchema<GlobalState> = z.object({
 	repos: z.record(
 		z.string(),
 		z.object({
