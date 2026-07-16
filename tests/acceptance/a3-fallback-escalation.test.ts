@@ -109,7 +109,7 @@ describe("A3 — Fallback model escalation", () => {
 		};
 		env.writeSettings(settings);
 
-		const runId = "test-run-fallback-escalation";
+		const runId = "01J00000000000000000000001";
 		computeStateJson(
 			env.runDir,
 			{

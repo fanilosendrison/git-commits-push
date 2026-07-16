@@ -69,7 +69,7 @@ export class MockTurnlockEnvironment {
 	writeLLMResult(
 		jobId: string,
 		result: CommitJobResult,
-		runId: string = "test-run-seeded",
+		runId: string = "01J00000000000000000000000",
 	): void {
 		const batchDir = path.join(
 			this.runDir,

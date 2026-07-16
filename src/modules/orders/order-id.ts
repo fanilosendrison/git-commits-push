@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { ulid } from "ulid";
 
 function formatTimestamp(date: Date): string {
 	return date.toISOString().replace(/[:.-]/g, "").toLowerCase();
 }
 
-export function createRunId(now = new Date()): string {
-	return `run-${formatTimestamp(now)}-${Math.random().toString(36).slice(2, 6)}`;
+export function createRunId(): string {
+	return ulid();
 }
 
 export function createOrderId(now = new Date()): string {

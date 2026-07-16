@@ -85,7 +85,13 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 		const start = Date.now();
 		const result = spawnSync(
 			"bun",
-			["run", SKILL_ENTRYPOINT, "--resume", "--run-id", "test-run-seeded"],
+			[
+				"run",
+				SKILL_ENTRYPOINT,
+				"--resume",
+				"--run-id",
+				"01J00000000000000000000000",
+			],
 			{
 				env: {
 					...process.env,

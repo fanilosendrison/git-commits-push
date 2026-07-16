@@ -56,7 +56,7 @@ beforeAll(async () => {
 				},
 			},
 		},
-		"test-run-seeded",
+		"01J00000000000000000000000",
 	);
 
 	// Simulate the LLM wrapper having written a valid result for the job
@@ -75,7 +75,7 @@ beforeAll(async () => {
 			},
 		],
 	};
-	env.writeLLMResult(repoId, llmResult, "test-run-seeded");
+	env.writeLLMResult(repoId, llmResult, "01J00000000000000000000000");
 	void diff; // used implicitly via computeStateJson
 });
 
@@ -92,7 +92,13 @@ describe("A2 — End-to-End Resume Run", () => {
 	test("A2-01 | skill process exits with code 0 on --resume", () => {
 		const result = spawnSync(
 			"bun",
-			["run", SKILL_ENTRYPOINT, "--resume", "--run-id", "test-run-seeded"],
+			[
+				"run",
+				SKILL_ENTRYPOINT,
+				"--resume",
+				"--run-id",
+				"01J00000000000000000000000",
+			],
 			{
 				env: {
 					...process.env,

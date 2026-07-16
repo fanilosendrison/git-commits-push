@@ -72,7 +72,7 @@ interface TurnlockV2BatchManifest {
 export function computeStateJson(
 	runDir: string,
 	state: GlobalState,
-	runId: string = "test-run-seeded",
+	runId: string = "01J00000000000000000000000",
 ): void {
 	const now = Date.now();
 	const nowIso = new Date(now).toISOString();
@@ -162,7 +162,7 @@ export function writeLLMResultToTurnlockRunDir(
 	mockEnvRunDir: string,
 	jobId: string,
 	result: CommitJobResult,
-	runId: string = "test-run-seeded",
+	runId: string = "01J00000000000000000000000",
 ): void {
 	const resultPath = path.join(
 		mockEnvRunDir,

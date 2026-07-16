@@ -67,7 +67,7 @@ describe("A4 — Queued order observability", () => {
 		const queuedOrders = listQueuedOrders(path.join(env.runDir, "orders"));
 		expect(queuedOrders.length).toBe(1);
 		const queuedOrder = queuedOrders[0]?.order;
-		expect(queuedOrder?.requestedRunId.startsWith("run-")).toBe(true);
+		expect(queuedOrder?.requestedRunId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
 		expect(queuedOrder?.originSessionId).toBe("session-2");
 		expect(queuedOrder?.blockedByRunId).toBe("run-session-1");
 		expect(queuedOrder?.queuePosition).toBe(1);

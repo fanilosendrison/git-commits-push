@@ -82,7 +82,13 @@ describe("P4 — Git Push Skip No-Remote", () => {
 	test("P4-01 | process exits with code 0", () => {
 		const result = spawnSync(
 			"bun",
-			["run", SKILL_ENTRYPOINT, "--resume", "--run-id", "test-run-seeded"],
+			[
+				"run",
+				SKILL_ENTRYPOINT,
+				"--resume",
+				"--run-id",
+				"01J00000000000000000000000",
+			],
 			{
 				env: {
 					...process.env,

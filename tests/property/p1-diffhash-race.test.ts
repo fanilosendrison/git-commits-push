@@ -80,7 +80,13 @@ describe("P1 — DiffHash Race Condition Prevention", () => {
 	test("P1-01 | process exits with code 0 (partial success path)", () => {
 		const result = spawnSync(
 			"bun",
-			["run", SKILL_ENTRYPOINT, "--resume", "--run-id", "test-run-seeded"],
+			[
+				"run",
+				SKILL_ENTRYPOINT,
+				"--resume",
+				"--run-id",
+				"01J00000000000000000000000",
+			],
 			{
 				env: {
 					...process.env,
