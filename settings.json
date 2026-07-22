@@ -1,9 +1,0 @@
-{
-  "searchPaths": ["~/Developper/Projects/dotpi/extensions/pi-subagents-4-turnlock"],
-  "provider": "deepseek",
-  "model": "deepseek-v4-flash",
-  "temperature": 0.2,
-  "systemPromptPath": "/Users/famillesendrison/.agents/skills/specify/prompts/system.md",
-  "autoPush": true,
-  "skipTests": true
-}
