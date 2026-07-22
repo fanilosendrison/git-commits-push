@@ -133,6 +133,9 @@ export async function processRepoValidationAndDiff(
 		await runTestCascade(repo.path);
 	}
 
+	// Stage internal submodule changes first so that `git add -A` in
+	// the parent picks up the updated gitlink SHAs.
+	execCwd("git submodule foreach --quiet --recursive 'git add -A'", repo.path);
 	execCwd("git add -A", repo.path);
 
 	const diff = execSync("git diff --cached", {
