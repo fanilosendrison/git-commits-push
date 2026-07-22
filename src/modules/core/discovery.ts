@@ -80,5 +80,11 @@ export async function runDiscovery(
 		}
 	}
 
+	// Order submodules before their parents so that submodule commits
+	// land first. The parent diff will then include the updated SHA.
+	results.sort(
+		(a, b) => b.path.split(path.sep).length - a.path.split(path.sep).length,
+	);
+
 	return results;
 }
