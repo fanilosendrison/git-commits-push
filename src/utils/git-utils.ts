@@ -99,14 +99,69 @@ export function isDetachedHead(repoPath: string): boolean {
 }
 
 /**
- * Check if the repository has any local changes (staged or unstaged).
+ * Check if the repository has any local changes (staged or unstaged),
+ * including dirty submodules (internal changes, not just SHA pointer).
  */
 export function hasLocalChanges(repoPath: string): boolean {
 	try {
 		const status = gitExec("status --porcelain", repoPath);
-		return status !== "";
+		if (status !== "") return true;
+	} catch {
+		// fall through to submodule check
+	}
+	return hasDirtySubmodules(repoPath);
+}
+
+/**
+ * Check whether any submodule tracked by this repository has local
+ * changes (staged or unstaged) inside the submodule itself.
+ *
+ * Uses `git submodule foreach` to recurse into each submodule and
+ * run `git status --porcelain` there. If any submodule reports
+ * output, it is dirty.
+ */
+export function hasDirtySubmodules(repoPath: string): boolean {
+	try {
+		const output = gitExec(
+			"submodule foreach --quiet --recursive 'git status --porcelain'",
+			repoPath,
+		);
+		return output.trim() !== "";
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * Return absolute paths to every registered submodule in the given
+ * repository. Only returns submodules that exist on disk and contain
+ * a `.git` entry (file or directory).
+ */
+export function getSubmodulePaths(repoPath: string): string[] {
+	try {
+		// git ls-files --stage outputs mode+sha+stage+path; mode 160000 = gitlink (submodule)
+		const lines = gitExec("ls-files --stage", repoPath).split("\n");
+		const submodules: string[] = [];
+		for (const line of lines) {
+			// Each line: "160000 <sha> 0\t<path>"
+			const modeMatch = line.match(/^(\d{6})\s/);
+			if (!modeMatch || modeMatch[1] !== "160000") continue;
+			const tabIdx = line.lastIndexOf("\t");
+			if (tabIdx === -1) continue;
+			const relativePath = line.slice(tabIdx + 1).trim();
+			if (!relativePath) continue;
+			const absolutePath = path.join(repoPath, relativePath);
+			// Verify the path exists on disk and looks like a git repo.
+			if (
+				fs.existsSync(absolutePath) &&
+				fs.existsSync(path.join(absolutePath, ".git"))
+			) {
+				submodules.push(absolutePath);
+			}
+		}
+		return submodules;
+	} catch {
+		return [];
 	}
 }
 
@@ -149,7 +204,13 @@ export function findGitDirectoriesRecursively(root: string): string[] {
 		const hasGit = entries.some((e) => e.name === ".git");
 		if (hasGit) {
 			results.push(dir);
-			// Do not recurse further — no nested git repos
+			// Descend into registered submodules so they are discovered
+			// as independent repositories.
+			for (const smPath of getSubmodulePaths(dir)) {
+				// Avoid infinite loops: skip if already seen (handled
+				// at the discovery level, but guard here as well).
+				walk(smPath);
+			}
 			return;
 		}
 
