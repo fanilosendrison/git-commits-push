@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PhaseIO, PhaseResult } from "turnlock";
@@ -143,10 +144,28 @@ export async function runDiscoveryAndValidationPhase(
 	}
 
 	// Phase 3: Delegate to LLM
+	const maxDiff = settings.maxDiffChars ?? 3_000_000;
 	const jobs = validRepos.map((r) => {
+		let diffForLlm = r.diff;
+		if (diffForLlm.length > maxDiff) {
+			let statFallback = "";
+			try {
+				statFallback = execSync("git diff --cached --stat", {
+					cwd: r.path,
+					encoding: "utf-8",
+					stdio: ["pipe", "pipe", "pipe"],
+				}).toString();
+			} catch {
+				// best-effort
+			}
+			diffForLlm =
+				diffForLlm.slice(0, maxDiff) +
+				`\n\n### DIFF TRUNCATED — ${r.diff.length} chars total, showing first ${maxDiff} chars ###` +
+				`\n\n### FULL FILE LIST (git diff --stat) ###\n${statFallback}`;
+		}
 		const payload: CommitJobPayload = {
 			repository: r.path,
-			diff: r.diff,
+			diff: diffForLlm,
 			diffHash: r.diffHash,
 			provider: settings.provider,
 			model: settings.model,

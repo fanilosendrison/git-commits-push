@@ -9,5 +9,6 @@
 	"thinking": false,
 	"fallbackProvider": "deepseek",
 	"fallbackModel": "deepseek-v4-pro",
-	"agent": "git-commits-push"
+	"agent": "git-commits-push",
+	"maxDiffChars": 3000000
 }

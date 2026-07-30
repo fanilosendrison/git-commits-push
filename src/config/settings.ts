@@ -87,6 +87,9 @@ export function readSettings(skillDir: string): Settings {
 	if (typeof obj.agent === "string") {
 		settings.agent = obj.agent;
 	}
+	if (typeof obj.maxDiffChars === "number" && obj.maxDiffChars > 0) {
+		settings.maxDiffChars = obj.maxDiffChars;
+	}
 
 	return settings;
 }

@@ -18,6 +18,12 @@ export interface Settings {
 	thinking?: boolean;
 	/** Agent name for nested credential lookup in agent-credentials.json */
 	agent?: string;
+	/**
+	 * Maximum diff size (chars) before truncation.
+	 * When exceeded, the diff is truncated and replaced with `git diff --stat`
+	 * to stay within LLM context window limits. Defaults to 3_000_000 (~750K tokens).
+	 */
+	maxDiffChars?: number;
 }
 
 export interface RepositoryInfo {
