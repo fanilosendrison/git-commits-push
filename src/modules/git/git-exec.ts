@@ -44,5 +44,6 @@ export function gitExec(args: string, cwd: string): string {
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
 		env: buildGitEnv(),
+		maxBuffer: 50 * 1024 * 1024, // 50 MB — avoids ENOBUFS on verbose hooks
 	}).trim();
 }

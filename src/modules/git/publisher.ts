@@ -67,6 +67,7 @@ export async function executeMultiCommitAndPush(
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
 		env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+		maxBuffer: 50 * 1024 * 1024,
 	});
 	const currentHash = crypto
 		.createHash("sha256")

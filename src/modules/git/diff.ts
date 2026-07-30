@@ -30,6 +30,7 @@ export function reconstructRemainingDiff(
 						cwd: repoPath,
 						encoding: "utf-8",
 						stdio: ["pipe", "pipe", "pipe"],
+						maxBuffer: 50 * 1024 * 1024,
 					},
 				).toString();
 
