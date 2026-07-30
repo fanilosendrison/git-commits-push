@@ -121,6 +121,7 @@ function execCwd(cmd: string, cwd: string): void {
 		cwd,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
+		maxBuffer: 50 * 1024 * 1024,
 	});
 }
 
@@ -142,6 +143,7 @@ export async function processRepoValidationAndDiff(
 		cwd: repo.path,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
+		maxBuffer: 50 * 1024 * 1024,
 	});
 
 	if (!diff.trim()) {
