@@ -27,7 +27,7 @@ describe("skill-stats-log Core Unit Tests", () => {
 		delete process.env.ANTIGRAVITY_TRAJECTORY_ID;
 		delete process.env.CODEX_THREAD_ID;
 
-		statsDir = path.join(os.tmpdir(), `skill-stats-log-test-${Date.now()}`);
+		statsDir = fs.mkdtempSync(path.join(os.tmpdir(), "skill-stats-log-test-"));
 		gitStatsDir = path.join(statsDir, "git-commits-push");
 		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
 		process.env.PI_SKILL_STATS_DIR = gitStatsDir;
