@@ -66,7 +66,8 @@ export async function executeMultiCommitAndPush(
 	// This happens when the index was cleared between step1 and step2 due to
 	// a prior retry resetting the staging area. An empty expected hash means
 	// there is no staged content to race against.
-	const EMPTY_DIFF_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+	const EMPTY_DIFF_HASH =
+		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 	if (expectedDiffHash !== EMPTY_DIFF_HASH) {
 		const currentDiff = execSync("git diff --cached", {
 			cwd: repoPath,
