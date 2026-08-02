@@ -145,7 +145,7 @@ export function getSubmodulePaths(repoPath: string): string[] {
 		for (const line of lines) {
 			// Each line: "160000 <sha> 0\t<path>"
 			const modeMatch = line.match(/^(\d{6})\s/);
-			if (!modeMatch || modeMatch[1] !== "160000") continue;
+			if (modeMatch?.[1] !== "160000") continue;
 			const tabIdx = line.lastIndexOf("\t");
 			if (tabIdx === -1) continue;
 			const relativePath = line.slice(tabIdx + 1).trim();
