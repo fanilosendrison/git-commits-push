@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createEventSink } from "/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts";
+import { createEventSink } from "@fanilosendrison/event-sink";
 
 export function getAgentName(): string {
 	if (process.env.ANTIGRAVITY_AGENT === "1") return "antigravity";

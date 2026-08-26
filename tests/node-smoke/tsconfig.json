@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"strict": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"erasableSyntaxOnly": true,
+		"types": ["node"],
+		"typeRoots": ["../../node_modules/@types"]
+	},
+	"include": [
+		"../../src/modules/telemetry/stats-logger.ts",
+		"./stats-logger-event-sink.node.ts"
+	]
+}

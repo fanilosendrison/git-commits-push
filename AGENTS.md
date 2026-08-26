@@ -81,17 +81,19 @@ it may mock only the external LLM HTTP boundary.
 
 Runtime and package dependencies:
 
-- Bun `>=1.1.0` is the runtime and test runner.
+- Bun `>=1.1.0` remains the transition runtime and historical test runner.
+- Node `>=22.19.0` runs migrated TypeScript smoke surfaces directly while the
+  compiled entrypoint cutover remains pending.
 - TypeScript runs in ESM mode with Bun-compatible imports.
-- `turnlock` comes from the npm registry at `^0.8.0`. Do not reintroduce a
+- `turnlock` comes from the npm registry at exact `0.9.1`. Do not reintroduce a
   local `file:` dependency unless actively testing unreleased Turnlock changes.
 - `tsconfig.json` resolves `turnlock` through normal package exports, not through
   a local source path mapping.
 - `@fanilosendrison/llm-runtime` powers provider adapters and prompt building.
 - `zod` validates Turnlock state and LLM result schemas.
-- `src/modules/telemetry/stats-logger.ts` imports `createEventSink` from the
-  local telemetry-tools checkout at
-  `/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts`.
+- `src/modules/telemetry/stats-logger.ts` imports `createEventSink` from exact
+  `@fanilosendrison/event-sink@0.1.0`; no telemetry-tools source checkout is
+  required.
 
 Development dependencies:
 
