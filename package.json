@@ -5,8 +5,10 @@
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"test": "bun test --timeout 60000",
-		"test:quick": "bun test --timeout 60000 --ignore 'tests/invariants/i1-secret-scanner.test.ts' --ignore 'tests/invariants/i3-parallel-isolation.test.ts' --ignore 'tests/invariants/i4-stdout-compliance.test.ts'",
+		"test": "bun run test:without-bridge && bun run test:bridge",
+		"test:without-bridge": "bun test --timeout 60000 --ignore 'tests/unit/turnlock-to-llm-bridge.test.ts'",
+		"test:bridge": "bun test --timeout 60000 tests/unit/turnlock-to-llm-bridge.test.ts",
+		"test:quick": "bun test --timeout 60000 --ignore 'tests/unit/turnlock-to-llm-bridge.test.ts' --ignore 'tests/invariants/i1-secret-scanner.test.ts' --ignore 'tests/invariants/i3-parallel-isolation.test.ts' --ignore 'tests/invariants/i4-stdout-compliance.test.ts' && bun run test:bridge",
 		"test:run": "PI_SKILL_STATS_MODE=test bun run src/entrypoints/turnlock-orchestrator.ts",
 		"start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts",
 		"typecheck": "tsc --noEmit",
