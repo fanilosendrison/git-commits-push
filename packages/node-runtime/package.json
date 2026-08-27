@@ -1,0 +1,29 @@
+{
+	"name": "@dotagents/node-runtime",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@11.24.0",
+	"engines": {
+		"node": ">=22.19.0",
+		"pnpm": "11.24.0"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "node --test --test-concurrency=1 test/run-process.test.ts",
+		"typecheck": "tsc -p tsconfig.json"
+	},
+	"devDependencies": {
+		"@types/node": "22.20.0",
+		"typescript": "5.9.3"
+	}
+}
