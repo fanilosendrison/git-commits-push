@@ -19,7 +19,7 @@
 	],
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
-		"test": "node --test --test-concurrency=1 test/run-process.test.ts test/parse-yaml.test.ts",
+		"test": "node test/run-tests.mjs",
 		"typecheck": "tsc -p tsconfig.json"
 	},
 	"dependencies": {
