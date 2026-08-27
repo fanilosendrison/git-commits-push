@@ -1,3 +1,5 @@
+export type { ParseYamlOptions } from "./parse-yaml.ts";
+export { parseYaml, YamlParseError } from "./parse-yaml.ts";
 export type {
 	ProcessChunkHandler,
 	ProcessExecutionErrorPhase,

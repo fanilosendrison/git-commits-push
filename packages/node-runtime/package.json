@@ -19,10 +19,14 @@
 	],
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
-		"test": "node --test --test-concurrency=1 test/run-process.test.ts",
+		"test": "node --test --test-concurrency=1 test/run-process.test.ts test/parse-yaml.test.ts",
 		"typecheck": "tsc -p tsconfig.json"
 	},
+	"dependencies": {
+		"js-yaml": "4.3.1"
+	},
 	"devDependencies": {
+		"@types/js-yaml": "4.0.9",
 		"@types/node": "22.20.0",
 		"typescript": "5.9.3"
 	}
