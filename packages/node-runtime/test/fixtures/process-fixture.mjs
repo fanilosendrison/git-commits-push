@@ -33,6 +33,9 @@ switch (mode) {
 	case "exit":
 		process.exitCode = Number(process.argv[3]);
 		break;
+	case "emit-pid-and-exit":
+		process.stdout.write(`${process.pid}\n`);
+		break;
 	case "signal":
 		process.kill(process.pid, "SIGTERM");
 		break;

@@ -30,6 +30,38 @@ async function makeTemporaryDirectory(prefix: string): Promise<string> {
 	return directory;
 }
 
+interface DeferredSignal {
+	readonly promise: Promise<void>;
+	readonly resolve: () => void;
+}
+
+function createDeferredSignal(): DeferredSignal {
+	let resolve = (): void => {
+		throw new Error("Deferred signal resolved before initialization");
+	};
+	const promise = new Promise<void>((resolvePromise) => {
+		resolve = resolvePromise;
+	});
+	return { promise, resolve };
+}
+
+async function waitForSignal(
+	signal: Promise<void>,
+	description: string,
+): Promise<void> {
+	const timeoutController = new AbortController();
+	try {
+		await Promise.race([
+			signal,
+			delay(1_000, undefined, { signal: timeoutController.signal }).then(() => {
+				throw new Error(`Timed out waiting for ${description}`);
+			}),
+		]);
+	} finally {
+		timeoutController.abort();
+	}
+}
+
 async function waitForProcessToDisappear(pid: number): Promise<void> {
 	for (let attempt = 0; attempt < 40; attempt += 1) {
 		try {
@@ -180,6 +212,105 @@ test("does not spawn when the AbortSignal is already aborted", async () => {
 	assert.equal(result.terminationReason, "aborted");
 	assert.equal(result.exitCode, null);
 	assert.equal(result.stdout, "");
+});
+
+test("preserves a normal exit when abort arrives after process completion", async () => {
+	const controller = new AbortController();
+	const outputObserved = createDeferredSignal();
+	const releaseOutputHandler = createDeferredSignal();
+	let pidOutput = "";
+	const execution = runFixture("emit-pid-and-exit", [], {
+		signal: controller.signal,
+		onStdoutChunk: async (chunk) => {
+			pidOutput += Buffer.from(chunk).toString("utf8");
+			outputObserved.resolve();
+			await releaseOutputHandler.promise;
+		},
+	});
+
+	await waitForSignal(outputObserved.promise, "the child PID");
+	const childPid = Number(pidOutput.trim());
+	try {
+		assert.ok(Number.isSafeInteger(childPid));
+		assert.ok(childPid > 0);
+		await waitForProcessToDisappear(childPid);
+		controller.abort();
+	} finally {
+		releaseOutputHandler.resolve();
+	}
+	const result = await execution;
+
+	assert.equal(result.terminationReason, "exit");
+	assert.equal(result.exitCode, 0);
+	assert.equal(result.signal, null);
+});
+
+test("reports a delayed output error even after process completion", async () => {
+	const outputObserved = createDeferredSignal();
+	const rejectOutputHandler = createDeferredSignal();
+	let pidOutput = "";
+	const execution = runFixture("emit-pid-and-exit", [], {
+		onStdoutChunk: async (chunk) => {
+			pidOutput += Buffer.from(chunk).toString("utf8");
+			outputObserved.resolve();
+			await rejectOutputHandler.promise;
+			throw new Error("delayed sink failure");
+		},
+	});
+
+	await waitForSignal(outputObserved.promise, "the child PID");
+	const childPid = Number(pidOutput.trim());
+	assert.ok(Number.isSafeInteger(childPid));
+	assert.ok(childPid > 0);
+	await waitForProcessToDisappear(childPid);
+	rejectOutputHandler.resolve();
+
+	await assert.rejects(execution, (error: unknown) => {
+		assert.ok(error instanceof ProcessExecutionError);
+		assert.equal(error.phase, "stdout");
+		assert.match(String(error.cause), /delayed sink failure/);
+		return true;
+	});
+});
+
+test("reports an output error when abort is requested first", async () => {
+	const controller = new AbortController();
+	await assert.rejects(
+		runFixture("ignore-sigterm", [], {
+			signal: controller.signal,
+			terminationGraceMs: 50,
+			onStdoutChunk: () => {
+				controller.abort();
+				throw new Error("abort race sink failure");
+			},
+		}),
+		(error: unknown) => {
+			assert.ok(error instanceof ProcessExecutionError);
+			assert.equal(error.phase, "stdout");
+			assert.match(String(error.cause), /abort race sink failure/);
+			return true;
+		},
+	);
+});
+
+test("reports a spawn error when abort races a missing executable", async () => {
+	const controller = new AbortController();
+	const execution = runProcess(
+		{
+			command: "/definitely/missing/node-runtime-race-command",
+			args: [],
+		},
+		{ signal: controller.signal },
+	);
+	controller.abort();
+
+	await assert.rejects(execution, (error: unknown) => {
+		assert.ok(error instanceof ProcessExecutionError);
+		assert.equal(error.phase, "spawn");
+		assert.equal(error.code, "ENOENT");
+		return true;
+	});
+	assert.equal(getEventListeners(controller.signal, "abort").length, 0);
 });
 
 test("terminates a process when its timeout expires", async () => {
