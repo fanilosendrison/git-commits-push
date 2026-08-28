@@ -49,12 +49,16 @@ bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnl
 ```
 
 The orchestrator owns Turnlock state. The bridge owns LLM delegation execution.
+Both entrypoints now have tested, untracked NodeNext build artifacts, but the
+active launch remains on Bun until the Node supervisor and cutover gates close.
 
 ## Testing Expectations
 
 Run these before finishing code changes:
 
 ```bash
+pnpm run typecheck:node
+pnpm run test:node:build
 bun run typecheck
 bun run lint
 bun run test
@@ -82,8 +86,8 @@ it may mock only the external LLM HTTP boundary.
 Runtime and package dependencies:
 
 - Bun `>=1.1.0` remains the transition runtime and historical test runner.
-- Node `>=22.19.0` runs migrated TypeScript smoke surfaces directly while the
-  compiled entrypoint cutover remains pending.
+- Node `>=22.19.0` builds and imports both compiled entrypoints while the
+  supervisor and active entrypoint cutover remain pending.
 - TypeScript runs in ESM mode with Bun-compatible imports.
 - `turnlock` comes from the npm registry at exact `0.9.1`. Do not reintroduce a
   local `file:` dependency unless actively testing unreleased Turnlock changes.
