@@ -10,8 +10,9 @@ import { runDiscoveryAndValidationPhase } from "../phases/step1-discovery-valida
 import { runCommitAndPushPhase } from "../phases/step2-commit-push.ts";
 import type { GlobalState } from "../types.ts";
 import { bootstrapOrchestratorRun } from "../utils/cli-bootstrap.ts";
+import { isDirectExecution } from "../utils/direct-execution.ts";
 
-if (import.meta.main) {
+if (isDirectExecution(import.meta.url)) {
 	// 1. Run bootstrap synchronously to set process.argv before Turnlock is imported
 	bootstrapOrchestratorRun(process.argv.slice(2));
 

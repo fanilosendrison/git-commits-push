@@ -18,6 +18,7 @@ import {
 	type ProviderAdapter,
 } from "@fanilosendrison/llm-runtime";
 import { z } from "zod";
+import { isDirectExecution } from "../utils/direct-execution.ts";
 import {
 	setupCleanupHooks,
 	startHeartbeat,
@@ -392,6 +393,6 @@ export async function main() {
 	});
 }
 
-if (import.meta.main) {
+if (isDirectExecution(import.meta.url)) {
 	main();
 }

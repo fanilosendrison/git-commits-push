@@ -31,7 +31,7 @@ function getStateDir(): string {
 	if (process.env.ORDER_STATE_DIR) {
 		return resolveHome(process.env.ORDER_STATE_DIR);
 	}
-	return path.join(import.meta.dir, "../../.state/orders");
+	return path.join(import.meta.dirname, "../../.state/orders");
 }
 
 function buildLock(runId: string, context: OrderContext): LockMetadata {
@@ -331,7 +331,7 @@ export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
 		}
 
 		// Run next job in the foreground of the current session
-		const skillRoot = path.resolve(__dirname, "../..");
+		const skillRoot = path.resolve(import.meta.dirname, "../..");
 		spawnSync("bun", ["run", "start"], {
 			cwd: skillRoot,
 			env: buildChildEnv(triggeredOrder, runId),
@@ -348,7 +348,7 @@ export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
 	return { kind: "released", remainingQueuedOrders: 0 };
 }
 
-let heartbeatInterval: Timer | null = null;
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startHeartbeat(intervalMs = 10000): void {
 	if (heartbeatInterval) return;

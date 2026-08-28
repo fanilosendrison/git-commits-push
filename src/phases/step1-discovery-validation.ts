@@ -19,7 +19,7 @@ export async function runDiscoveryAndValidationPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
 ): Promise<PhaseResult<GlobalState, unknown>> {
-	const settings = readSettings(path.resolve(import.meta.dir, "../config"));
+	const settings = readSettings(path.resolve(import.meta.dirname, "../config"));
 
 	// ── Log run_start on first invocation ───────────────────────────
 	const currentRunId = io.runId;
@@ -30,7 +30,7 @@ export async function runDiscoveryAndValidationPhase(
 	let systemPrompt = "";
 	try {
 		const promptPath = path.resolve(
-			import.meta.dir,
+			import.meta.dirname,
 			settings.systemPromptPath || "../../system-prompt.md",
 		);
 		if (fs.existsSync(promptPath)) {
