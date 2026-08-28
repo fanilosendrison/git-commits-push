@@ -2,7 +2,10 @@ import { rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { copyAssets, runProcess } from "@dotagents/node-runtime";
+import {
+	copyAssets,
+	runProcess,
+} from "../../../packages/node-runtime/dist/index.js";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(scriptDirectory, "..");
