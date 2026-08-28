@@ -5,11 +5,11 @@ This file is your local operating guide to work on the
 
 ## Path Rules
 
-- Edit this skill through `/Users/famillesendrison/.agents/skills/git-commits-push`.
+- Edit this skill through `$HOME/.agents/skills/git-commits-push`.
 - Do not edit the physical `~/Developper/Projects/dotagents/...` path directly.
 - Keep `SKILL.md` as the user-facing activation contract.
-- Do not run `bun run start` while developing unless the task explicitly needs a
-  full skill execution.
+- Do not run `pnpm --silent run start` while developing unless the task explicitly
+  needs a full skill execution.
 - Prefer targeted tests, typecheck, and lint while iterating.
 
 ## Quick Workflow
@@ -36,13 +36,13 @@ When iterating:
 `SKILL.md` requires host agents to run:
 
 ```bash
-cd /Users/famillesendrison/.agents/skills/git-commits-push && bun run start
+cd "$HOME/.agents/skills/git-commits-push" && pnpm --silent run start
 ```
 
 Run it without an external timeout. The skill manages its own timeout and retry
 behavior.
 
-`bun run start` runs this pipeline:
+The pnpm public launch currently delegates to this retained Bun pipeline:
 
 ```bash
 bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts

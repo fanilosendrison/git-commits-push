@@ -8,7 +8,7 @@ description: Discover dirty repos, validate (tests + secret scan), generate Conv
 When this skill is activated or referenced, you **MUST** immediately run the following command to execute the commit and push assistant:
 
 ```bash
-cd /Users/famillesendrison/.agents/skills/git-commits-push && bun run start
+cd "$HOME/.agents/skills/git-commits-push" && pnpm --silent run start
 ```
 
 ⚠️ **No external timeout.** The skill manages its own. Run bare.
