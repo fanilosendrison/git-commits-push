@@ -11,7 +11,7 @@
 		"test:quick": "bun test --timeout 60000 --ignore 'tests/unit/turnlock-to-llm-bridge.test.ts' --ignore 'tests/invariants/i1-secret-scanner.test.ts' --ignore 'tests/invariants/i3-parallel-isolation.test.ts' --ignore 'tests/invariants/i4-stdout-compliance.test.ts' && bun run test:bridge",
 		"test:run": "PI_SKILL_STATS_MODE=test bun run src/entrypoints/turnlock-orchestrator.ts",
 		"build:node": "pnpm --filter @dotagents/node-runtime run build && node scripts/build-node.mjs",
-		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=30000 --test-reporter=tap tests/node-build/artifacts.node.mjs",
+		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=30000 --test-reporter=tap tests/node-build/artifacts.node.mjs tests/node-build/supervisor.node.mjs",
 		"test:node:stats": "node --preserve-symlinks --preserve-symlinks-main --test --test-concurrency=1 tests/node-smoke/stats-logger-event-sink.node.ts",
 		"typecheck:node": "tsc -p tsconfig.node.json",
 		"typecheck:node:stats": "tsc -p tests/node-smoke/tsconfig.json",

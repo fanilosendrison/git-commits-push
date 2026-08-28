@@ -18,13 +18,17 @@ const entrypointDirectory = path.join(
 	"src",
 	"entrypoints",
 );
-const entrypointNames = ["turnlock-orchestrator", "turnlock-to-llm-bridge"];
+const entrypointNames = [
+	"node-supervisor",
+	"turnlock-orchestrator",
+	"turnlock-to-llm-bridge",
+];
 
 async function readArtifact(relativePath) {
 	return readFile(path.join(distDirectory, relativePath));
 }
 
-test("emits both compiled entrypoints with declarations and source maps", async () => {
+test("emits the compiled supervisor and both pipeline entrypoints", async () => {
 	for (const entrypointName of entrypointNames) {
 		for (const extension of ["js", "js.map", "d.ts", "d.ts.map"]) {
 			const artifactPath = path.join(
@@ -78,7 +82,7 @@ test("rewrites relative TypeScript imports and removes Bun-only module globals",
 	}
 });
 
-test("imports compiled entrypoints without starting either process", async () => {
+test("imports compiled entrypoints without starting any process", async () => {
 	for (const entrypointName of entrypointNames) {
 		const entrypointUrl = pathToFileURL(
 			path.join(entrypointDirectory, `${entrypointName}.js`),
