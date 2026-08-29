@@ -19,6 +19,7 @@ import {
 	type ReleaseLockResult,
 } from "../modules/orders/types.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
+import { buildQueuedOrderLaunch } from "./runtime-launch.ts";
 
 function resolveHome(filepath: string): string {
 	if (filepath.startsWith("~")) {
@@ -267,7 +268,10 @@ function buildChildEnv(
 	return env;
 }
 
-export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
+export function releaseLockAndTriggerNext(
+	runId: string,
+	spawnNextOrder: typeof spawnSync = spawnSync,
+): ReleaseLockResult {
 	const dir = getStateDir();
 	const lockPath = path.join(dir, "running.lock");
 
@@ -331,10 +335,11 @@ export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
 		}
 
 		// Run next job in the foreground of the current session
-		const skillRoot = path.resolve(import.meta.dirname, "../..");
-		spawnSync("bun", ["run", "start"], {
-			cwd: skillRoot,
+		const launch = buildQueuedOrderLaunch(import.meta.url);
+		spawnNextOrder(launch.command, [...launch.args], {
+			cwd: launch.cwd,
 			env: buildChildEnv(triggeredOrder, runId),
+			shell: false,
 			stdio: "inherit",
 		});
 

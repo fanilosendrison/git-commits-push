@@ -5,10 +5,11 @@
  * and resumes turnlock.
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	buildSimplePrompt,
 	createAnthropicAdapter,
@@ -24,6 +25,11 @@ import {
 	startHeartbeat,
 	stopHeartbeat,
 } from "../utils/lock-manager.ts";
+import {
+	buildResumeCommand,
+	buildResumeLaunch,
+	isCompiledJavaScriptModule,
+} from "../utils/runtime-launch.ts";
 
 type OpenAICompatibleProvider =
 	| "deepseek"
@@ -185,11 +191,73 @@ function extractTurnlockBlocks(output: string): {
 	return { manifestPath, resumeCmd };
 }
 
+class ResumeExecutionError extends Error {
+	readonly stdout: string;
+
+	constructor(message: string, stdout: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "ResumeExecutionError";
+		this.stdout = stdout;
+	}
+}
+
+export async function executeResumeCommand(
+	resumeCommand: string,
+	runId: string,
+	bridgeModuleUrl: string = import.meta.url,
+): Promise<string> {
+	if (!isCompiledJavaScriptModule(bridgeModuleUrl)) {
+		return execSync(resumeCommand, { encoding: "utf-8" });
+	}
+
+	const bridgePath = fileURLToPath(bridgeModuleUrl);
+	const orchestratorPath = path.join(
+		path.dirname(bridgePath),
+		"turnlock-orchestrator.js",
+	);
+	const orchestratorUrl = pathToFileURL(orchestratorPath).href;
+	const expectedCommand = buildResumeCommand(runId, orchestratorUrl);
+	if (resumeCommand !== expectedCommand) {
+		throw new Error(
+			"Resume command is incompatible with the compiled Node runtime. " +
+				"Close the historical run explicitly and start a fresh run.",
+		);
+	}
+
+	const launch = buildResumeLaunch(runId, orchestratorUrl);
+	const result = spawnSync(launch.command, [...launch.args], {
+		cwd: launch.cwd,
+		encoding: "utf-8",
+		env: process.env,
+		maxBuffer: 50 * 1024 * 1024,
+		shell: false,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const stdout = result.stdout ?? "";
+	if (result.error) {
+		throw new ResumeExecutionError(
+			`Compiled resume failed to start: ${result.error.message}`,
+			stdout,
+			{ cause: result.error },
+		);
+	}
+	if (result.status !== 0) {
+		const outcome =
+			result.status === null
+				? `signal ${result.signal ?? "unknown"}`
+				: `exit code ${result.status}`;
+		throw new ResumeExecutionError(
+			`Compiled resume failed with ${outcome}`,
+			stdout,
+		);
+	}
+	return stdout;
+}
+
 export async function handleTurnlockDelegation(
 	manifestPath: string,
 	resumeCmd: string,
-	execFn: (cmd: string) => string = (cmd) =>
-		execSync(cmd, { encoding: "utf-8" }),
+	execFn?: (cmd: string) => string | Promise<string>,
 ): Promise<void> {
 	if (!fs.existsSync(manifestPath)) {
 		throw new Error(`Manifest file not found at ${manifestPath}`);
@@ -313,9 +381,11 @@ export async function handleTurnlockDelegation(
 	// Print the resumed orchestrator's output even if it fails (report is in stdout)
 	let output = "";
 	try {
-		output = execFn(resumeCmd);
+		output = execFn
+			? await execFn(resumeCmd)
+			: await executeResumeCommand(resumeCmd, manifest.runId);
 	} catch (e: unknown) {
-		// execSync captures stdout before throwing — preserve it for display
+		// Resume execution captures stdout before throwing — preserve it for display.
 		output =
 			e && typeof e === "object" && "stdout" in e
 				? String((e as { stdout: unknown }).stdout)

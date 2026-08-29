@@ -11,6 +11,7 @@ import { runCommitAndPushPhase } from "../phases/step2-commit-push.ts";
 import type { GlobalState } from "../types.ts";
 import { bootstrapOrchestratorRun } from "../utils/cli-bootstrap.ts";
 import { isDirectExecution } from "../utils/direct-execution.ts";
+import { buildResumeCommand } from "../utils/runtime-launch.ts";
 
 if (isDirectExecution(import.meta.url)) {
 	// 1. Run bootstrap synchronously to set process.argv before Turnlock is imported
@@ -23,8 +24,7 @@ if (isDirectExecution(import.meta.url)) {
 		name: "git-commits-push-tl",
 		initial: "discovery-and-validation",
 		initialState: { repos: {} },
-		resumeCommand: (runId) =>
-			`bun run src/entrypoints/turnlock-orchestrator.ts --run-id ${runId} --resume`,
+		resumeCommand: (runId) => buildResumeCommand(runId, import.meta.url),
 		runDirRoot: path.join(os.homedir(), ".turnlock", "runs"),
 		stateSchema,
 		phases: {
