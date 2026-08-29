@@ -23,12 +23,7 @@ const compiledSkillDirectory = path.join(
 	"skills",
 	"git-commits-push",
 );
-const compiledSupervisorPath = path.join(
-	compiledSkillDirectory,
-	"src",
-	"entrypoints",
-	"node-supervisor.js",
-);
+const nodeLauncherPath = path.join(skillDirectory, "scripts", "start-node.mjs");
 const mockFetchPreloadPath = path.join(
 	testDirectory,
 	"fixtures",
@@ -211,8 +206,12 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 			runGit(repositoryPath, ["status", "--porcelain"], environment),
 			/pipeline\.ts/,
 		);
-		const pipeline = spawnSync(process.execPath, [compiledSupervisorPath], {
-			cwd: compiledSkillDirectory,
+		const packageManifest = JSON.parse(
+			await readFile(path.join(skillDirectory, "package.json"), "utf8"),
+		);
+		assert.equal(packageManifest.scripts?.start, "node scripts/start-node.mjs");
+		const pipeline = spawnSync(process.execPath, [nodeLauncherPath], {
+			cwd: skillDirectory,
 			encoding: "utf8",
 			env: pipelineEnvironment,
 			maxBuffer: 50 * 1024 * 1024,

@@ -16,7 +16,7 @@
 		"test:node:stats": "node --preserve-symlinks --preserve-symlinks-main --test --test-concurrency=1 tests/node-smoke/stats-logger-event-sink.node.ts",
 		"typecheck:node": "tsc -p tsconfig.node.json",
 		"typecheck:node:stats": "tsc -p tests/node-smoke/tsconfig.json",
-		"start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts",
+		"start": "node scripts/start-node.mjs",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check src/ tests/"
 	},
