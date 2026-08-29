@@ -52,8 +52,10 @@ The orchestrator owns Turnlock state. The bridge owns LLM delegation execution.
 Both entrypoints and the shell-free supervisor now have tested, untracked
 NodeNext build artifacts. The supervisor owns isolated process groups, signal
 forwarding, backpressure, and stdout routing. Compiled resumes and dequeues now
-use `process.execPath` with shell-free argument arrays, but the active launch
-remains on Bun until persisted-run and remaining security gates close.
+use `process.execPath` with shell-free argument arrays. The read-only
+`check:node-cutover` gate classifies persisted runs and rejects all Turnlock or
+queue lock/order residue, but the active launch remains on Bun until the
+remaining security and real-pipeline gates close.
 
 ## Testing Expectations
 
@@ -65,6 +67,12 @@ pnpm run test:node:build
 bun run typecheck
 bun run lint
 bun run test
+```
+
+Before changing the active launch, run the local persisted-state gate:
+
+```bash
+pnpm --silent run check:node-cutover
 ```
 
 Use targeted tests while iterating:
@@ -122,6 +130,7 @@ git-commits-push/
 ├── README.md                  # Human-facing architecture and usage docs
 ├── SKILL.md                   # Activation contract for host agents
 ├── docs/
+│   ├── node-cutover-preflight.md # Persisted-state cutover procedure
 │   └── order-rationale.md     # Design rationale for the order queue
 ├── specs/
 │   └── order.md               # Technical contract for lock/order behavior
@@ -146,7 +155,8 @@ git-commits-push/
 │   └── utils/
 │       ├── cli-bootstrap.ts   # Pre-Turnlock run and order bootstrap
 │       ├── git-utils.ts       # Shared Git helpers
-│       └── lock-manager.ts    # Lock, heartbeat, queue, next-order spawn
+│       ├── lock-manager.ts    # Lock, heartbeat, queue, next-order spawn
+│       └── node-cutover-preflight.ts # Read-only persisted-state gate
 ├── system-prompt.md           # Prompt injected into commit-planning jobs
 └── tests/
     ├── acceptance/            # End-to-end Turnlock flows
