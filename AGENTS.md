@@ -55,8 +55,12 @@ shell-free argument arrays. The read-only `check:node-cutover` gate classifies
 persisted runs and rejects all Turnlock or queue lock/order residue. Compiled
 security vectors cover scanner boundaries, telemetry redaction, hooks, Git
 modes, forged tokens, and output leaks. The bare-remote gate exercises this
-active launcher through a real retry, commit, and push pipeline. The first
-designated Node-orchestrated migration commit remains pending.
+active launcher through a real retry, commit, and push pipeline. Real
+self-hosting run `01M16Z8A030MJZAHMZX554CJPM` committed and pushed changes in
+both dotagents and dotpi, and all four resulting Node/Bun CI runs passed. The
+direct-Git bootstrap exception is closed: all later commit and push operations
+must use the canonical public launch, except for Git subprocesses owned by the
+orchestrator itself.
 
 ## Testing Expectations
 
@@ -97,9 +101,9 @@ it may mock only the external LLM HTTP boundary.
 
 Runtime and package dependencies:
 
-- Bun `>=1.1.0` remains the transition runtime and historical test runner.
-- Node `>=22.19.0` builds and tests both compiled entrypoints plus the
-  shell-free supervisor while the active entrypoint cutover remains pending.
+- Bun `>=1.1.0` remains only as the historical compatibility test runner.
+- Node `>=22.19.0` builds, tests, and runs both compiled entrypoints through the
+  active shell-free supervisor.
 - TypeScript runs in ESM mode with Bun-compatible imports.
 - `turnlock` comes from the npm registry at exact `0.9.1`. Do not reintroduce a
   local `file:` dependency unless actively testing unreleased Turnlock changes.
