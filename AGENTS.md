@@ -51,8 +51,9 @@ bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnl
 The orchestrator owns Turnlock state. The bridge owns LLM delegation execution.
 Both entrypoints and the shell-free supervisor now have tested, untracked
 NodeNext build artifacts. The supervisor owns isolated process groups, signal
-forwarding, backpressure, and stdout routing, but the active launch remains on
-Bun until resume, queue, and remaining security gates close.
+forwarding, backpressure, and stdout routing. Compiled resumes and dequeues now
+use `process.execPath` with shell-free argument arrays, but the active launch
+remains on Bun until persisted-run and remaining security gates close.
 
 ## Testing Expectations
 
@@ -221,9 +222,10 @@ The order queue exists to serialize local executions.
 - A lock older than 40 seconds is stale.
 - A concurrent process writes an order JSON file, logs `order_queued`, prints
   its position, and exits with status `0`.
-- The active process releases the lock, dequeues the oldest order, logs
-  `order_dequeued`, and spawns a fresh `bun run start`.
-- Spawned queued runs receive `GCP_ORDER_*` environment variables.
+- The active process releases the lock, dequeues the oldest order, and logs
+  `order_dequeued`. Source compatibility runs spawn `bun run start`; compiled
+  runs spawn the compiled Node supervisor through `process.execPath`.
+- Spawned queued runs receive the unchanged `GCP_ORDER_*` environment variables.
 - Legacy `order-*.flag` files may exist; JSON files are canonical.
 
 ## Retry And Fallback
