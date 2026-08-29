@@ -42,23 +42,21 @@ cd "$HOME/.agents/skills/git-commits-push" && pnpm --silent run start
 Run it without an external timeout. The skill manages its own timeout and retry
 behavior.
 
-The pnpm public launch currently delegates to this retained Bun pipeline:
-
-```bash
-bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts
-```
+The pnpm public launch invokes `scripts/start-node.mjs`. The launcher compiles
+the shared runtime and the untracked NodeNext artifacts through
+`process.execPath`, then starts the compiled supervisor without an internal
+package-manager or shell pipeline. The retained Bun sources and tests remain the
+compatibility oracle until final cleanup.
 
 The orchestrator owns Turnlock state. The bridge owns LLM delegation execution.
-Both entrypoints and the shell-free supervisor now have tested, untracked
-NodeNext build artifacts. The supervisor owns isolated process groups, signal
-forwarding, backpressure, and stdout routing. Compiled resumes and dequeues now
-use `process.execPath` with shell-free argument arrays. The read-only
-`check:node-cutover` gate classifies persisted runs and rejects all Turnlock or
-queue lock/order residue. Compiled security vectors cover scanner boundaries,
-telemetry redaction, hooks, Git modes, forged tokens, and output leaks. The
-compiled bare-remote gate now proves the real retry, commit, and push pipeline,
-but the active launch remains on Bun until the package script cutover and first
-designated Node-orchestrated commit.
+The supervisor owns isolated process groups, signal forwarding, backpressure,
+and stdout routing. Compiled resumes and dequeues use `process.execPath` with
+shell-free argument arrays. The read-only `check:node-cutover` gate classifies
+persisted runs and rejects all Turnlock or queue lock/order residue. Compiled
+security vectors cover scanner boundaries, telemetry redaction, hooks, Git
+modes, forged tokens, and output leaks. The bare-remote gate exercises this
+active launcher through a real retry, commit, and push pipeline. The first
+designated Node-orchestrated migration commit remains pending.
 
 ## Testing Expectations
 
@@ -72,7 +70,7 @@ bun run lint
 bun run test
 ```
 
-Before changing the active launch, run the local persisted-state gate:
+Before each designated self-hosted commit, run the local persisted-state gate:
 
 ```bash
 pnpm --silent run check:node-cutover
