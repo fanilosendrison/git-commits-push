@@ -34,7 +34,10 @@ export function executePush(repoPath: string, autoPush: boolean): void {
 	} catch (pushErr) {
 		const msg = pushErr instanceof Error ? pushErr.message : String(pushErr);
 		if (msg.includes("has no upstream branch") || msg.includes("no upstream")) {
-			const branchName = gitExec("branch --show-current", repoPath).trim();
+			const branchName = gitExec(
+				"symbolic-ref --quiet --short HEAD",
+				repoPath,
+			).trim();
 			if (!branchName) {
 				throw new PushError(
 					`Push failed: detached HEAD, cannot determine upstream branch. ${msg}`,

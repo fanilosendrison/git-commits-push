@@ -117,10 +117,14 @@ describe("U-GE-08 | executeMultiCommitAndPush — autoPush false → no push att
 		// `branch.<name>.remote` and `branch.<name>.merge`; `git push` alone doesn't
 		// touch them. If the publisher ignored autoPush=false and called push (or
 		// push -u), at least one of these would be populated.
-		const branch = spawnSync("git", ["branch", "--show-current"], {
-			cwd: repo.dir,
-			encoding: "utf-8",
-		}).stdout.trim();
+		const branch = spawnSync(
+			"git",
+			["symbolic-ref", "--quiet", "--short", "HEAD"],
+			{
+				cwd: repo.dir,
+				encoding: "utf-8",
+			},
+		).stdout.trim();
 		const remote = spawnSync(
 			"git",
 			["config", "--get", `branch.${branch}.remote`],

@@ -86,14 +86,13 @@ export function computeRepoId(repoPath: string): Promise<string> {
 
 /**
  * Check if a repository is in a detached HEAD state.
- * A detached HEAD has no branch name — git branch --show-current returns empty string.
+ * symbolic-ref is supported by the older Git shipped on the minimum macOS host.
  */
 export function isDetachedHead(repoPath: string): boolean {
 	try {
-		const branch = gitExec("branch --show-current", repoPath);
-		return branch === "";
+		return gitExec("symbolic-ref --quiet --short HEAD", repoPath) === "";
 	} catch {
-		// If git fails entirely (e.g., not a repo), treat as detached
+		// Detached HEAD and invalid repositories both fail closed.
 		return true;
 	}
 }

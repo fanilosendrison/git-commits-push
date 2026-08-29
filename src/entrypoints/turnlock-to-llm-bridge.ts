@@ -19,6 +19,7 @@ import {
 	type ProviderAdapter,
 } from "@fanilosendrison/llm-runtime";
 import { z } from "zod";
+import { resolveAuthToken } from "../modules/core/auth-resolver.ts";
 import { isDirectExecution } from "../utils/direct-execution.ts";
 import {
 	setupCleanupHooks,
@@ -38,7 +39,13 @@ type OpenAICompatibleProvider =
 	| "together"
 	| "ollama";
 
-import { resolveAuthToken } from "../modules/core/auth-resolver.ts";
+function logBridgeMessage(message: string): void {
+	if (isCompiledJavaScriptModule(import.meta.url)) {
+		process.stderr.write(`${message}\n`);
+		return;
+	}
+	console.log(message);
+}
 
 export async function invokeLlm(payload: {
 	provider: string;
@@ -234,6 +241,8 @@ export async function executeResumeCommand(
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	const stdout = result.stdout ?? "";
+	const stderr = result.stderr ?? "";
+	if (stderr.length > 0) process.stderr.write(stderr);
 	if (result.error) {
 		throw new ResumeExecutionError(
 			`Compiled resume failed to start: ${result.error.message}`,
@@ -269,7 +278,7 @@ export async function handleTurnlockDelegation(
 	startHeartbeat();
 	setupCleanupHooks(manifest.runId);
 
-	console.log(
+	logBridgeMessage(
 		`\n[Turnlock→LLM] Received batch delegation for '${manifest.label}' with ${manifest.jobs.length} jobs.`,
 	);
 
@@ -278,12 +287,12 @@ export async function handleTurnlockDelegation(
 		manifest.jobs.map(async (job) => {
 			try {
 				const payload: CommitJobPayload = JSON.parse(job.prompt);
-				console.log(
+				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}${payload.agent ? ` (agent: ${payload.agent})` : ""}...`,
 				);
 				const token = await resolveAuthToken(payload.provider, payload.agent);
 
-				console.log(
+				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
 				);
 				let finalUserPrompt: string;
@@ -314,7 +323,7 @@ export async function handleTurnlockDelegation(
 						stripJsonFence: true, // Mandatory per specs
 					});
 
-					console.log(
+					logBridgeMessage(
 						`[Turnlock→LLM] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
 					);
 					try {
@@ -348,7 +357,7 @@ export async function handleTurnlockDelegation(
 					JSON.stringify(successResult, null, 2),
 					"utf-8",
 				);
-				console.log(
+				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Success result written to ${job.resultPath}`,
 				);
 			} catch (err: unknown) {
@@ -372,7 +381,7 @@ export async function handleTurnlockDelegation(
 		}),
 	);
 
-	console.log(
+	logBridgeMessage(
 		`\n[Turnlock→LLM] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
 
@@ -399,7 +408,7 @@ export async function handleTurnlockDelegation(
 	const { manifestPath: nextManifest, resumeCmd: nextResume } =
 		extractTurnlockBlocks(output);
 	if (nextManifest && nextResume) {
-		console.log(
+		logBridgeMessage(
 			`\n[Turnlock→LLM] Retry delegation detected. Processing next cycle...\n`,
 		);
 		await handleTurnlockDelegation(nextManifest, nextResume, execFn);
@@ -444,7 +453,7 @@ export async function main() {
 		if (inBlock) {
 			blockLines.push(line);
 		} else {
-			console.log(line);
+			logBridgeMessage(line);
 		}
 	});
 
