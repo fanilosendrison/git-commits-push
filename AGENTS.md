@@ -54,8 +54,9 @@ NodeNext build artifacts. The supervisor owns isolated process groups, signal
 forwarding, backpressure, and stdout routing. Compiled resumes and dequeues now
 use `process.execPath` with shell-free argument arrays. The read-only
 `check:node-cutover` gate classifies persisted runs and rejects all Turnlock or
-queue lock/order residue, but the active launch remains on Bun until the
-remaining security and real-pipeline gates close.
+queue lock/order residue. Compiled security vectors cover scanner boundaries,
+telemetry redaction, hooks, Git modes, forged tokens, and output leaks, but the
+active launch remains on Bun until the bare-remote real-pipeline gate closes.
 
 ## Testing Expectations
 
