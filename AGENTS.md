@@ -55,8 +55,10 @@ forwarding, backpressure, and stdout routing. Compiled resumes and dequeues now
 use `process.execPath` with shell-free argument arrays. The read-only
 `check:node-cutover` gate classifies persisted runs and rejects all Turnlock or
 queue lock/order residue. Compiled security vectors cover scanner boundaries,
-telemetry redaction, hooks, Git modes, forged tokens, and output leaks, but the
-active launch remains on Bun until the bare-remote real-pipeline gate closes.
+telemetry redaction, hooks, Git modes, forged tokens, and output leaks. The
+compiled bare-remote gate now proves the real retry, commit, and push pipeline,
+but the active launch remains on Bun until the package script cutover and first
+designated Node-orchestrated commit.
 
 ## Testing Expectations
 
