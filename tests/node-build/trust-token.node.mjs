@@ -16,6 +16,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
 const compiledRoot = path.join(skillDirectory, "dist");
+const compiledEnforcementValidatorPath = path.join(
+	compiledRoot,
+	"agent-enforcers",
+	"git-commits-push-enforcer",
+	"src",
+	"core",
+	"validator.js",
+);
 const compiledTrustStorePath = path.join(
 	compiledRoot,
 	"agent-enforcers",
@@ -32,6 +40,9 @@ const compiledGitExecPath = path.join(
 	"modules",
 	"git",
 	"git-exec.js",
+);
+const enforcementValidator = await import(
+	pathToFileURL(compiledEnforcementValidatorPath).href
 );
 const trustStore = await import(pathToFileURL(compiledTrustStorePath).href);
 
@@ -95,9 +106,28 @@ test("compiled Git helper mints a permission-restricted one-shot token", async (
 				token,
 			);
 			assert.equal((await stat(tokenPath)).mode & 0o777, 0o600);
-			assert.equal(trustStore.validateTrustToken(token), true);
-			assert.equal(trustStore.validateTrustToken(token), false);
+			const allowed = enforcementValidator.evaluateEnforcement({
+				command: "git commit -m trusted",
+				legacyBypassSet: false,
+				trustedSkillMarkerSet: true,
+				trustToken: token,
+				validateToken: trustStore.validateTrustToken,
+			});
+			assert.equal(allowed.action, "allow");
+			assert.equal(allowed.eventType, "enforcer_triggered");
 			await assert.rejects(readFile(tokenPath), { code: "ENOENT" });
+
+			for (const forgedToken of [token, "0".repeat(64)]) {
+				const blocked = enforcementValidator.evaluateEnforcement({
+					command: "git push origin main",
+					legacyBypassSet: false,
+					trustedSkillMarkerSet: true,
+					trustToken: forgedToken,
+					validateToken: trustStore.validateTrustToken,
+				});
+				assert.equal(blocked.action, "block");
+				assert.match(blocked.deniedReason, /Forged trusted marker/);
+			}
 		} finally {
 			if (previousPath === undefined) delete process.env.PATH;
 			else process.env.PATH = previousPath;

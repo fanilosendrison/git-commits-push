@@ -40,6 +40,23 @@ test("emits the compiled supervisor and both pipeline entrypoints", async () => 
 	}
 });
 
+test("emits the compiled enforcement validator and declaration maps", async () => {
+	const enforcementDirectory = path.join(
+		distDirectory,
+		"agent-enforcers",
+		"git-commits-push-enforcer",
+		"src",
+		"core",
+	);
+	for (const extension of ["js", "js.map", "d.ts", "d.ts.map"]) {
+		const artifactPath = path.join(
+			enforcementDirectory,
+			`validator.${extension}`,
+		);
+		assert.equal((await stat(artifactPath)).isFile(), true, artifactPath);
+	}
+});
+
 test("copies runtime assets byte-for-byte with deterministic modes", async () => {
 	const assets = [
 		{

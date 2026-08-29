@@ -9,7 +9,7 @@
 	},
 	"include": [
 		"src/**/*.ts",
-		"../../agent-enforcers/git-commits-push-enforcer/src/core/trust-store.ts"
+		"../../agent-enforcers/git-commits-push-enforcer/src/core/*.ts"
 	],
 	"exclude": ["node_modules", "dist", "tests"]
 }

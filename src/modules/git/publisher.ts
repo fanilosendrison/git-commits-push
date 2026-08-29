@@ -114,7 +114,10 @@ export async function executeMultiCommitAndPush(
 				);
 				fs.writeFileSync(tempMsgPath, message, "utf-8");
 				try {
-					gitExec(`commit --file=${tempMsgPath} --no-verify`, repoPath);
+					gitExec(
+						`commit --file=${JSON.stringify(tempMsgPath)} --no-verify`,
+						repoPath,
+					);
 				} finally {
 					try {
 						fs.unlinkSync(tempMsgPath);
