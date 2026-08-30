@@ -1,9 +1,10 @@
 // NIB-T — Test P4: Git Push Skip No-Remote (Phase 4)
 // Given: a repository with no remotes configured.
 // Expected: the push step is gracefully skipped, repo status = SUCCESS.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
@@ -14,11 +15,11 @@ let env: MockTurnlockEnvironment;
 let repoId: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(async () => {
+before(async () => {
 	env = MockTurnlockEnvironment.create();
 	repoNoRemote = GitRepoFixture.create();
 	repoNoRemote.commit("initial commit");
@@ -70,7 +71,7 @@ beforeAll(async () => {
 	env.writeLLMResult(repoId, llmResult);
 });
 
-afterAll(() => {
+after(() => {
 	repoNoRemote.dispose();
 	env.dispose();
 });
@@ -81,14 +82,8 @@ describe("P4 — Git Push Skip No-Remote", () => {
 
 	test("P4-01 | process exits with code 0", () => {
 		const result = spawnSync(
-			"bun",
-			[
-				"run",
-				SKILL_ENTRYPOINT,
-				"--resume",
-				"--run-id",
-				"01J00000000000000000000000",
-			],
+			process.execPath,
+			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{
 				env: {
 					...process.env,
@@ -100,12 +95,12 @@ describe("P4 — Git Push Skip No-Remote", () => {
 		);
 		stderr = result.stderr ?? "";
 		exitCode = result.status ?? -1;
-		expect(exitCode).toBe(0);
+		assert.strictEqual(exitCode, 0);
 	});
 
 	test("P4-02 | repo is reported as SUCCESS despite no remote", () => {
-		expect(stderr).toContain("✅");
-		expect(stderr).toContain(repoId);
+		assert.ok(stderr.includes("✅"));
+		assert.ok(stderr.includes(repoId));
 	});
 
 	test("P4-03 | git commit was still created in the repo", () => {
@@ -113,6 +108,6 @@ describe("P4 — Git Push Skip No-Remote", () => {
 			cwd: repoNoRemote.dir,
 			encoding: "utf-8",
 		});
-		expect(result.stdout).toContain("chore: isolated change");
+		assert.ok(result.stdout.includes("chore: isolated change"));
 	});
 });

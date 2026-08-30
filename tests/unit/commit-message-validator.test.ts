@@ -4,31 +4,32 @@
  * Covers all 8 validation rules plus multi-line (body) support.
  */
 
-import { describe, expect, test } from "bun:test";
-import { validateCommitMessage } from "../../src/modules/core/validators/commit-message-validator";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { validateCommitMessage } from "../../src/modules/core/validators/commit-message-validator.ts";
 
 // ─── Valid messages ──────────────────────────────────────────────────────
 
 describe("valid messages", () => {
 	test("accepts basic type: description", () => {
 		const r = validateCommitMessage("feat: add new feature");
-		expect(r.valid).toBe(true);
-		expect(r.errors).toEqual([]);
+		assert.strictEqual(r.valid, true);
+		assert.deepStrictEqual(r.errors, []);
 	});
 
 	test("accepts type(scope): description", () => {
 		const r = validateCommitMessage("fix(api): handle edge case");
-		expect(r.valid).toBe(true);
+		assert.strictEqual(r.valid, true);
 	});
 
 	test("accepts breaking change with !", () => {
 		const r = validateCommitMessage("feat!: breaking change");
-		expect(r.valid).toBe(true);
+		assert.strictEqual(r.valid, true);
 	});
 
 	test("accepts type(scope)!: description", () => {
 		const r = validateCommitMessage("refactor(core)!: complete rewrite");
-		expect(r.valid).toBe(true);
+		assert.strictEqual(r.valid, true);
 	});
 
 	test("accepts all VALID_TYPES", () => {
@@ -46,7 +47,7 @@ describe("valid messages", () => {
 			"revert",
 		]) {
 			const r = validateCommitMessage(`${type}: message`);
-			expect(r.valid).toBe(true);
+			assert.strictEqual(r.valid, true);
 		}
 	});
 });
@@ -58,22 +59,25 @@ describe("multi-line messages (body support)", () => {
 		const r = validateCommitMessage(
 			"feat: add login\n\nImplement OAuth2 login flow\n- Token refresh\n- Session management",
 		);
-		expect(r.valid).toBe(true);
+		assert.strictEqual(r.valid, true);
 	});
 
 	test("accepts subject + body + trailing newlines", () => {
 		const r = validateCommitMessage(
 			"fix(api): correct status code\n\nReturn 404 instead of 500\n\nCloses #42\n",
 		);
-		expect(r.valid).toBe(true);
+		assert.strictEqual(r.valid, true);
 	});
 
 	test("rejects invalid subject even with valid body", () => {
 		const r = validateCommitMessage(
 			"InvalidMsg: stuff\n\nBody is fine but subject is wrong type",
 		);
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("Types autorisés"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("Types autorisés")),
+			true,
+		);
 	});
 });
 
@@ -82,28 +86,28 @@ describe("multi-line messages (body support)", () => {
 describe("format errors", () => {
 	test("rejects message without colon separator", () => {
 		const r = validateCommitMessage("feat add feature");
-		expect(r.valid).toBe(false);
-		expect(r.errors).toEqual([
+		assert.strictEqual(r.valid, false);
+		assert.deepStrictEqual(r.errors, [
 			"Format invalide. Attendu: <type>(<scope>): <description>",
 		]);
 	});
 
 	test("rejects empty message", () => {
 		const r = validateCommitMessage("");
-		expect(r.valid).toBe(false);
-		expect(r.errors).toEqual(["Message de commit vide"]);
+		assert.strictEqual(r.valid, false);
+		assert.deepStrictEqual(r.errors, ["Message de commit vide"]);
 	});
 
 	test("rejects whitespace-only message", () => {
 		const r = validateCommitMessage("   \n  ");
-		expect(r.valid).toBe(false);
-		expect(r.errors).toEqual(["Message de commit vide"]);
+		assert.strictEqual(r.valid, false);
+		assert.deepStrictEqual(r.errors, ["Message de commit vide"]);
 	});
 
 	test("rejects message without type", () => {
 		const r = validateCommitMessage(": missing type");
-		expect(r.valid).toBe(false);
-		expect(r.errors).toEqual([
+		assert.strictEqual(r.valid, false);
+		assert.deepStrictEqual(r.errors, [
 			"Format invalide. Attendu: <type>(<scope>): <description>",
 		]);
 	});
@@ -114,14 +118,20 @@ describe("format errors", () => {
 describe("invalid type", () => {
 	test("rejects unknown type", () => {
 		const r = validateCommitMessage("edit: stuff");
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes('Type "edit"'))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes('Type "edit"')),
+			true,
+		);
 	});
 
 	test("rejects wip type", () => {
 		const r = validateCommitMessage("wip: in progress");
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("Types autorisés"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("Types autorisés")),
+			true,
+		);
 	});
 });
 
@@ -130,8 +140,11 @@ describe("invalid type", () => {
 describe("capitalized description", () => {
 	test("rejects capital first letter after colon", () => {
 		const r = validateCommitMessage("feat: Add new feature");
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("majuscule"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("majuscule")),
+			true,
+		);
 	});
 });
 
@@ -140,8 +153,11 @@ describe("capitalized description", () => {
 describe("trailing period", () => {
 	test("rejects description ending with dot", () => {
 		const r = validateCommitMessage("feat: add feature.");
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("point"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("point")),
+			true,
+		);
 	});
 });
 
@@ -150,23 +166,26 @@ describe("trailing period", () => {
 describe("subject line too long", () => {
 	test("rejects subject exceeding 72 chars", () => {
 		const longSubject = `feat: ${"x".repeat(70)}`;
-		expect(longSubject.length).toBeGreaterThan(72);
+		assert.ok(longSubject.length > 72);
 		const r = validateCommitMessage(longSubject);
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("trop long"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("trop long")),
+			true,
+		);
 	});
 
 	test("accepts subject of exactly 72 chars", () => {
 		const msg = `feat: ${"x".repeat(66)}`;
-		expect(msg.length).toBe(72);
+		assert.strictEqual(msg.length, 72);
 		const r = validateCommitMessage(msg);
-		expect(r.valid).toBe(true);
+		assert.strictEqual(r.valid, true);
 	});
 
 	test("checks subject line only, not body length", () => {
 		const msg = `feat: short subject\n\n${"x".repeat(200)}\n${"y".repeat(300)}`;
 		const r = validateCommitMessage(msg);
-		expect(r.valid).toBe(true); // body can be any length
+		assert.strictEqual(r.valid, true); // body can be any length
 	});
 });
 
@@ -175,25 +194,28 @@ describe("subject line too long", () => {
 describe("past tense", () => {
 	test("rejects added", () => {
 		const r = validateCommitMessage("feat: added new endpoint");
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("pas le passé"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("pas le passé")),
+			true,
+		);
 	});
 
 	test("rejects fixed", () => {
 		const r = validateCommitMessage("fix: fixed the bug");
-		expect(r.valid).toBe(false);
+		assert.strictEqual(r.valid, false);
 	});
 
 	test("rejects removed, updated, changed, deleted", () => {
 		for (const past of ["removed", "updated", "changed", "deleted"]) {
 			const r = validateCommitMessage(`feat: ${past} stuff`);
-			expect(r.valid).toBe(false);
+			assert.strictEqual(r.valid, false);
 		}
 	});
 
 	test("accepts imperative present", () => {
 		const r = validateCommitMessage("feat: add new endpoint");
-		expect(r.valid).toBe(true);
+		assert.strictEqual(r.valid, true);
 	});
 });
 
@@ -202,14 +224,17 @@ describe("past tense", () => {
 describe("gerund", () => {
 	test("rejects adding", () => {
 		const r = validateCommitMessage("feat: adding new endpoint");
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("pas le gérondif"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("pas le gérondif")),
+			true,
+		);
 	});
 
 	test("rejects fixing, removing, updating", () => {
 		for (const g of ["fixing", "removing", "updating"]) {
 			const r = validateCommitMessage(`feat: ${g} stuff`);
-			expect(r.valid).toBe(false);
+			assert.strictEqual(r.valid, false);
 		}
 	});
 });
@@ -217,22 +242,28 @@ describe("gerund", () => {
 // ─── Vague description ───────────────────────────────────────────────────
 
 describe("vague description", () => {
-	test('rejects "stuff"', () => {
+	// biome-ignore format: retain the JSON-quoted historical parity case name.
+	test("rejects \"stuff\"", () => {
 		const r = validateCommitMessage("feat: stuff");
-		expect(r.valid).toBe(false);
-		expect(r.errors.some((e) => e.includes("vague"))).toBe(true);
+		assert.strictEqual(r.valid, false);
+		assert.strictEqual(
+			r.errors.some((e) => e.includes("vague")),
+			true,
+		);
 	});
 
-	test('rejects "wip", "temp", "changes", "misc"', () => {
+	// biome-ignore format: retain the JSON-quoted historical parity case name.
+	test("rejects \"wip\", \"temp\", \"changes\", \"misc\"", () => {
 		for (const v of ["wip", "temp", "changes", "misc"]) {
 			const r = validateCommitMessage(`fix: ${v}`);
-			expect(r.valid).toBe(false);
+			assert.strictEqual(r.valid, false);
 		}
 	});
 
-	test('rejects "fix bug"', () => {
+	// biome-ignore format: retain the JSON-quoted historical parity case name.
+	test("rejects \"fix bug\"", () => {
 		const r = validateCommitMessage("fix: fix bug");
-		expect(r.valid).toBe(false);
+		assert.strictEqual(r.valid, false);
 	});
 });
 
@@ -241,8 +272,8 @@ describe("vague description", () => {
 describe("combined errors", () => {
 	test("accumulates multiple errors", () => {
 		const r = validateCommitMessage("edit: Added fix bug.");
-		expect(r.valid).toBe(false);
+		assert.strictEqual(r.valid, false);
 		// Should have: invalid_type + capitalized + past_tense + vague + period
-		expect(r.errors.length).toBeGreaterThanOrEqual(4);
+		assert.ok(r.errors.length >= 4);
 	});
 });

@@ -1,9 +1,10 @@
 // NIB-T — Test I5: Test Environment Safety (DC-TEST-SAFETY)
 // Given: any test file that spawns the turnlock orchestrator.
 // Expected: it must always inject the mocked environment via ...env.env() to prevent state leaks.
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { describe, test } from "node:test";
 
 function findTestFiles(dir: string, fileList: string[] = []): string[] {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -19,7 +20,7 @@ function findTestFiles(dir: string, fileList: string[] = []): string[] {
 
 describe("I5 — Test Environment Safety", () => {
 	test("I5-01 | all tests spawning the orchestrator must use MockTurnlockEnvironment (env.env)", () => {
-		const testsDir = path.resolve(import.meta.dir, "../");
+		const testsDir = path.resolve(import.meta.dirname, "../");
 		const testFiles = findTestFiles(testsDir);
 		let _violations = 0;
 		const violationDetails: string[] = [];
@@ -53,6 +54,6 @@ describe("I5 — Test Environment Safety", () => {
 			}
 		}
 
-		expect(violationDetails).toEqual([]);
+		assert.deepStrictEqual(violationDetails, []);
 	});
 });

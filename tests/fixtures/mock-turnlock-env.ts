@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { ORDER_ENV_KEYS } from "../../src/modules/orders/types.ts";
 import type { CommitJobResult, Settings } from "../../src/types.ts";
 
 /**
@@ -42,8 +43,17 @@ export class MockTurnlockEnvironment {
 	}
 
 	/** Environment variables to pass to spawnSync (Turnlock + stats isolation) */
-	env(): Record<string, string> {
+	env(): NodeJS.ProcessEnv {
 		return {
+			// A test spawned by a queued parent run must not inherit that parent's
+			// order identity. Undefined entries are omitted by Node child processes.
+			[ORDER_ENV_KEYS.orderId]: undefined,
+			[ORDER_ENV_KEYS.originSessionId]: undefined,
+			[ORDER_ENV_KEYS.originAgent]: undefined,
+			[ORDER_ENV_KEYS.callerName]: undefined,
+			[ORDER_ENV_KEYS.queuedAtEpochMs]: undefined,
+			[ORDER_ENV_KEYS.triggeredByRunId]: undefined,
+			[ORDER_ENV_KEYS.isQueuedOrder]: undefined,
 			TURNLOCK_RUN_DIR_ROOT: path.join(this.runDir, "runs"),
 			TURNLOCK_SKILL_SETTINGS_PATH: path.join(this.runDir, "settings.json"),
 			PI_SKILL_STATS_DIR: this.statsDir,

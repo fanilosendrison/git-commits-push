@@ -10,7 +10,8 @@
  *   - Status: PENDING, RUNNING, SUCCESS, FAILED
  */
 
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import { z } from "zod";
 
 // Re-create the schema here for testing (mirrors the one in the orchestrator)
@@ -101,7 +102,7 @@ describe("stateSchema accepts valid state", () => {
 				},
 			},
 		});
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 	});
 
 	test("full state with all new fields", () => {
@@ -139,7 +140,7 @@ describe("stateSchema accepts valid state", () => {
 				},
 			},
 		});
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 	});
 });
 
@@ -155,7 +156,7 @@ describe("stateSchema status field", () => {
 				},
 			},
 		});
-		expect(result.success).toBe(false);
+		assert.strictEqual(result.success, false);
 	});
 });
 
@@ -170,9 +171,9 @@ describe("attempts schema", () => {
 			race: 0,
 			network: 0,
 		});
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 		if (result.success) {
-			expect(result.data).toEqual({
+			assert.deepStrictEqual(result.data, {
 				structural: 2,
 				validation: 1,
 				git: 0,
@@ -184,9 +185,9 @@ describe("attempts schema", () => {
 
 	test("R37: legacy attempts:number → zeroed to {}", () => {
 		const result = attemptsSchema.safeParse(3);
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 		if (result.success) {
-			expect(Object.keys(result.data ?? {})).toEqual([]);
+			assert.deepStrictEqual(Object.keys(result.data ?? {}), []);
 		}
 	});
 
@@ -194,34 +195,34 @@ describe("attempts schema", () => {
 		const result = attemptsSchema.safeParse({
 			validaton: 1, // typo: should be "validation"
 		});
-		expect(result.success).toBe(false);
+		assert.strictEqual(result.success, false);
 	});
 
 	test("R30: rejects negative attempts value", () => {
 		const result = attemptsSchema.safeParse({
 			structural: -1,
 		});
-		expect(result.success).toBe(false);
+		assert.strictEqual(result.success, false);
 	});
 
 	test("R30: rejects non-integer attempts value", () => {
 		const result = attemptsSchema.safeParse({
 			structural: 1.5,
 		});
-		expect(result.success).toBe(false);
+		assert.strictEqual(result.success, false);
 	});
 
 	test("accepts empty object", () => {
 		const result = attemptsSchema.safeParse({});
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 		if (result.success) {
-			expect(Object.keys(result.data ?? {})).toEqual([]);
+			assert.deepStrictEqual(Object.keys(result.data ?? {}), []);
 		}
 	});
 
 	test("accepts undefined (optional)", () => {
 		const result = attemptsSchema.safeParse(undefined);
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 	});
 });
 
@@ -241,7 +242,7 @@ describe("committedShas schema", () => {
 				},
 			},
 		});
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 	});
 
 	test("rejects committedShas with missing sha", () => {
@@ -254,7 +255,7 @@ describe("committedShas schema", () => {
 				},
 			},
 		});
-		expect(result.success).toBe(false);
+		assert.strictEqual(result.success, false);
 	});
 });
 
@@ -271,7 +272,7 @@ describe("loopDetected schema (R62)", () => {
 				},
 			},
 		});
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 	});
 });
 
@@ -288,6 +289,6 @@ describe("feedbackHistory schema", () => {
 				},
 			},
 		});
-		expect(result.success).toBe(true);
+		assert.strictEqual(result.success, true);
 	});
 });

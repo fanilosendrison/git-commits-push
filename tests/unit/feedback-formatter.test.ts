@@ -8,7 +8,8 @@
  *   - No feedback → empty result
  */
 
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import { formatFeedbackBlock } from "../../src/modules/core/feedback-formatter.ts";
 import type { Feedback } from "../../src/types.ts";
 
@@ -16,7 +17,7 @@ import type { Feedback } from "../../src/types.ts";
 
 describe("formatFeedbackBlock — no feedback", () => {
 	test("undefined feedback → empty string", () => {
-		expect(formatFeedbackBlock(undefined)).toBe("");
+		assert.strictEqual(formatFeedbackBlock(undefined), "");
 	});
 });
 
@@ -38,22 +39,22 @@ describe("formatFeedbackBlock — structural errors", () => {
 
 	test("contains [STRUCTURAL] prefix", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("[STRUCTURAL]");
+		assert.ok(result.includes("[STRUCTURAL]"));
 	});
 
 	test("contains → Resolution:", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("→ Resolution:");
+		assert.ok(result.includes("→ Resolution:"));
 	});
 
 	test("contains → Affected files:", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("→ Affected files:");
+		assert.ok(result.includes("→ Affected files:"));
 	});
 
 	test("contains the error message", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("shared.ts");
+		assert.ok(result.includes("shared.ts"));
 	});
 });
 
@@ -74,12 +75,12 @@ describe("formatFeedbackBlock — validation errors", () => {
 
 	test("contains [VALIDATION] prefix", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("[VALIDATION]");
+		assert.ok(result.includes("[VALIDATION]"));
 	});
 
 	test("contains → Resolution:", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("→ Resolution:");
+		assert.ok(result.includes("→ Resolution:"));
 	});
 });
 
@@ -101,7 +102,7 @@ describe("formatFeedbackBlock — race errors", () => {
 
 	test("contains [RACE] prefix", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("[RACE]");
+		assert.ok(result.includes("[RACE]"));
 	});
 });
 
@@ -122,7 +123,7 @@ describe("formatFeedbackBlock — git errors", () => {
 
 	test("contains [GIT] prefix", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("[GIT]");
+		assert.ok(result.includes("[GIT]"));
 	});
 });
 
@@ -141,7 +142,7 @@ describe("formatFeedbackBlock — network errors", () => {
 
 	test("contains [NETWORK] prefix", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("[NETWORK]");
+		assert.ok(result.includes("[NETWORK]"));
 	});
 });
 
@@ -164,51 +165,51 @@ describe("formatFeedbackBlock — partial commit with committed_shas", () => {
 
 	test("contains 'Already committed' section", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("Already committed");
+		assert.ok(result.includes("Already committed"));
 	});
 
 	test("contains short SHA (7 chars)", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("abc123d");
+		assert.ok(result.includes("abc123d"));
 	});
 
 	test("contains committed files list", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("src/a.ts");
+		assert.ok(result.includes("src/a.ts"));
 	});
 
 	test("contains 'Pending files' section", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("Pending files");
+		assert.ok(result.includes("Pending files"));
 	});
 
 	test("contains pending files", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("src/b.ts");
-		expect(result).toContain("src/c.ts");
+		assert.ok(result.includes("src/b.ts"));
+		assert.ok(result.includes("src/c.ts"));
 	});
 
 	test("contains <remaining-diff> block when payloadDiff provided", () => {
 		const result = formatFeedbackBlock(feedback, "+export const b = 1;\n");
-		expect(result).toContain("<remaining-diff>");
-		expect(result).toContain("export const b = 1");
-		expect(result).toContain("</remaining-diff>");
+		assert.ok(result.includes("<remaining-diff>"));
+		assert.ok(result.includes("export const b = 1"));
+		assert.ok(result.includes("</remaining-diff>"));
 	});
 
 	test("no <remaining-diff> when payloadDiff omitted", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).not.toContain("<remaining-diff>");
+		assert.ok(!result.includes("<remaining-diff>"));
 	});
 
 	test("contains previous_commit history", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("previous plan text");
+		assert.ok(result.includes("previous plan text"));
 	});
 
 	test("contains instruction to return [] when done", () => {
 		const result = formatFeedbackBlock(feedback);
 		// When there are pending files, we expect the retry instruction
-		expect(result).toContain("Generate a NEW JSON");
+		assert.ok(result.includes("Generate a NEW JSON"));
 	});
 });
 
@@ -223,7 +224,7 @@ describe("formatFeedbackBlock — all work done (no pending files)", () => {
 
 	test("instruction to return [] when everything committed", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("empty array []");
+		assert.ok(result.includes("empty array []"));
 	});
 });
 
@@ -248,8 +249,8 @@ describe("formatFeedbackBlock — multiple errors", () => {
 
 	test("contains both [STRUCTURAL] and [VALIDATION]", () => {
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("[STRUCTURAL]");
-		expect(result).toContain("[VALIDATION]");
+		assert.ok(result.includes("[STRUCTURAL]"));
+		assert.ok(result.includes("[VALIDATION]"));
 	});
 });
 
@@ -262,7 +263,7 @@ describe("formatFeedbackBlock — edge cases", () => {
 			errors: [],
 		};
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("some history");
+		assert.ok(result.includes("some history"));
 	});
 
 	test("error with resolution_hint but no files", () => {
@@ -277,8 +278,8 @@ describe("formatFeedbackBlock — edge cases", () => {
 			],
 		};
 		const result = formatFeedbackBlock(feedback);
-		expect(result).toContain("→ Resolution:");
-		expect(result).toContain("Check pending files");
-		expect(result).not.toContain("→ Affected files:");
+		assert.ok(result.includes("→ Resolution:"));
+		assert.ok(result.includes("Check pending files"));
+		assert.ok(!result.includes("→ Affected files:"));
 	});
 });

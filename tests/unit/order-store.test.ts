@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import {
 	deleteQueuedOrder,
 	deleteQueuedOrderFiles,
@@ -44,11 +45,11 @@ describe("order-store", () => {
 
 		const filePath = writeQueuedOrder(testDir, queued);
 
-		expect(path.basename(filePath)).toBe(orderFileName(queued));
+		assert.strictEqual(path.basename(filePath), orderFileName(queued));
 		const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-		expect(raw.orderId).toBe("order-session-2");
-		expect(raw.originSessionId).toBe("session-2");
-		expect(raw.blockedByRunId).toBe("run-session-1");
+		assert.strictEqual(raw.orderId, "order-session-2");
+		assert.strictEqual(raw.originSessionId, "session-2");
+		assert.strictEqual(raw.blockedByRunId, "run-session-1");
 	});
 
 	test("lists queued orders in FIFO order", () => {
@@ -67,11 +68,10 @@ describe("order-store", () => {
 
 		const records = listQueuedOrders(testDir);
 
-		expect(records.map((record) => record.order.orderId)).toEqual([
-			"order-first",
-			"order-second",
-			"order-third",
-		]);
+		assert.deepStrictEqual(
+			records.map((record) => record.order.orderId),
+			["order-first", "order-second", "order-third"],
+		);
 	});
 
 	test("deletes individual and bulk queued order files", () => {
@@ -85,15 +85,16 @@ describe("order-store", () => {
 		);
 
 		const first = listQueuedOrders(testDir)[0];
-		expect(first).toBeDefined();
+		assert.notStrictEqual(first, undefined);
 		if (!first) return;
 
 		deleteQueuedOrder(first);
-		expect(
+		assert.deepStrictEqual(
 			listQueuedOrders(testDir).map((record) => record.order.orderId),
-		).toEqual(["order-second"]);
+			["order-second"],
+		);
 
 		deleteQueuedOrderFiles(testDir);
-		expect(listQueuedOrders(testDir)).toEqual([]);
+		assert.deepStrictEqual(listQueuedOrders(testDir), []);
 	});
 });

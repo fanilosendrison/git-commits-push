@@ -1,10 +1,11 @@
 // NIB-T — Test P3: Git Push Upstream Fallback (Phase 4)
 // Given: a repo with a non-'origin' remote and no upstream configured.
 // Expected: push falls back to `git push -u <remote> <branch>` automatically.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
@@ -16,11 +17,11 @@ let env: MockTurnlockEnvironment;
 let repoId: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(async () => {
+before(async () => {
 	env = MockTurnlockEnvironment.create();
 
 	// Create a bare repository to serve as the push target
@@ -81,7 +82,7 @@ beforeAll(async () => {
 	env.writeLLMResult(repoId, llmResult);
 });
 
-afterAll(() => {
+after(() => {
 	repoSource.dispose();
 	repoBare.dispose();
 	env.dispose();
@@ -92,14 +93,8 @@ describe("P3 — Git Push Upstream Fallback", () => {
 
 	test("P3-01 | process exits with code 0", () => {
 		const result = spawnSync(
-			"bun",
-			[
-				"run",
-				SKILL_ENTRYPOINT,
-				"--resume",
-				"--run-id",
-				"01J00000000000000000000000",
-			],
+			process.execPath,
+			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{
 				env: {
 					...process.env,
@@ -110,12 +105,12 @@ describe("P3 — Git Push Upstream Fallback", () => {
 			},
 		);
 		stderr = result.stderr ?? "";
-		expect(result.status).toBe(0);
+		assert.strictEqual(result.status, 0);
 	});
 
 	test("P3-02 | repo is reported as SUCCESS", () => {
-		expect(stderr).toContain("✅");
-		expect(stderr).toContain(repoId);
+		assert.ok(stderr.includes("✅"));
+		assert.ok(stderr.includes(repoId));
 	});
 
 	test("P3-03 | commit was pushed to the bare remote", () => {
@@ -124,6 +119,6 @@ describe("P3 — Git Push Upstream Fallback", () => {
 			cwd: repoBare.dir,
 			encoding: "utf-8",
 		});
-		expect(result.stdout).toContain("feat: add z constant");
+		assert.ok(result.stdout.includes("feat: add z constant"));
 	});
 });

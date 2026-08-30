@@ -1,7 +1,8 @@
 // NIB-T — Test A2: End-to-End Resume Run (Phases 4, 5)
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess, Settings } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
@@ -12,11 +13,11 @@ let env: MockTurnlockEnvironment;
 let repoId: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(async () => {
+before(async () => {
 	env = MockTurnlockEnvironment.create();
 	repoDirty = GitRepoFixture.create();
 	repoDirty.commit("initial commit");
@@ -79,7 +80,7 @@ beforeAll(async () => {
 	void diff; // used implicitly via computeStateJson
 });
 
-afterAll(() => {
+after(() => {
 	repoDirty.dispose();
 	env.dispose();
 });
@@ -91,14 +92,8 @@ describe("A2 — End-to-End Resume Run", () => {
 
 	test("A2-01 | skill process exits with code 0 on --resume", () => {
 		const result = spawnSync(
-			"bun",
-			[
-				"run",
-				SKILL_ENTRYPOINT,
-				"--resume",
-				"--run-id",
-				"01J00000000000000000000000",
-			],
+			process.execPath,
+			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{
 				env: {
 					...process.env,
@@ -110,22 +105,22 @@ describe("A2 — End-to-End Resume Run", () => {
 		stdout = result.stdout ?? "";
 		stderr = result.stderr ?? "";
 		exitCode = result.status ?? -1;
-		expect(exitCode).toBe(0);
+		assert.strictEqual(exitCode, 0);
 	});
 
 	test("A2-02 | stdout contains Turnlock DONE block", () => {
-		expect(stdout).toContain("@@TURNLOCK@@");
-		expect(stdout).toContain("action: DONE");
+		assert.ok(stdout.includes("@@TURNLOCK@@"));
+		assert.ok(stdout.includes("action: DONE"));
 	});
 
 	test("A2-03 | Phase 5 report is emitted to stderr", () => {
 		// Phase 5 human-readable output goes to stderr (not stdout — DC-TURNLOCK I4 compliance)
-		expect(stderr).toContain("=== TURNLOCK EXECUTION REPORT ===");
+		assert.ok(stderr.includes("=== TURNLOCK EXECUTION REPORT ==="));
 	});
 
 	test("A2-04 | Phase 5 report lists repo-dirty as success", () => {
-		expect(stderr).toContain(repoId);
-		expect(stderr).toContain("✅");
+		assert.ok(stderr.includes(repoId));
+		assert.ok(stderr.includes("✅"));
 	});
 
 	test("A2-05 | git commit was created in repo-dirty", () => {
@@ -133,7 +128,7 @@ describe("A2 — End-to-End Resume Run", () => {
 			cwd: repoDirty.dir,
 			encoding: "utf-8",
 		});
-		expect(result.stdout).toContain("feat(core): add x constant");
+		assert.ok(result.stdout.includes("feat(core): add x constant"));
 	});
 
 	test("A2-06 | only one commit was created (single plan)", () => {
@@ -142,6 +137,6 @@ describe("A2 — End-to-End Resume Run", () => {
 			encoding: "utf-8",
 		});
 		// "initial commit" + the one we just made = 2 total
-		expect(result.stdout.trim().split("\n").length).toBe(2);
+		assert.strictEqual(result.stdout.trim().split("\n").length, 2);
 	});
 });

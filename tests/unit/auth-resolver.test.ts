@@ -1,8 +1,9 @@
 // tests/unit/auth-resolver.test.ts — Unit tests for src/modules/auth-resolver.ts
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import { resolveAuthToken } from "../../src/modules/core/auth-resolver.ts";
 
 const MOCK_AGENTS_DIR = path.join(os.homedir(), ".agents");
@@ -11,13 +12,13 @@ const AUTH_JSON_PATH = path.join(MOCK_AGENTS_DIR, "agent-credentials.json");
 describe("auth-resolver", () => {
 	let originalAuthContent: string | null = null;
 
-	beforeAll(() => {
+	before(() => {
 		fs.mkdirSync(MOCK_AGENTS_DIR, { recursive: true });
 		if (fs.existsSync(AUTH_JSON_PATH)) {
 			originalAuthContent = fs.readFileSync(AUTH_JSON_PATH, "utf-8");
 		}
 	});
-	afterAll(() => {
+	after(() => {
 		try {
 			if (originalAuthContent !== null) {
 				fs.writeFileSync(AUTH_JSON_PATH, originalAuthContent, "utf-8");
@@ -30,7 +31,7 @@ describe("auth-resolver", () => {
 	test("U-AR-01 | Returns token from ENV if defined", async () => {
 		process.env.TESTPROV_API_KEY = "env-token-123";
 		const token = await resolveAuthToken("testprov");
-		expect(token).toBe("env-token-123");
+		assert.strictEqual(token, "env-token-123");
 		delete process.env.TESTPROV_API_KEY;
 	});
 
@@ -40,7 +41,7 @@ describe("auth-resolver", () => {
 			JSON.stringify({ testprov: "echo static-token-456" }),
 		);
 		const token = await resolveAuthToken("testprov");
-		expect(token).toBe("static-token-456");
+		assert.strictEqual(token, "static-token-456");
 	});
 
 	test("U-AR-03 | Returns token from dynamic execution (command)", async () => {
@@ -50,7 +51,7 @@ describe("auth-resolver", () => {
 			JSON.stringify({ testprov: "echo dynamic-token-789" }),
 		);
 		const token = await resolveAuthToken("testprov");
-		expect(token).toBe("dynamic-token-789");
+		assert.strictEqual(token, "dynamic-token-789");
 	});
 
 	test("U-AR-04 | Throws if provider absent from ENV and agent-credentials.json", async () => {
@@ -58,8 +59,11 @@ describe("auth-resolver", () => {
 			AUTH_JSON_PATH,
 			JSON.stringify({ otherprov: "echo static-token" }),
 		);
-		await expect(resolveAuthToken("testprov")).rejects.toThrow(
-			"not found in env or agent-credentials.json",
+		await assert.rejects(
+			resolveAuthToken("testprov"),
+			(error: unknown) =>
+				error instanceof Error &&
+				error.message.includes("not found in env or agent-credentials.json"),
 		);
 	});
 
@@ -68,8 +72,11 @@ describe("auth-resolver", () => {
 			AUTH_JSON_PATH,
 			JSON.stringify({ testprov: "sk-static-token-that-is-not-a-command" }),
 		);
-		await expect(resolveAuthToken("testprov")).rejects.toThrow(
-			"Failed to execute credential command",
+		await assert.rejects(
+			resolveAuthToken("testprov"),
+			(error: unknown) =>
+				error instanceof Error &&
+				error.message.includes("Failed to execute credential command"),
 		);
 	});
 
@@ -80,7 +87,7 @@ describe("auth-resolver", () => {
 			JSON.stringify({ testprov: "sh -c 'echo dyn-token && echo noise >&2'" }),
 		);
 		const token = await resolveAuthToken("testprov");
-		expect(token).toBe("dyn-token"); // The stderr noise should not be captured
+		assert.strictEqual(token, "dyn-token"); // The stderr noise should not be captured
 	});
 
 	test("U-AR-07 | Token is trimmed of whitespace", async () => {
@@ -89,7 +96,7 @@ describe("auth-resolver", () => {
 			JSON.stringify({ testprov: "echo '  padded-token  \n'" }),
 		);
 		const token = await resolveAuthToken("testprov");
-		expect(token).toBe("padded-token");
+		assert.strictEqual(token, "padded-token");
 	});
 
 	test("U-AR-08 | Nested lookup: resolves token via agent in nested provider map", async () => {
@@ -103,7 +110,7 @@ describe("auth-resolver", () => {
 			}),
 		);
 		const token = await resolveAuthToken("testprov", "janet");
-		expect(token).toBe("janet-token");
+		assert.strictEqual(token, "janet-token");
 	});
 
 	test("U-AR-09 | Nested lookup: second agent returns its own token", async () => {
@@ -117,7 +124,7 @@ describe("auth-resolver", () => {
 			}),
 		);
 		const token = await resolveAuthToken("testprov", "marcus");
-		expect(token).toBe("marcus-token");
+		assert.strictEqual(token, "marcus-token");
 	});
 
 	test("U-AR-10 | Nested lookup: absent agent throws descriptive error", async () => {
@@ -129,8 +136,10 @@ describe("auth-resolver", () => {
 				},
 			}),
 		);
-		await expect(resolveAuthToken("testprov", "unknown-agent")).rejects.toThrow(
-			"not found",
+		await assert.rejects(
+			resolveAuthToken("testprov", "unknown-agent"),
+			(error: unknown) =>
+				error instanceof Error && error.message.includes("not found"),
 		);
 	});
 
@@ -141,7 +150,7 @@ describe("auth-resolver", () => {
 		);
 		// Even with agent provided, flat format takes precedence
 		const token = await resolveAuthToken("testprov", "some-agent");
-		expect(token).toBe("flat-token");
+		assert.strictEqual(token, "flat-token");
 	});
 
 	test("U-AR-12 | Nested lookup without agent: falls back to flat behavior if provider is nested", async () => {
@@ -155,6 +164,10 @@ describe("auth-resolver", () => {
 				},
 			}),
 		);
-		await expect(resolveAuthToken("testprov")).rejects.toThrow("malformed");
+		await assert.rejects(
+			resolveAuthToken("testprov"),
+			(error: unknown) =>
+				error instanceof Error && error.message.includes("malformed"),
+		);
 	});
 });

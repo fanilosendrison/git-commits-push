@@ -1,11 +1,12 @@
 // NIB-T — Test I1: Secret Scanner Fail-Closed (DC-SECRET-SCANNER)
 // Given: a repo with a secret in staged diff.
 // Expected: that repo is marked FAILED; other parallel repos are unaffected.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -15,11 +16,11 @@ let env: MockTurnlockEnvironment;
 let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(() => {
+before(() => {
 	env = MockTurnlockEnvironment.create();
 	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "i1-"));
 
@@ -41,13 +42,13 @@ beforeAll(() => {
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
-		systemPromptPath: path.join(import.meta.dir, "../../system-prompt.md"),
+		systemPromptPath: path.join(import.meta.dirname, "../../system-prompt.md"),
 		autoPush: false,
 		skipTests: true,
 	});
 });
 
-afterAll(() => {
+after(() => {
 	repoClean.dispose();
 	repoWithSecret.dispose();
 	env.dispose();
@@ -59,7 +60,7 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 	let exitCode: number;
 
 	test("I1-01 | process exits with code 0 (partial success is still a valid run)", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -68,12 +69,12 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		});
 		stdout = result.stdout ?? "";
 		exitCode = result.status ?? -1;
-		expect(exitCode).toBe(0);
+		assert.strictEqual(exitCode, 0);
 	});
 
 	test("I1-02 | stdout contains a delegation block (because repo-clean succeeded)", () => {
-		expect(stdout).toContain("@@TURNLOCK@@");
-		expect(stdout).toContain("action: DELEGATE");
+		assert.ok(stdout.includes("@@TURNLOCK@@"));
+		assert.ok(stdout.includes("action: DELEGATE"));
 	});
 
 	test("I1-03 | the delegation manifest contains repo-clean but not repo-with-secret", () => {
@@ -98,7 +99,7 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		}
 		findManifest(runsDir);
 
-		expect(manifest).not.toBeNull();
+		assert.notStrictEqual(manifest, null);
 		const m = manifest as unknown as { jobs: { id: string; prompt: string }[] };
 		const paths = m.jobs.map(
 			(j: { id: string; prompt: string }) =>
@@ -106,15 +107,21 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 		);
 
 		// repo-clean must be present
-		expect(paths.some((p: string) => p === repoClean.dir)).toBe(true);
+		assert.strictEqual(
+			paths.some((p: string) => p === repoClean.dir),
+			true,
+		);
 		// repo-with-secret must be absent
-		expect(paths.some((p: string) => p === repoWithSecret.dir)).toBe(false);
+		assert.strictEqual(
+			paths.some((p: string) => p === repoWithSecret.dir),
+			false,
+		);
 	});
 
 	test("I1-04 | no runtime exception is thrown for the clean repo due to the secret repo failure", () => {
 		// The fact that exit code is 0 and a delegation block was emitted is enough,
 		// but we also verify stderr contains no unhandled exception traces.
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -123,7 +130,7 @@ describe("I1 — Secret Scanner Fail-Closed", () => {
 			encoding: "utf-8",
 		});
 		const stderr = result.stderr ?? "";
-		expect(stderr).not.toContain("Uncaught");
-		expect(stderr).not.toContain("UnhandledPromiseRejection");
+		assert.ok(!stderr.includes("Uncaught"));
+		assert.ok(!stderr.includes("UnhandledPromiseRejection"));
 	});
 });
