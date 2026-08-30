@@ -86,6 +86,34 @@ export function buildNodeTestArguments(resolvedTestFiles) {
 	];
 }
 
+export function buildFailureDiagnostic(stdout, stderr) {
+	const lines = `${stdout}\n${stderr}`.split("\n");
+	const selectedLines = [];
+	for (let index = 0; index < lines.length; index++) {
+		if (!/^\s*not ok\b/.test(lines[index] ?? "")) continue;
+		selectedLines.push(
+			...lines.slice(
+				Math.max(0, index - 3),
+				Math.min(lines.length, index + 30),
+			),
+		);
+	}
+	return selectedLines.join("\n").slice(0, 60_000);
+}
+
+function writeGitHubFailureAnnotation(stdout, stderr) {
+	if (process.env.GITHUB_ACTIONS !== "true") return;
+	const diagnostic = buildFailureDiagnostic(stdout, stderr);
+	if (!diagnostic) return;
+	const escapedDiagnostic = diagnostic
+		.replaceAll("%", "%25")
+		.replaceAll("\r", "%0D")
+		.replaceAll("\n", "%0A");
+	process.stderr.write(
+		`::error title=git-commits-push source test failure::${escapedDiagnostic}\n`,
+	);
+}
+
 export async function runExpectedNodeTests(testDirectory) {
 	const resolvedTestFiles = await resolveExpectedTestFiles(testDirectory);
 	const result = spawnSync(
@@ -93,11 +121,15 @@ export async function runExpectedNodeTests(testDirectory) {
 		buildNodeTestArguments(resolvedTestFiles),
 		{
 			cwd: path.resolve(testDirectory, ".."),
+			encoding: "utf8",
 			env: process.env,
+			maxBuffer: 50 * 1024 * 1024,
 			shell: false,
-			stdio: "inherit",
+			stdio: ["inherit", "pipe", "pipe"],
 		},
 	);
+	process.stdout.write(result.stdout ?? "");
+	process.stderr.write(result.stderr ?? "");
 	if (result.error) {
 		throw new Error(
 			`Unable to start the Node test runner: ${result.error.message}`,
@@ -110,6 +142,9 @@ export async function runExpectedNodeTests(testDirectory) {
 		throw new Error(
 			`Node test runner terminated without an exit code${result.signal ? ` (${result.signal})` : ""}`,
 		);
+	}
+	if (result.status !== 0) {
+		writeGitHubFailureAnnotation(result.stdout ?? "", result.stderr ?? "");
 	}
 	return result.status;
 }
