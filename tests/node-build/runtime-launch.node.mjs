@@ -69,7 +69,7 @@ function orderContext(orderId, overrides = {}) {
 	};
 }
 
-test("preserves historical Bun source resume and dequeue launches", () => {
+test("builds Node source resume and dequeue launches", () => {
 	const sourceOrchestratorUrl = pathToFileURL(
 		path.join(skillDirectory, "src", "entrypoints", "turnlock-orchestrator.ts"),
 	).href;
@@ -79,7 +79,7 @@ test("preserves historical Bun source resume and dequeue launches", () => {
 			sourceOrchestratorUrl,
 			"/unused/node",
 		),
-		"bun run src/entrypoints/turnlock-orchestrator.ts --run-id run-historical --resume",
+		'"/unused/node" "src/entrypoints/turnlock-orchestrator.ts" "--run-id" "run-historical" "--resume"',
 	);
 
 	const sourceLockManagerUrl = pathToFileURL(
@@ -91,8 +91,8 @@ test("preserves historical Bun source resume and dequeue launches", () => {
 			"/unused/node",
 		),
 		{
-			args: ["run", "start"],
-			command: "bun",
+			args: [path.join(skillDirectory, "scripts", "start-node.mjs")],
+			command: "/unused/node",
 			cwd: skillDirectory,
 		},
 	);

@@ -39,7 +39,17 @@ export function buildResumeCommand(
 	executablePath: string = process.execPath,
 ): string {
 	if (!isCompiledJavaScriptModule(orchestratorModuleUrl)) {
-		return `bun run src/entrypoints/turnlock-orchestrator.ts --run-id ${runId} --resume`;
+		const sourceExecutable =
+			executablePath === process.execPath ? "node" : executablePath;
+		return [
+			sourceExecutable,
+			"src/entrypoints/turnlock-orchestrator.ts",
+			"--run-id",
+			runId,
+			"--resume",
+		]
+			.map(serializeShellArgument)
+			.join(" ");
 	}
 	const launch = buildResumeLaunch(
 		runId,
@@ -57,8 +67,8 @@ export function buildQueuedOrderLaunch(
 	const skillDirectory = path.resolve(path.dirname(lockManagerPath), "../..");
 	if (!isCompiledJavaScriptModule(lockManagerModuleUrl)) {
 		return {
-			args: ["run", "start"],
-			command: "bun",
+			args: [path.join(skillDirectory, "scripts", "start-node.mjs")],
+			command: executablePath,
 			cwd: skillDirectory,
 		};
 	}
