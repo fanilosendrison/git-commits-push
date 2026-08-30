@@ -1,17 +1,14 @@
 // tests/unit/pi-orch-git-commits-push.test.ts
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 
 // Set up module mocks before importing the target wrapper
 let lastExecCmd: string | null = null;
 let lastUserPrompt: string | null = null;
 let lastAgentPassed: string | undefined;
-
-interface MockAdapterConfig {
-	readonly apiKey?: string;
-}
 
 interface MockCallArgs {
 	readonly temperature: number;
@@ -50,13 +47,16 @@ function createTurnlockV2BatchManifest(args: {
 	};
 }
 
-mock.module("@fanilosendrison/llm-runtime", () => ({
-	createOpenAIAdapter: (config: MockAdapterConfig) => {
+const mockAdapterFactories: LlmAdapterFactories = {
+	buildSimplePrompt: ((prompt: unknown) =>
+		prompt) as LlmAdapterFactories["buildSimplePrompt"],
+	createOpenAIAdapter: (config) => {
 		if (config.apiKey !== "key" && config.apiKey !== "mock-token") {
 			throw new Error(`Unexpected OpenAI apiKey: ${config.apiKey}`);
 		}
 		return {
-			call: async (args: MockCallArgs) => {
+			call: async (rawArgs: unknown) => {
+				const args = rawArgs as MockCallArgs;
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				lastUserPrompt = args.messages.user;
 				return {
@@ -72,12 +72,13 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 					]),
 				};
 			},
-		};
+		} as ReturnType<LlmAdapterFactories["createOpenAIAdapter"]>;
 	},
-	createAnthropicAdapter: (config: MockAdapterConfig) => {
+	createAnthropicAdapter: (config) => {
 		if (config.apiKey !== "key") throw new Error("Unexpected Anthropic apiKey");
 		return {
-			call: async (args: MockCallArgs) => {
+			call: async (rawArgs: unknown) => {
+				const args = rawArgs as MockCallArgs;
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				return {
 					content: JSON.stringify([
@@ -92,12 +93,13 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 					]),
 				};
 			},
-		};
+		} as ReturnType<LlmAdapterFactories["createAnthropicAdapter"]>;
 	},
-	createGoogleAdapter: (config: MockAdapterConfig) => {
+	createGoogleAdapter: (config) => {
 		if (config.apiKey !== "key") throw new Error("Unexpected Google apiKey");
 		return {
-			call: async (args: MockCallArgs) => {
+			call: async (rawArgs: unknown) => {
+				const args = rawArgs as MockCallArgs;
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				return {
 					content: JSON.stringify([
@@ -112,12 +114,13 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 					]),
 				};
 			},
-		};
+		} as ReturnType<LlmAdapterFactories["createGoogleAdapter"]>;
 	},
-	createOpenAICompatibleAdapter: (config: MockAdapterConfig) => {
+	createOpenAICompatibleAdapter: (config) => {
 		if (config.apiKey !== "key") throw new Error("Unexpected Custom apiKey");
 		return {
-			call: async (args: MockCallArgs) => {
+			call: async (rawArgs: unknown) => {
+				const args = rawArgs as MockCallArgs;
 				if (args.temperature !== 0) throw new Error("Unexpected temperature");
 				return {
 					content: JSON.stringify([
@@ -132,93 +135,102 @@ mock.module("@fanilosendrison/llm-runtime", () => ({
 					]),
 				};
 			},
-		};
+		} as ReturnType<LlmAdapterFactories["createOpenAICompatibleAdapter"]>;
 	},
-	buildSimplePrompt: <T>(p: T) => p,
-}));
+};
 
-mock.module(
-	path.resolve(__dirname, "../../src/modules/core/auth-resolver"),
-	() => ({
-		resolveAuthToken: async (provider: string, agent?: string) => {
-			lastAgentPassed = agent;
-			if (provider === "fail") {
-				throw new Error("mock auth fail");
-			}
-			return "mock-token";
-		},
-	}),
-);
+const mockBridgeDependencies: BridgeDependencies = {
+	resolveAuthToken: async (provider: string, agent?: string) => {
+		lastAgentPassed = agent;
+		if (provider === "fail") throw new Error("mock auth fail");
+		return "mock-token";
+	},
+	invokeLlm: async (payload) => await invokeLlm(payload, mockAdapterFactories),
+};
 
 // Now import the functions to test
 import {
+	type BridgeDependencies,
 	handleTurnlockDelegation,
 	invokeLlm,
+	type LlmAdapterFactories,
 	parseSerializedValue,
 } from "../../src/entrypoints/turnlock-to-llm-bridge.ts";
 
 describe("turnlock-to-llm-bridge", () => {
 	describe("parseSerializedValue", () => {
 		test("removes surrounding double quotes", () => {
-			expect(parseSerializedValue('"hello"')).toBe("hello");
+			assert.strictEqual(parseSerializedValue('"hello"'), "hello");
 		});
 
 		test("leaves unquoted string unchanged", () => {
-			expect(parseSerializedValue("hello")).toBe("hello");
+			assert.strictEqual(parseSerializedValue("hello"), "hello");
 		});
 
 		test("handles empty string", () => {
-			expect(parseSerializedValue("")).toBe("");
+			assert.strictEqual(parseSerializedValue(""), "");
 		});
 	});
 
 	describe("invokeLlm", () => {
 		test("calls openai adapter correctly", async () => {
-			const res = await invokeLlm({
-				provider: "openai",
-				model: "gpt-5.4-mini",
-				token: "key",
-				temperature: 0,
-				systemPrompt: "sys",
-				userPrompt: "user",
-			});
-			expect(res).toContain("mock openai commit");
+			const res = await invokeLlm(
+				{
+					provider: "openai",
+					model: "gpt-5.4-mini",
+					token: "key",
+					temperature: 0,
+					systemPrompt: "sys",
+					userPrompt: "user",
+				},
+				mockAdapterFactories,
+			);
+			assert.ok(res.includes("mock openai commit"));
 		});
 
 		test("calls anthropic adapter correctly", async () => {
-			const res = await invokeLlm({
-				provider: "anthropic",
-				model: "claude-test",
-				token: "key",
-				temperature: 0,
-				systemPrompt: "sys",
-				userPrompt: "user",
-			});
-			expect(res).toContain("mock anthropic commit");
+			const res = await invokeLlm(
+				{
+					provider: "anthropic",
+					model: "claude-test",
+					token: "key",
+					temperature: 0,
+					systemPrompt: "sys",
+					userPrompt: "user",
+				},
+				mockAdapterFactories,
+			);
+			assert.ok(res.includes("mock anthropic commit"));
 		});
 
 		test("calls google adapter correctly", async () => {
-			const res = await invokeLlm({
-				provider: "google",
-				model: "gemini-test",
-				token: "key",
-				temperature: 0,
-				systemPrompt: "sys",
-				userPrompt: "user",
-			});
-			expect(res).toContain("mock google commit");
+			const res = await invokeLlm(
+				{
+					provider: "google",
+					model: "gemini-test",
+					token: "key",
+					temperature: 0,
+					systemPrompt: "sys",
+					userPrompt: "user",
+				},
+				mockAdapterFactories,
+			);
+			assert.ok(res.includes("mock google commit"));
 		});
 
 		test("calls custom adapter correctly", async () => {
-			const res = await invokeLlm({
-				provider: "custom-provider",
-				model: "custom-model",
-				token: "key",
-				temperature: 0,
-				systemPrompt: "sys",
-				userPrompt: "user",
-			});
-			expect(res).toContain("mock custom commit");
+			const res = await invokeLlm(
+				{
+					provider: "custom-provider",
+					model: "custom-model",
+					token: "key",
+					temperature: 0,
+					systemPrompt: "sys",
+					userPrompt: "user",
+				},
+				mockAdapterFactories,
+			);
+			assert.ok(res.includes("mock custom commit"));
 		});
 	});
 
@@ -227,7 +239,7 @@ describe("turnlock-to-llm-bridge", () => {
 		let tempResultPath: string;
 		let tempDir: string;
 
-		beforeAll(() => {
+		before(() => {
 			tempDir = fs.mkdtempSync(
 				path.join(os.tmpdir(), "turnlock-wrapper-test-"),
 			);
@@ -235,7 +247,7 @@ describe("turnlock-to-llm-bridge", () => {
 			tempResultPath = path.join(tempDir, "result.json");
 		});
 
-		afterAll(() => {
+		after(() => {
 			fs.rmSync(tempDir, { recursive: true, force: true });
 		});
 
@@ -273,20 +285,22 @@ describe("turnlock-to-llm-bridge", () => {
 					lastExecCmd = cmd;
 					return "";
 				},
+				mockBridgeDependencies,
 			);
 
 			// Verify result file exists and has success payload
-			expect(fs.existsSync(tempResultPath)).toBe(true);
+			assert.strictEqual(fs.existsSync(tempResultPath), true);
 			const resultData = JSON.parse(fs.readFileSync(tempResultPath, "utf-8"));
-			expect(resultData.success).toBe(true);
-			expect(resultData.id).toBe("job-1");
-			expect(resultData.commits[0].commit.type).toBe("feat");
-			expect(resultData.commits[0].commit.description).toBe(
+			assert.strictEqual(resultData.success, true);
+			assert.strictEqual(resultData.id, "job-1");
+			assert.strictEqual(resultData.commits[0].commit.type, "feat");
+			assert.strictEqual(
+				resultData.commits[0].commit.description,
 				"mock openai commit",
 			);
 
 			// Verify execSync resume command was executed
-			expect(lastExecCmd ?? "").toBe("resume-cmd --test");
+			assert.strictEqual(lastExecCmd ?? "", "resume-cmd --test");
 		});
 
 		test("writes failure results on execution errors", async () => {
@@ -322,13 +336,14 @@ describe("turnlock-to-llm-bridge", () => {
 					lastExecCmd = cmd;
 					return "";
 				},
+				mockBridgeDependencies,
 			);
 
-			expect(fs.existsSync(tempResultPath)).toBe(true);
+			assert.strictEqual(fs.existsSync(tempResultPath), true);
 			const resultData = JSON.parse(fs.readFileSync(tempResultPath, "utf-8"));
-			expect(resultData.success).toBe(false);
-			expect(resultData.id).toBe("job-2");
-			expect(resultData.error).toContain("LLM Fatal Error: mock auth fail");
+			assert.strictEqual(resultData.success, false);
+			assert.strictEqual(resultData.id, "job-2");
+			assert.ok(resultData.error.includes("LLM Fatal Error: mock auth fail"));
 		});
 
 		test("rejects a legacy manifest before processing jobs", async () => {
@@ -356,17 +371,25 @@ describe("turnlock-to-llm-bridge", () => {
 			);
 			let resumeWasCalled = false;
 
-			await expect(
-				handleTurnlockDelegation(tempManifestPath, "resume-cmd --test", () => {
-					resumeWasCalled = true;
-					return "";
-				}),
-			).rejects.toThrow(
-				"Turnlock delegation manifest is not a valid v2 batch manifest",
+			await assert.rejects(
+				handleTurnlockDelegation(
+					tempManifestPath,
+					"resume-cmd --test",
+					() => {
+						resumeWasCalled = true;
+						return "";
+					},
+					mockBridgeDependencies,
+				),
+				(error: unknown) =>
+					error instanceof Error &&
+					error.message.includes(
+						"Turnlock delegation manifest is not a valid v2 batch manifest",
+					),
 			);
 
-			expect(resumeWasCalled).toBe(false);
-			expect(fs.existsSync(tempResultPath)).toBe(false);
+			assert.strictEqual(resumeWasCalled, false);
+			assert.strictEqual(fs.existsSync(tempResultPath), false);
 		});
 
 		test("injects feedback into prompt if present", async () => {
@@ -414,19 +437,22 @@ describe("turnlock-to-llm-bridge", () => {
 				() => {
 					return "";
 				},
+				mockBridgeDependencies,
 			);
 
 			// New format: structured errors with [KIND] prefix
-			expect(lastUserPrompt ?? "").toContain(
-				"FEEDBACK FROM PREVIOUS ATTEMPT(S)",
+			assert.ok(
+				(lastUserPrompt ?? "").includes("FEEDBACK FROM PREVIOUS ATTEMPT(S)"),
 			);
-			expect(lastUserPrompt ?? "").toContain("BAD COMMIT");
-			expect(lastUserPrompt ?? "").toContain("[STRUCTURAL] Error 1");
-			expect(lastUserPrompt ?? "").toContain("[VALIDATION] Error 2");
-			expect(lastUserPrompt ?? "").toContain(
-				"→ Resolution: Fix the duplicate file.",
+			assert.ok((lastUserPrompt ?? "").includes("BAD COMMIT"));
+			assert.ok((lastUserPrompt ?? "").includes("[STRUCTURAL] Error 1"));
+			assert.ok((lastUserPrompt ?? "").includes("[VALIDATION] Error 2"));
+			assert.ok(
+				(lastUserPrompt ?? "").includes(
+					"→ Resolution: Fix the duplicate file.",
+				),
 			);
-			expect(lastUserPrompt ?? "").toContain("→ Affected files: shared.ts");
+			assert.ok((lastUserPrompt ?? "").includes("→ Affected files: shared.ts"));
 		});
 
 		test("passes agent to resolveAuthToken when present in payload", async () => {
@@ -461,9 +487,13 @@ describe("turnlock-to-llm-bridge", () => {
 				tempManifestPath,
 				"resume-cmd --test",
 				() => "",
+				mockBridgeDependencies,
 			);
 
-			expect(lastAgentPassed as string | undefined).toBe("git-commits-push");
+			assert.strictEqual(
+				lastAgentPassed as string | undefined,
+				"git-commits-push",
+			);
 		});
 
 		test("does not pass agent when absent from payload", async () => {
@@ -497,9 +527,10 @@ describe("turnlock-to-llm-bridge", () => {
 				tempManifestPath,
 				"resume-cmd --test",
 				() => "",
+				mockBridgeDependencies,
 			);
 
-			expect(lastAgentPassed).toBeUndefined();
+			assert.strictEqual(lastAgentPassed, undefined);
 		});
 	});
 });

@@ -47,16 +47,35 @@ function logBridgeMessage(message: string): void {
 	console.log(message);
 }
 
-export async function invokeLlm(payload: {
-	provider: string;
-	model: string;
-	token: string;
-	temperature: number;
-	systemPrompt: string;
-	userPrompt: string;
-	stripJsonFence?: boolean;
-	thinking?: boolean;
-}): Promise<string> {
+export interface LlmAdapterFactories {
+	readonly buildSimplePrompt: typeof buildSimplePrompt;
+	readonly createAnthropicAdapter: typeof createAnthropicAdapter;
+	readonly createGoogleAdapter: typeof createGoogleAdapter;
+	readonly createOpenAIAdapter: typeof createOpenAIAdapter;
+	readonly createOpenAICompatibleAdapter: typeof createOpenAICompatibleAdapter;
+}
+
+const defaultLlmAdapterFactories: LlmAdapterFactories = {
+	buildSimplePrompt,
+	createAnthropicAdapter,
+	createGoogleAdapter,
+	createOpenAIAdapter,
+	createOpenAICompatibleAdapter,
+};
+
+export async function invokeLlm(
+	payload: {
+		provider: string;
+		model: string;
+		token: string;
+		temperature: number;
+		systemPrompt: string;
+		userPrompt: string;
+		stripJsonFence?: boolean;
+		thinking?: boolean;
+	},
+	adapterFactories: LlmAdapterFactories = defaultLlmAdapterFactories,
+): Promise<string> {
 	const commonConfig = {
 		model: payload.model,
 		apiKey: payload.token,
@@ -68,20 +87,20 @@ export async function invokeLlm(payload: {
 
 	let adapter: ProviderAdapter;
 	if (payload.provider === "anthropic") {
-		adapter = createAnthropicAdapter(commonConfig);
+		adapter = adapterFactories.createAnthropicAdapter(commonConfig);
 	} else if (payload.provider === "openai") {
-		adapter = createOpenAIAdapter(commonConfig);
+		adapter = adapterFactories.createOpenAIAdapter(commonConfig);
 	} else if (payload.provider === "google") {
-		adapter = createGoogleAdapter(commonConfig);
+		adapter = adapterFactories.createGoogleAdapter(commonConfig);
 	} else {
-		adapter = createOpenAICompatibleAdapter({
+		adapter = adapterFactories.createOpenAICompatibleAdapter({
 			...commonConfig,
 			provider: payload.provider as OpenAICompatibleProvider,
 		});
 	}
 
 	const response = await adapter.call({
-		messages: buildSimplePrompt({
+		messages: adapterFactories.buildSimplePrompt({
 			system: payload.systemPrompt,
 			user: payload.userPrompt,
 		}),
@@ -263,10 +282,21 @@ export async function executeResumeCommand(
 	return stdout;
 }
 
+export interface BridgeDependencies {
+	readonly invokeLlm: typeof invokeLlm;
+	readonly resolveAuthToken: typeof resolveAuthToken;
+}
+
+const defaultBridgeDependencies: BridgeDependencies = {
+	invokeLlm,
+	resolveAuthToken,
+};
+
 export async function handleTurnlockDelegation(
 	manifestPath: string,
 	resumeCmd: string,
 	execFn?: (cmd: string) => string | Promise<string>,
+	dependencies: BridgeDependencies = defaultBridgeDependencies,
 ): Promise<void> {
 	if (!fs.existsSync(manifestPath)) {
 		throw new Error(`Manifest file not found at ${manifestPath}`);
@@ -290,7 +320,10 @@ export async function handleTurnlockDelegation(
 				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}${payload.agent ? ` (agent: ${payload.agent})` : ""}...`,
 				);
-				const token = await resolveAuthToken(payload.provider, payload.agent);
+				const token = await dependencies.resolveAuthToken(
+					payload.provider,
+					payload.agent,
+				);
 
 				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
@@ -313,7 +346,7 @@ export async function handleTurnlockDelegation(
 				let llmResponse = "";
 				let commits: CommitPlan[] = [];
 				for (let attempt = 0; attempt < 2; attempt++) {
-					llmResponse = await invokeLlm({
+					llmResponse = await dependencies.invokeLlm({
 						provider: payload.provider,
 						model: payload.model,
 						token: token,
@@ -411,7 +444,12 @@ export async function handleTurnlockDelegation(
 		logBridgeMessage(
 			`\n[Turnlock→LLM] Retry delegation detected. Processing next cycle...\n`,
 		);
-		await handleTurnlockDelegation(nextManifest, nextResume, execFn);
+		await handleTurnlockDelegation(
+			nextManifest,
+			nextResume,
+			execFn,
+			dependencies,
+		);
 	}
 }
 
