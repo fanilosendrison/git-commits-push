@@ -149,7 +149,7 @@ function buildTestRunnerEnvironment(): NodeJS.ProcessEnv {
 }
 
 function execNodeTests(cwd: string, testFiles: readonly string[] = []): void {
-	execFileSync(process.execPath, ["--test", ...testFiles], {
+	execFileSync("node", ["--test", ...testFiles], {
 		cwd,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
