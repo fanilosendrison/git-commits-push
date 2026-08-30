@@ -6,19 +6,27 @@ export type CommitPlanErrorKind =
 	| "missing-file"
 	| "nonexistent-file";
 
+interface CommitPlanErrorContext {
+	committedShas?: CommittedSha[];
+	pendingFiles?: string[];
+}
+
 export class CommitPlanError extends Error {
 	override name = "CommitPlanError";
+	readonly kind: CommitPlanErrorKind;
+	readonly files: string[] | undefined;
+	readonly context: CommitPlanErrorContext | undefined;
 
 	constructor(
 		message: string,
-		public readonly kind: CommitPlanErrorKind,
-		public readonly files?: string[],
-		public readonly context?: {
-			committedShas?: CommittedSha[];
-			pendingFiles?: string[];
-		},
+		kind: CommitPlanErrorKind,
+		files?: string[],
+		context?: CommitPlanErrorContext,
 	) {
 		super(message);
+		this.kind = kind;
+		this.files = files;
+		this.context = context;
 	}
 }
 
@@ -32,40 +40,40 @@ export class DiffHashMismatchError extends Error {
 
 export class GitExecError extends Error {
 	override name = "GitExecError";
+	readonly command: string;
+	readonly exitCode: number;
 
-	constructor(
-		message: string,
-		public readonly command: string,
-		public readonly exitCode: number,
-	) {
+	constructor(message: string, command: string, exitCode: number) {
 		super(message);
+		this.command = command;
+		this.exitCode = exitCode;
 	}
+}
+
+interface PartialCommitErrorContext {
+	committedShas: CommittedSha[];
+	originalHead: string;
+	failedIndex: number;
+	totalCount: number;
+	pendingFiles: string[];
 }
 
 export class PartialCommitError extends Error {
 	override name = "PartialCommitError";
+	readonly context: PartialCommitErrorContext;
 
-	constructor(
-		message: string,
-		public readonly context: {
-			committedShas: CommittedSha[];
-			originalHead: string;
-			failedIndex: number;
-			totalCount: number;
-			pendingFiles: string[];
-		},
-	) {
+	constructor(message: string, context: PartialCommitErrorContext) {
 		super(message);
+		this.context = context;
 	}
 }
 
 export class PushError extends Error {
 	override name = "PushError";
+	readonly transient: boolean;
 
-	constructor(
-		message: string,
-		public readonly transient: boolean,
-	) {
+	constructor(message: string, transient: boolean) {
 		super(message);
+		this.transient = transient;
 	}
 }
