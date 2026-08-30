@@ -1,8 +1,9 @@
 // tests/unit/pre-commit-validators.test.ts — Unit tests for src/modules/pre-commit-validators.ts
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import type { SecretScanner } from "../../src/modules/core/validators/pre-commit-validators.ts";
 import {
 	processRepoValidationAndDiff,
@@ -44,12 +45,12 @@ const THROWING_SCANNER: SecretScanner = async () => {
 
 describe("U-VA-01 | processRepoValidationAndDiff — extracts diff and SHA-256 diffHash", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("a.ts", "export const a = 1;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("returns diff string and hex SHA-256 diffHash", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
@@ -58,8 +59,8 @@ describe("U-VA-01 | processRepoValidationAndDiff — extracts diff and SHA-256 d
 			BASE_SETTINGS,
 			CLEAN_SCANNER,
 		);
-		expect(result.diff).toContain("+export const a = 1;");
-		expect(result.diffHash).toMatch(/^[a-f0-9]{64}$/);
+		assert.ok(result.diff.includes("+export const a = 1;"));
+		assert.match(result.diffHash, /^[a-f0-9]{64}$/);
 	});
 });
 
@@ -67,18 +68,21 @@ describe("U-VA-01 | processRepoValidationAndDiff — extracts diff and SHA-256 d
 
 describe("U-VA-02 | processRepoValidationAndDiff — throws if nothing staged after git add -A", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		// No changes after commit
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("throws 'No changes found after staging'", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
-		await expect(
+		await assert.rejects(
 			processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, CLEAN_SCANNER),
-		).rejects.toThrow("No changes found after staging");
+			(error: unknown) =>
+				error instanceof Error &&
+				error.message.includes("No changes found after staging"),
+		);
 	});
 });
 
@@ -88,7 +92,7 @@ describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns
 	let repo: GitRepoFixture;
 	let statsDir: string;
 
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage(
@@ -99,7 +103,7 @@ describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns
 		statsDir = path.join(os.tmpdir(), `ss-test-${Date.now()}`);
 		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
 	});
-	afterAll(() => {
+	after(() => {
 		repo.dispose();
 		delete process.env.SECRET_SCANNER_STATS_DIR;
 		if (fs.existsSync(statsDir))
@@ -108,24 +112,26 @@ describe("U-VA-03 | processRepoValidationAndDiff — throws when scanner returns
 
 	test("throws 'Security Exception' and logs a block event", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
-		await expect(
+		await assert.rejects(
 			processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, SECRET_SCANNER),
-		).rejects.toThrow("Security Exception");
+			(error: unknown) =>
+				error instanceof Error && error.message.includes("Security Exception"),
+		);
 
 		// Verify stats were logged
 		const eventsPath = path.join(statsDir, "events.jsonl");
-		expect(fs.existsSync(eventsPath)).toBe(true);
+		assert.strictEqual(fs.existsSync(eventsPath), true);
 		const events = fs
 			.readFileSync(eventsPath, "utf-8")
 			.trim()
 			.split("\n")
 			.filter(Boolean)
 			.map((l) => JSON.parse(l));
-		expect(events.length).toBe(1);
-		expect(events[0].eventType).toBe("block");
-		expect(events[0].namespace).toBe("secret-scanner");
-		expect(events[0].details.findingsCount).toBe(1);
-		expect(events[0].details.findings[0].name).toBe("Found: AWS_KEY");
+		assert.strictEqual(events.length, 1);
+		assert.strictEqual(events[0].eventType, "block");
+		assert.strictEqual(events[0].namespace, "secret-scanner");
+		assert.strictEqual(events[0].details.findingsCount, 1);
+		assert.strictEqual(events[0].details.findings[0].name, "Found: AWS_KEY");
 	});
 });
 
@@ -135,14 +141,14 @@ describe("U-VA-03b | processRepoValidationAndDiff — logs passed event when sca
 	let repo: GitRepoFixture;
 	let statsDir: string;
 
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("safe.ts", "export const x = 1;\n");
 		statsDir = path.join(os.tmpdir(), `ss-pass-test-${Date.now()}`);
 		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
 	});
-	afterAll(() => {
+	after(() => {
 		repo.dispose();
 		delete process.env.SECRET_SCANNER_STATS_DIR;
 		if (fs.existsSync(statsDir))
@@ -154,17 +160,17 @@ describe("U-VA-03b | processRepoValidationAndDiff — logs passed event when sca
 		await processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, CLEAN_SCANNER);
 
 		const eventsPath = path.join(statsDir, "events.jsonl");
-		expect(fs.existsSync(eventsPath)).toBe(true);
+		assert.strictEqual(fs.existsSync(eventsPath), true);
 		const events = fs
 			.readFileSync(eventsPath, "utf-8")
 			.trim()
 			.split("\n")
 			.filter(Boolean)
 			.map((l) => JSON.parse(l));
-		expect(events.length).toBe(1);
-		expect(events[0].eventType).toBe("passed");
-		expect(events[0].namespace).toBe("secret-scanner");
-		expect(events[0].details.findingsCount).toBe(0);
+		assert.strictEqual(events.length, 1);
+		assert.strictEqual(events[0].eventType, "passed");
+		assert.strictEqual(events[0].namespace, "secret-scanner");
+		assert.strictEqual(events[0].details.findingsCount, 0);
 	});
 });
 
@@ -174,14 +180,14 @@ describe("U-VA-03c | processRepoValidationAndDiff — logs warning event without
 	let repo: GitRepoFixture;
 	let statsDir: string;
 
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("safe.ts", "export const x = 1;\n");
 		statsDir = path.join(os.tmpdir(), `ss-warning-test-${Date.now()}`);
 		process.env.SECRET_SCANNER_STATS_DIR = statsDir;
 	});
-	afterAll(() => {
+	after(() => {
 		repo.dispose();
 		delete process.env.SECRET_SCANNER_STATS_DIR;
 		if (fs.existsSync(statsDir))
@@ -190,25 +196,26 @@ describe("U-VA-03c | processRepoValidationAndDiff — logs warning event without
 
 	test("resolves and logs a warning event", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
-		await expect(
-			processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, WARNING_SCANNER),
-		).resolves.toMatchObject({
-			diffHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-		});
+		const result = await processRepoValidationAndDiff(
+			repoInfo,
+			BASE_SETTINGS,
+			WARNING_SCANNER,
+		);
+		assert.match(result.diffHash, /^[a-f0-9]{64}$/);
 
 		const eventsPath = path.join(statsDir, "events.jsonl");
-		expect(fs.existsSync(eventsPath)).toBe(true);
+		assert.strictEqual(fs.existsSync(eventsPath), true);
 		const events = fs
 			.readFileSync(eventsPath, "utf-8")
 			.trim()
 			.split("\n")
 			.filter(Boolean)
 			.map((l) => JSON.parse(l));
-		expect(events.length).toBe(1);
-		expect(events[0].eventType).toBe("warning");
-		expect(events[0].namespace).toBe("secret-scanner");
-		expect(events[0].details.findingsCount).toBe(1);
-		expect(events[0].details.findings[0].name).toBe("Generic API Key");
+		assert.strictEqual(events.length, 1);
+		assert.strictEqual(events[0].eventType, "warning");
+		assert.strictEqual(events[0].namespace, "secret-scanner");
+		assert.strictEqual(events[0].details.findingsCount, 1);
+		assert.strictEqual(events[0].details.findings[0].name, "Generic API Key");
 	});
 });
 
@@ -216,18 +223,21 @@ describe("U-VA-03c | processRepoValidationAndDiff — logs warning event without
 
 describe("U-VA-04 | processRepoValidationAndDiff — fail-closed when scanner throws", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("safe.ts", "export const x = 1;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("propagates scanner exception (fail-closed per DC-SECRET-SCANNER §3)", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
-		await expect(
+		await assert.rejects(
 			processRepoValidationAndDiff(repoInfo, BASE_SETTINGS, THROWING_SCANNER),
-		).rejects.toThrow("Scanner internal error");
+			(error: unknown) =>
+				error instanceof Error &&
+				error.message.includes("Scanner internal error"),
+		);
 	});
 });
 
@@ -235,29 +245,26 @@ describe("U-VA-04 | processRepoValidationAndDiff — fail-closed when scanner th
 
 describe("U-VA-05 | processRepoValidationAndDiff — skipTests: true bypasses test runner", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		// Write a FAILING test file — if runTestCascade runs, this test will throw
 		fs.writeFileSync(
 			path.join(repo.dir, "failing.test.ts"),
-			`import { expect, test } from "bun:test";\ntest("fail", () => { expect(true).toBe(false); });\n`,
+			`import assert from "node:assert/strict";\nimport test from "node:test";\ntest("fail", () => { assert.strictEqual(true, false); });\n`,
 		);
 		repo.writeAndStage("change.ts", "export const y = 2;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("resolves successfully even with a failing test file when skipTests: true", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
-		await expect(
-			processRepoValidationAndDiff(
-				repoInfo,
-				{ ...BASE_SETTINGS, skipTests: true },
-				CLEAN_SCANNER,
-			),
-		).resolves.toMatchObject({
-			diffHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-		});
+		const result = await processRepoValidationAndDiff(
+			repoInfo,
+			{ ...BASE_SETTINGS, skipTests: true },
+			CLEAN_SCANNER,
+		);
+		assert.match(result.diffHash, /^[a-f0-9]{64}$/);
 	});
 });
 
@@ -265,7 +272,7 @@ describe("U-VA-05 | processRepoValidationAndDiff — skipTests: true bypasses te
 
 describe("U-VA-06 | runTestCascade — detects STACK_EVAL.yaml and uses declared runner", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		// Write a STACK_EVAL.yaml that says 'none' — safe to run in test environment
@@ -274,10 +281,10 @@ describe("U-VA-06 | runTestCascade — detects STACK_EVAL.yaml and uses declared
 			"decisions:\n  test_runner: none\n",
 		);
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("resolves without error when STACK_EVAL.yaml declares test_runner: none", async () => {
-		await expect(runTestCascade(repo.dir)).resolves.toBeUndefined();
+		await assert.strictEqual(await runTestCascade(repo.dir), undefined);
 	});
 });
 
@@ -292,7 +299,7 @@ describe("U-VA-06 | runTestCascade — detects STACK_EVAL.yaml and uses declared
 // Requires pytest NOT to be installed (true for this project's test env).
 describe("U-VA-06b | runTestCascade — STACK_EVAL.yaml is actually read (runner dispatched, not fall-through)", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		// STACK_EVAL.yaml specifies pytest. If read, cascade invokes pytest which
@@ -302,65 +309,106 @@ describe("U-VA-06b | runTestCascade — STACK_EVAL.yaml is actually read (runner
 			"decisions:\n  test_runner: pytest\n",
 		);
 		// A passing TypeScript test file. If STACK_EVAL.yaml is ignored, the
-		// cascade falls through to auto-discovery (bun test) which passes →
+		// cascade falls through to Node test auto-discovery, which passes →
 		// cascade resolves. This proves STACK_EVAL.yaml was actually read.
 		fs.writeFileSync(
 			path.join(repo.dir, "passing.test.ts"),
-			`import { expect, test } from "bun:test";\ntest("pass", () => { expect(1).toBe(1); });\n`,
+			`import assert from "node:assert/strict";\nimport test from "node:test";\ntest("pass", () => { assert.strictEqual(1, 1); });\n`,
 		);
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("STACK_EVAL.yaml's pytest runner is dispatched (cascades rejects)", async () => {
 		// If STACK_EVAL.yaml was read and pytest was dispatched, pytest is not
 		// installed → execSync throws → cascade rejects.
-		// If STACK_EVAL.yaml was ignored, cascade falls through to bun test
-		// on the passing test file → resolves.
-		await expect(runTestCascade(repo.dir)).rejects.toThrow();
+		// If STACK_EVAL.yaml was ignored, cascade runs the passing Node test
+		// file and resolves.
+		await assert.rejects(runTestCascade(repo.dir));
 	});
 });
 
-// ─── U-VA-07 : auto-discovers bun test for .test.ts files ───────────────────
+// ─── U-VA-07 : auto-discovers Node tests; historical labels retained ───────
 
 describe("U-VA-07 | runTestCascade — fallback to bun test for *.test.ts files", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		// Write a passing test file — no STACK_EVAL.yaml, no package.json
 		fs.writeFileSync(
 			path.join(repo.dir, "passing.test.ts"),
-			`import { expect, test } from "bun:test";\ntest("pass", () => { expect(1).toBe(1); });\n`,
+			`import assert from "node:assert/strict";\nimport test from "node:test";\ntest("pass", () => { assert.strictEqual(1, 1); });\n`,
 		);
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("resolves when auto-discovered bun test passes", async () => {
-		await expect(runTestCascade(repo.dir)).resolves.toBeUndefined();
+		await assert.strictEqual(await runTestCascade(repo.dir), undefined);
 	});
 });
 
-// U-VA-07b: proves bun test is ACTUALLY invoked (not silently skipped).
-// A buggy implementation that returned early without invoking bun test would
-// pass U-VA-07's weak assertion (passing test, no throw). Using a FAILING test
-// forces the cascade to invoke bun test; if bun test is actually invoked, the
-// failing assertion throws and the cascade rejects.
+// U-VA-07b proves the successor runner is actually invoked, not silently
+// skipped. The historical test and suite labels retain their Bun wording for
+// mechanical parity attribution.
 describe("U-VA-07b | runTestCascade — auto-discovered bun test is actually invoked on failing tests", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		// Failing test, no STACK_EVAL.yaml, no package.json → falls through to
-		// auto-discovery (bun test on *.test.ts files).
+		// auto-discovery (Node test runner on *.test.ts files).
 		fs.writeFileSync(
 			path.join(repo.dir, "failing.test.ts"),
-			`import { expect, test } from "bun:test";\ntest("fail", () => { expect(true).toBe(false); });\n`,
+			`import assert from "node:assert/strict";\nimport test from "node:test";\ntest("fail", () => { assert.strictEqual(true, false); });\n`,
 		);
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("auto-discovered bun test runs and rejects on a failing test", async () => {
-		await expect(runTestCascade(repo.dir)).rejects.toThrow();
+		await assert.rejects(runTestCascade(repo.dir));
+	});
+});
+
+describe("U-VA-07c | runTestCascade — explicit package manager", () => {
+	let repo: GitRepoFixture;
+	before(() => {
+		repo = GitRepoFixture.create();
+		repo.commit("initial");
+		fs.writeFileSync(path.join(repo.dir, "bun.lock"), "");
+		fs.writeFileSync(
+			path.join(repo.dir, "package.json"),
+			JSON.stringify({
+				packageManager: "pnpm@11.24.0",
+				scripts: {
+					test: "node -e \"if (!process.env.npm_config_user_agent?.startsWith('pnpm/')) process.exit(9)\"",
+				},
+			}),
+		);
+	});
+	after(() => repo.dispose());
+
+	test("prefers an explicit pnpm declaration when a Bun lock is also present", async () => {
+		await assert.strictEqual(await runTestCascade(repo.dir), undefined);
+	});
+});
+
+describe("U-VA-07d | runTestCascade — package test failures", () => {
+	let repo: GitRepoFixture;
+	before(() => {
+		repo = GitRepoFixture.create();
+		repo.commit("initial");
+		fs.writeFileSync(
+			path.join(repo.dir, "package.json"),
+			JSON.stringify({
+				packageManager: "pnpm@11.24.0",
+				scripts: { test: 'node -e "process.exit(7)"' },
+			}),
+		);
+	});
+	after(() => repo.dispose());
+
+	test("propagates a declared package test failure", async () => {
+		await assert.rejects(runTestCascade(repo.dir));
 	});
 });
 
@@ -368,15 +416,15 @@ describe("U-VA-07b | runTestCascade — auto-discovered bun test is actually inv
 
 describe("U-VA-08 | runTestCascade — silent when no test runner detected", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		// No test files, no STACK_EVAL.yaml, no package.json
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("resolves without error when no test runner is found", async () => {
-		await expect(runTestCascade(repo.dir)).resolves.toBeUndefined();
+		await assert.strictEqual(await runTestCascade(repo.dir), undefined);
 	});
 });
 
@@ -384,12 +432,12 @@ describe("U-VA-08 | runTestCascade — silent when no test runner detected", () 
 
 describe("U-VA-09 | diffHash is deterministic for the same diff content", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("det.ts", "export const det = 'deterministic';\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("two calls on the same staged diff produce the same diffHash", async () => {
 		const repoInfo: RepositoryInfo = { id: "test-id", path: repo.dir };
@@ -404,6 +452,6 @@ describe("U-VA-09 | diffHash is deterministic for the same diff content", () => 
 			BASE_SETTINGS,
 			CLEAN_SCANNER,
 		);
-		expect(result1.diffHash).toBe(result2.diffHash);
+		assert.strictEqual(result1.diffHash, result2.diffHash);
 	});
 });

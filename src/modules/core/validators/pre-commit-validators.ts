@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -15,6 +15,11 @@ export interface ScanResult {
 }
 
 export type SecretScanner = (diffContent: string) => Promise<ScanResult>;
+
+interface PackageTestConfiguration {
+	readonly packageManager?: string;
+	readonly scripts?: Readonly<Record<string, string>>;
+}
 
 const defaultScanner: SecretScanner = async (
 	diff: string,
@@ -58,6 +63,9 @@ export async function runTestCascade(repoPath: string): Promise<void> {
 				case "bun test":
 					execCwd("bun test", repoPath);
 					return;
+				case "node --test":
+					execNodeTests(repoPath);
+					return;
 				case "none":
 					return;
 			}
@@ -66,36 +74,46 @@ export async function runTestCascade(repoPath: string): Promise<void> {
 
 	const pkgPath = path.join(repoPath, "package.json");
 	if (fs.existsSync(pkgPath)) {
+		let pkg: PackageTestConfiguration | undefined;
 		try {
-			const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
-				scripts?: Record<string, string>;
-			};
-			if (pkg.scripts?.test) {
-				if (
-					fs.existsSync(path.join(repoPath, "bun.lock")) ||
-					fs.existsSync(path.join(repoPath, "bun.lockb"))
-				) {
-					execCwd("bun run test", repoPath);
-					return;
-				}
-				if (fs.existsSync(path.join(repoPath, "pnpm-lock.yaml"))) {
-					execCwd("pnpm run test", repoPath);
-					return;
-				}
-				if (fs.existsSync(path.join(repoPath, "yarn.lock"))) {
-					execCwd("yarn run test", repoPath);
-					return;
-				}
-				execCwd("npm run test", repoPath);
+			pkg = JSON.parse(
+				fs.readFileSync(pkgPath, "utf-8"),
+			) as PackageTestConfiguration;
+		} catch {
+			// Preserve file-based fallback when package metadata is unreadable.
+		}
+
+		if (pkg?.scripts?.test) {
+			const declaredPackageManager = pkg.packageManager?.match(
+				/^(bun|npm|pnpm|yarn)@/,
+			)?.[1];
+			if (declaredPackageManager) {
+				execCwd(`${declaredPackageManager} run test`, repoPath);
 				return;
 			}
-		} catch {
-			// fallback
+			if (
+				fs.existsSync(path.join(repoPath, "bun.lock")) ||
+				fs.existsSync(path.join(repoPath, "bun.lockb"))
+			) {
+				execCwd("bun run test", repoPath);
+				return;
+			}
+			if (fs.existsSync(path.join(repoPath, "pnpm-lock.yaml"))) {
+				execCwd("pnpm run test", repoPath);
+				return;
+			}
+			if (fs.existsSync(path.join(repoPath, "yarn.lock"))) {
+				execCwd("yarn run test", repoPath);
+				return;
+			}
+			execCwd("npm run test", repoPath);
+			return;
 		}
 	}
 
-	if (hasFilesMatching(repoPath, /\.(test|spec)\.(ts|js)$/)) {
-		execCwd("bun test", repoPath);
+	const nodeTestFiles = listFilesMatching(repoPath, /\.(test|spec)\.(ts|js)$/);
+	if (nodeTestFiles.length > 0) {
+		execNodeTests(repoPath, nodeTestFiles);
 		return;
 	}
 
@@ -105,16 +123,40 @@ export async function runTestCascade(repoPath: string): Promise<void> {
 	}
 }
 
-function hasFilesMatching(repoPath: string, pattern: RegExp): boolean {
+function listFilesMatching(repoPath: string, pattern: RegExp): string[] {
 	try {
-		const entries = fs.readdirSync(repoPath, { withFileTypes: true });
-		return entries.some((e) => e.isFile() && pattern.test(e.name));
+		return fs
+			.readdirSync(repoPath, { withFileTypes: true })
+			.filter((entry) => entry.isFile() && pattern.test(entry.name))
+			.map((entry) => path.join(repoPath, entry.name));
 	} catch {
-		return false;
+		return [];
 	}
 }
 
+function hasFilesMatching(repoPath: string, pattern: RegExp): boolean {
+	return listFilesMatching(repoPath, pattern).length > 0;
+}
+
 const skillLog = createSkillStatsLog();
+
+function buildTestRunnerEnvironment(): NodeJS.ProcessEnv {
+	const env = { ...process.env };
+	// A nested Node test runner otherwise sees the parent test worker marker and
+	// deliberately skips its files instead of executing the repository tests.
+	delete env.NODE_TEST_CONTEXT;
+	return env;
+}
+
+function execNodeTests(cwd: string, testFiles: readonly string[] = []): void {
+	execFileSync(process.execPath, ["--test", ...testFiles], {
+		cwd,
+		encoding: "utf-8",
+		stdio: ["pipe", "pipe", "pipe"],
+		maxBuffer: 50 * 1024 * 1024,
+		env: buildTestRunnerEnvironment(),
+	});
+}
 
 function execCwd(cmd: string, cwd: string): void {
 	execSync(cmd, {
@@ -122,6 +164,7 @@ function execCwd(cmd: string, cwd: string): void {
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
 		maxBuffer: 50 * 1024 * 1024,
+		env: buildTestRunnerEnvironment(),
 	});
 }
 
