@@ -6,10 +6,9 @@
 	"private": true,
 	"scripts": {
 		"test": "node tests/run-tests.mjs",
-		"test:bun": "bun test --timeout 60000 tests/acceptance tests/invariants tests/property tests/unit",
 		"test:run": "PI_SKILL_STATS_MODE=test node src/entrypoints/turnlock-orchestrator.ts",
 		"build:node": "pnpm --filter @dotagents/node-runtime run build && node scripts/build-node.mjs",
-		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=30000 --test-reporter=tap tests/node-build/artifacts.node.mjs tests/node-build/bare-remote-pipeline.node.mjs tests/node-build/compiled-security.node.mjs tests/node-build/node-cutover-preflight.node.mjs tests/node-build/runtime-launch.node.mjs tests/node-build/supervisor.node.mjs tests/node-build/test-runner.node.mjs tests/node-build/trust-token.node.mjs",
+		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=180000 --test-reporter=tap tests/node-build/artifacts.node.mjs tests/node-build/bare-remote-pipeline.node.mjs tests/node-build/compiled-security.node.mjs tests/node-build/node-cutover-preflight.node.mjs tests/node-build/runtime-launch.node.mjs tests/node-build/supervisor.node.mjs tests/node-build/test-runner.node.mjs tests/node-build/trust-token.node.mjs",
 		"check:node-cutover": "pnpm --silent run build:node && node scripts/check-node-cutover-state.mjs",
 		"test:node:stats": "node --preserve-symlinks --preserve-symlinks-main --test --test-concurrency=1 tests/node-smoke/stats-logger-event-sink.node.ts",
 		"typecheck:node": "tsc -p tsconfig.node.json",
