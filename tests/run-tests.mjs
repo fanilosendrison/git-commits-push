@@ -86,6 +86,13 @@ export function buildNodeTestArguments(resolvedTestFiles) {
 	];
 }
 
+export function buildNodeTestEnvironment(environment = process.env) {
+	return {
+		...environment,
+		NODE_ENV: "test",
+	};
+}
+
 export function buildFailureDiagnostic(stdout, stderr) {
 	const lines = `${stdout}\n${stderr}`.split("\n");
 	const selectedLines = [];
@@ -122,7 +129,7 @@ export async function runExpectedNodeTests(testDirectory) {
 		{
 			cwd: path.resolve(testDirectory, ".."),
 			encoding: "utf8",
-			env: process.env,
+			env: buildNodeTestEnvironment(),
 			maxBuffer: 50 * 1024 * 1024,
 			shell: false,
 			stdio: ["inherit", "pipe", "pipe"],

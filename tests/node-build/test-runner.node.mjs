@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	buildFailureDiagnostic,
 	buildNodeTestArguments,
+	buildNodeTestEnvironment,
 	EXPECTED_NODE_TEST_FILES,
 	FIXED_TEST_TIMEOUT_MILLISECONDS,
 } from "../run-tests.mjs";
@@ -17,6 +18,19 @@ test("keeps the git-commits-push Node test surface closed and sequential", () =>
 		"--test-reporter=tap",
 		"/tmp/example.test.ts",
 	]);
+});
+
+test("marks the closed Node suite as a telemetry test environment", () => {
+	assert.deepEqual(
+		buildNodeTestEnvironment({
+			NODE_ENV: "production",
+			RETAINED_VALUE: "retained",
+		}),
+		{
+			NODE_ENV: "test",
+			RETAINED_VALUE: "retained",
+		},
+	);
 });
 
 test("extracts bounded TAP failure context for GitHub annotations", () => {
