@@ -45,8 +45,14 @@ export class MockTurnlockEnvironment {
 	/** Environment variables to pass to spawnSync (Turnlock + stats isolation) */
 	env(): NodeJS.ProcessEnv {
 		return {
-			// A test spawned by a queued parent run must not inherit that parent's
-			// order identity. Undefined entries are omitted by Node child processes.
+			// Test subprocesses must not inherit the parent agent or order identity.
+			// Undefined entries are omitted by Node child processes.
+			ANTIGRAVITY_AGENT: undefined,
+			ANTIGRAVITY_TRAJECTORY_ID: undefined,
+			CODEX_THREAD_ID: undefined,
+			NODE_ENV: "test",
+			PI_SESSION_ID: undefined,
+			PI_SKILL_STATS_MODE: undefined,
 			[ORDER_ENV_KEYS.orderId]: undefined,
 			[ORDER_ENV_KEYS.originSessionId]: undefined,
 			[ORDER_ENV_KEYS.originAgent]: undefined,

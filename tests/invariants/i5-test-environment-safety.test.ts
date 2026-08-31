@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, test } from "node:test";
+import { ORDER_ENV_KEYS } from "../../src/modules/orders/types.ts";
+import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
 function findTestFiles(dir: string, fileList: string[] = []): string[] {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -55,5 +57,26 @@ describe("I5 — Test Environment Safety", () => {
 		}
 
 		assert.deepStrictEqual(violationDetails, []);
+	});
+
+	test("I5-02 | mocked subprocesses clear inherited agent and order identities", () => {
+		const environment = MockTurnlockEnvironment.create();
+		try {
+			const isolatedEnvironment = environment.env();
+			assert.strictEqual(isolatedEnvironment.ANTIGRAVITY_AGENT, undefined);
+			assert.strictEqual(
+				isolatedEnvironment.ANTIGRAVITY_TRAJECTORY_ID,
+				undefined,
+			);
+			assert.strictEqual(isolatedEnvironment.CODEX_THREAD_ID, undefined);
+			assert.strictEqual(isolatedEnvironment.NODE_ENV, "test");
+			assert.strictEqual(isolatedEnvironment.PI_SESSION_ID, undefined);
+			assert.strictEqual(isolatedEnvironment.PI_SKILL_STATS_MODE, undefined);
+			for (const name of Object.values(ORDER_ENV_KEYS)) {
+				assert.strictEqual(isolatedEnvironment[name], undefined);
+			}
+		} finally {
+			environment.dispose();
+		}
 	});
 });
