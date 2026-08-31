@@ -17,8 +17,8 @@ This file is your local operating guide to work on the
 When iterating:
 
 1. Edit through this gateway path.
-2. Run `bun run typecheck && bun run lint`, then targeted tests.
-3. Run `bun run test` before finishing code changes.
+2. Run `pnpm run typecheck && pnpm run lint`, then targeted tests.
+3. Run `pnpm run test` before finishing code changes.
 4. If committing, commit from the dotagents repo using `/git-commits-push`.
 
 ## Important Invariants
@@ -45,8 +45,8 @@ behavior.
 The pnpm public launch invokes `scripts/start-node.mjs`. The launcher compiles
 the shared runtime and the untracked NodeNext artifacts through
 `process.execPath`, then starts the compiled supervisor without an internal
-package-manager or shell pipeline. The retained Bun sources and tests remain the
-compatibility oracle until final cleanup.
+package-manager or shell pipeline. Node is the only internal runtime; compatibility
+with package managers in external target repositories is handled at validation boundaries.
 
 The orchestrator owns Turnlock state. The bridge owns LLM delegation execution.
 The supervisor owns isolated process groups, signal forwarding, backpressure,
@@ -69,9 +69,9 @@ Run these before finishing code changes:
 ```bash
 pnpm run typecheck:node
 pnpm run test:node:build
-bun run typecheck
-bun run lint
-bun run test
+pnpm run typecheck
+pnpm run lint
+pnpm run test
 ```
 
 Before each designated self-hosted commit, run the local persisted-state gate:
@@ -83,13 +83,12 @@ pnpm --silent run check:node-cutover
 Use targeted tests while iterating:
 
 ```bash
-bun test \
+node --test --test-concurrency=1 --test-timeout=60000 \
   tests/unit/order-store.test.ts \
   tests/unit/lock-manager.test.ts \
   tests/unit/skill-stats-log.test.ts \
   tests/acceptance/a4-queued-order-observability.test.ts \
-  tests/acceptance/a5-v2-full-pipeline.test.ts \
-  --timeout 60000
+  tests/acceptance/a5-v2-full-pipeline.test.ts
 ```
 
 Tests that spawn the orchestrator must use `MockTurnlockEnvironment` and include
@@ -101,10 +100,10 @@ it may mock only the external LLM HTTP boundary.
 
 Runtime and package dependencies:
 
-- Bun `>=1.1.0` remains only as the historical compatibility test runner.
 - Node `>=22.19.0` builds, tests, and runs both compiled entrypoints through the
   active shell-free supervisor.
-- TypeScript runs in ESM mode with Bun-compatible imports.
+- pnpm `11.24.0` owns dependency installation and package scripts.
+- TypeScript runs in ESM mode with explicit Node-compatible imports.
 - `turnlock` comes from the npm registry at exact `0.9.1`. Do not reintroduce a
   local `file:` dependency unless actively testing unreleased Turnlock changes.
 - `tsconfig.json` resolves `turnlock` through normal package exports, not through
@@ -117,9 +116,9 @@ Runtime and package dependencies:
 
 Development dependencies:
 
-- `typescript` powers `bun run typecheck`.
-- `@biomejs/biome` powers `bun run lint`.
-- `@types/bun` provides Bun runtime types.
+- `typescript` powers `pnpm run typecheck`.
+- `@biomejs/biome` powers `pnpm run lint`.
+- `@types/node` provides runtime types.
 
 External tools the skill may invoke while validating target repositories:
 
@@ -238,8 +237,8 @@ The order queue exists to serialize local executions.
 - A concurrent process writes an order JSON file, logs `order_queued`, prints
   its position, and exits with status `0`.
 - The active process releases the lock, dequeues the oldest order, and logs
-  `order_dequeued`. Source compatibility runs spawn `bun run start`; compiled
-  runs spawn the compiled Node supervisor through `process.execPath`.
+  `order_dequeued`. Queued runs spawn the compiled Node supervisor through
+  `process.execPath`.
 - Spawned queued runs receive the unchanged `GCP_ORDER_*` environment variables.
 - Legacy `order-*.flag` files may exist; JSON files are canonical.
 
@@ -304,7 +303,7 @@ order context.
 When upgrading the Turnlock dependency:
 
 1. Read the Turnlock changelog and diff the `src/` API surface.
-2. Update `package.json` and run `bun install`.
+2. Update `package.json` and run `pnpm install`.
 3. Adapt `src/phases/` if the delegation API changed (kinds, method names).
 4. Regenerate `tests/helpers/test-helpers.ts` manifests to match the new
    Turnlock version (canonical manifest shape, schemaVersion, kind).
@@ -312,7 +311,7 @@ When upgrading the Turnlock dependency:
 6. Update acceptance test assertions that match protocol string literals.
 7. Run the full pipeline test as a smoke check:
    ```bash
-   bun test tests/acceptance/a5-v2-full-pipeline.test.ts --timeout 60000
+   node --test --test-concurrency=1 --test-timeout=60000 tests/acceptance/a5-v2-full-pipeline.test.ts
    ```
 8. Run the full suite and fix any remaining failures.
 9. Document the operational impact of persisted runs from the previous version

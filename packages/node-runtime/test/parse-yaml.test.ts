@@ -26,19 +26,7 @@ name: second
 enabled: false
 `;
 
-function getBunYamlParser(): ((source: string) => unknown) | null {
-	const runtime = globalThis as typeof globalThis & {
-		readonly Bun?: {
-			readonly YAML?: { readonly parse?: (source: string) => unknown };
-		};
-	};
-	const yaml = runtime.Bun?.YAML;
-	return typeof yaml?.parse === "function"
-		? (source: string) => yaml.parse?.(source)
-		: null;
-}
-
-test("parses Bun-compatible YAML 1.2 core scalars and collections", () => {
+test("parses YAML 1.2 core scalars and collections", () => {
 	assert.deepEqual(parseYaml(scalarReferenceSource), {
 		trueValue: true,
 		falseValue: false,
@@ -91,7 +79,7 @@ test("preserves cyclic aliases", () => {
 	assert.strictEqual(parsed.root.self, parsed.root);
 });
 
-test("returns all documents with Bun-compatible multi-document semantics", () => {
+test("returns all documents with multi-document semantics", () => {
 	assert.deepEqual(parseYaml(multiDocumentReferenceSource), [
 		{ name: "first", enabled: true },
 		{ name: "second", enabled: false },
@@ -127,14 +115,4 @@ test("reports actionable source and location details for invalid YAML", () => {
 			return true;
 		},
 	);
-});
-
-const bunYamlParser = getBunYamlParser();
-test("matches Bun 1.3.14 on scalar and multi-document reference vectors", {
-	skip: bunYamlParser === null,
-}, () => {
-	assert.ok(bunYamlParser !== null);
-	for (const source of [scalarReferenceSource, multiDocumentReferenceSource]) {
-		assert.deepEqual(parseYaml(source), bunYamlParser(source));
-	}
 });

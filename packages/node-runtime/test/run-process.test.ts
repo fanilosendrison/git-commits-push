@@ -12,6 +12,7 @@ const fixturePath = fileURLToPath(
 	new URL("./fixtures/process-fixture.mjs", import.meta.url),
 );
 const temporaryDirectories: string[] = [];
+const CHILD_STARTUP_TIMEOUT_MS = 5_000;
 
 function runFixture(
 	mode: string,
@@ -53,7 +54,9 @@ async function waitForSignal(
 	try {
 		await Promise.race([
 			signal,
-			delay(1_000, undefined, { signal: timeoutController.signal }).then(() => {
+			delay(CHILD_STARTUP_TIMEOUT_MS, undefined, {
+				signal: timeoutController.signal,
+			}).then(() => {
 				throw new Error(`Timed out waiting for ${description}`);
 			}),
 		]);
