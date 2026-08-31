@@ -7,9 +7,6 @@
 	"scripts": {
 		"test": "node tests/run-tests.mjs",
 		"test:bun": "bun test --timeout 60000 tests/acceptance tests/invariants tests/property tests/unit",
-		"test:without-bridge": "bun test --timeout 60000 --ignore 'tests/unit/turnlock-to-llm-bridge.test.ts'",
-		"test:bridge": "bun test --timeout 60000 tests/unit/turnlock-to-llm-bridge.test.ts",
-		"test:quick": "bun test --timeout 60000 --ignore 'tests/unit/turnlock-to-llm-bridge.test.ts' --ignore 'tests/invariants/i1-secret-scanner.test.ts' --ignore 'tests/invariants/i3-parallel-isolation.test.ts' --ignore 'tests/invariants/i4-stdout-compliance.test.ts' && bun run test:bridge",
 		"test:run": "PI_SKILL_STATS_MODE=test node src/entrypoints/turnlock-orchestrator.ts",
 		"build:node": "pnpm --filter @dotagents/node-runtime run build && node scripts/build-node.mjs",
 		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=30000 --test-reporter=tap tests/node-build/artifacts.node.mjs tests/node-build/bare-remote-pipeline.node.mjs tests/node-build/compiled-security.node.mjs tests/node-build/node-cutover-preflight.node.mjs tests/node-build/runtime-launch.node.mjs tests/node-build/supervisor.node.mjs tests/node-build/test-runner.node.mjs tests/node-build/trust-token.node.mjs",
@@ -30,14 +27,12 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.2",
-		"@types/bun": "1.3.14",
 		"@types/node": "22.20.0",
 		"typescript": "5.9.3"
 	},
 	"packageManager": "pnpm@11.24.0",
 	"engines": {
 		"node": ">=22.19.0",
-		"pnpm": "11.24.0",
-		"bun": ">=1.1.0"
+		"pnpm": "11.24.0"
 	}
 }
