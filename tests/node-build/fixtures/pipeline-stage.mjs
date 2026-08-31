@@ -24,13 +24,13 @@ async function readInput(delayMs = 0) {
 function waitForSignal(role) {
 	const signalLog = process.env.PIPELINE_SIGNAL_LOG;
 	if (!signalLog) throw new Error("PIPELINE_SIGNAL_LOG is required");
-	appendFileSync(signalLog, `${role}:ready\n`);
 	for (const signal of ["SIGINT", "SIGTERM"]) {
 		process.on(signal, () => {
 			appendFileSync(signalLog, `${role}:${signal}\n`);
 			process.exit(0);
 		});
 	}
+	appendFileSync(signalLog, `${role}:ready\n`);
 	setInterval(() => {}, 1000);
 }
 
