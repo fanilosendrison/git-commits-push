@@ -1,0 +1,15 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"noEmit": true,
+		"types": ["node"]
+	},
+	"include": [
+		"src/**/*.ts",
+		"../../agent-enforcers/git-commits-push-enforcer/src/core/*.ts"
+	],
+	"exclude": ["node_modules", "dist", "tests"]
+}

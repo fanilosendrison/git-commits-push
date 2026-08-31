@@ -1,11 +1,12 @@
 // NIB-T — Test I3: Parallel Validation Isolation (Phase 2)
 // Given: repo-A (valid), repo-B (failing tests), repo-C (valid).
 // Expected: B is FAILED, A+C are SUCCESS, manifest contains only A+C, all run concurrently.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -16,11 +17,11 @@ let env: MockTurnlockEnvironment;
 let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(() => {
+before(() => {
 	env = MockTurnlockEnvironment.create();
 	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "i3-"));
 
@@ -34,10 +35,10 @@ beforeAll(() => {
 	repoB = GitRepoFixture.create({ parentDir: searchRoot });
 	repoB.commit("initial commit");
 	repoB.writeAndStage("b.ts", "export const b = 2;\n");
-	// Write a failing bun test file directly into the repo
+	// Write a failing Node test file directly into the repo.
 	fs.writeFileSync(
 		path.join(repoB.dir, "b.test.ts"),
-		`import { expect, test } from "bun:test";\ntest("always fails", () => { expect(true).toBe(false); });\n`,
+		`import assert from "node:assert/strict";\nimport test from "node:test";\ntest("always fails", () => { assert.strictEqual(true, false); });\n`,
 	);
 	// Stage the test file too so the repo appears dirty
 	spawnSync("git", ["add", "-A"], { cwd: repoB.dir });
@@ -52,13 +53,13 @@ beforeAll(() => {
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
-		systemPromptPath: path.join(import.meta.dir, "../../system-prompt.md"),
+		systemPromptPath: path.join(import.meta.dirname, "../../system-prompt.md"),
 		autoPush: false,
 		skipTests: false, // tests must run — repo-B will fail
 	});
 });
 
-afterAll(() => {
+after(() => {
 	repoA.dispose();
 	repoB.dispose();
 	repoC.dispose();
@@ -71,7 +72,7 @@ describe("I3 — Parallel Validation Isolation", () => {
 	let exitCode: number;
 
 	test("I3-01 | process exits with code 0 (partial failure is graceful)", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -80,12 +81,12 @@ describe("I3 — Parallel Validation Isolation", () => {
 		});
 		stdout = result.stdout ?? "";
 		exitCode = result.status ?? -1;
-		expect(exitCode).toBe(0);
+		assert.strictEqual(exitCode, 0);
 	});
 
 	test("I3-02 | a delegation is emitted (repo-A and repo-C succeeded)", () => {
-		expect(stdout).toContain("@@TURNLOCK@@");
-		expect(stdout).toContain("action: DELEGATE");
+		assert.ok(stdout.includes("@@TURNLOCK@@"));
+		assert.ok(stdout.includes("action: DELEGATE"));
 	});
 
 	test("I3-03 | manifest contains repo-A and repo-C but not repo-B", () => {
@@ -108,16 +109,16 @@ describe("I3 — Parallel Validation Isolation", () => {
 			}
 		}
 		findManifest(runsDir);
-		expect(manifest).not.toBeNull();
+		assert.notStrictEqual(manifest, null);
 		const m = manifest as unknown as { jobs: { id: string; prompt: string }[] };
 
 		const repoPaths = m.jobs.map(
 			(j: { id: string; prompt: string }) =>
 				JSON.parse(j.prompt).repository as string,
 		);
-		expect(repoPaths).toContain(repoA.dir);
-		expect(repoPaths).toContain(repoC.dir);
-		expect(repoPaths).not.toContain(repoB.dir);
+		assert.ok(repoPaths.includes(repoA.dir));
+		assert.ok(repoPaths.includes(repoC.dir));
+		assert.ok(!repoPaths.includes(repoB.dir));
 	});
 
 	test("I3-04 | all three Phase 2 workers start within 500ms of each other (concurrent execution)", () => {
@@ -125,7 +126,7 @@ describe("I3 — Parallel Validation Isolation", () => {
 		// of running three repos. If it is close to a single run (rather than 3x),
 		// workers ran in parallel.
 		const start = Date.now();
-		const res = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -133,11 +134,10 @@ describe("I3 — Parallel Validation Isolation", () => {
 			},
 			encoding: "utf-8",
 		});
-		console.error("DEBUG_TIMING_SPAWN_STDERR:", res.stderr);
 		const total = Date.now() - start;
 		// We cannot guarantee parallelism in a unit test, but we can check that
 		// the total is under a loose sequential upper bound (3 × 3s = 9s).
 		// The real enforcement is via code review of the production implementation.
-		expect(total).toBeLessThan(15_000);
+		assert.ok(total < 15_000);
 	});
 });

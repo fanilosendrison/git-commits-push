@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, describe, test } from "node:test";
 import { readSettings } from "../../src/config/settings.ts";
 
 let settingsDir: string | undefined;
@@ -44,11 +45,11 @@ describe("readSettings", () => {
 
 		const settings = readSettings(dir);
 
-		expect(settings.provider).toBe("deepseek");
-		expect(settings.model).toBe("deepseek-v4-flash");
-		expect(settings.thinking).toBe(true);
-		expect(settings.fallbackProvider).toBe("deepseek");
-		expect(settings.fallbackModel).toBe("deepseek-v4-pro");
+		assert.strictEqual(settings.provider, "deepseek");
+		assert.strictEqual(settings.model, "deepseek-v4-flash");
+		assert.strictEqual(settings.thinking, true);
+		assert.strictEqual(settings.fallbackProvider, "deepseek");
+		assert.strictEqual(settings.fallbackModel, "deepseek-v4-pro");
 	});
 
 	test("rejects incomplete fallback configuration", () => {
@@ -57,8 +58,11 @@ describe("readSettings", () => {
 			fallbackProvider: "deepseek",
 		});
 
-		expect(() => readSettings(dir)).toThrow(
-			"fallbackProvider and fallbackModel",
+		assert.throws(
+			() => readSettings(dir),
+			(error: unknown) =>
+				error instanceof Error &&
+				error.message.includes("fallbackProvider and fallbackModel"),
 		);
 	});
 });

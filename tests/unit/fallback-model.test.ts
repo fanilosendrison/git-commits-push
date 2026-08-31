@@ -5,8 +5,12 @@
  * retry with a fallback model before failing.
  */
 
-import { describe, expect, test } from "bun:test";
-import { shouldUseFallback } from "../../src/modules/core/fallback-model.ts";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import {
+	buildFallbackSettings,
+	shouldUseFallback,
+} from "../../src/modules/core/fallback-model.ts";
 import type { Settings } from "../../src/types.ts";
 
 const BASE_SETTINGS: Settings = {
@@ -27,7 +31,7 @@ describe("shouldUseFallback", () => {
 			2, // max reached
 			false, // not yet attempted
 		);
-		expect(result).toBe(false);
+		assert.strictEqual(result, false);
 	});
 
 	test("returns false when attempt count < max", () => {
@@ -37,7 +41,7 @@ describe("shouldUseFallback", () => {
 			fallbackModel: "gpt-5.5",
 		};
 		const result = shouldUseFallback(settings, "validation", 1, false);
-		expect(result).toBe(false);
+		assert.strictEqual(result, false);
 	});
 
 	test("returns false when fallback already attempted", () => {
@@ -47,7 +51,7 @@ describe("shouldUseFallback", () => {
 			fallbackModel: "gpt-5.5",
 		};
 		const result = shouldUseFallback(settings, "validation", 2, true);
-		expect(result).toBe(false);
+		assert.strictEqual(result, false);
 	});
 
 	test("returns true when max reached and fallback available and not yet attempted", () => {
@@ -57,7 +61,7 @@ describe("shouldUseFallback", () => {
 			fallbackModel: "gpt-5.5",
 		};
 		const result = shouldUseFallback(settings, "validation", 2, false);
-		expect(result).toBe(true);
+		assert.strictEqual(result, true);
 	});
 
 	test("only applies to validation kind (not structural/race/etc)", () => {
@@ -66,10 +70,13 @@ describe("shouldUseFallback", () => {
 			fallbackProvider: "openai",
 			fallbackModel: "gpt-5.5",
 		};
-		expect(shouldUseFallback(settings, "structural", 1, false)).toBe(false);
-		expect(shouldUseFallback(settings, "race", 1, false)).toBe(false);
-		expect(shouldUseFallback(settings, "git", 1, false)).toBe(false);
-		expect(shouldUseFallback(settings, "network", 1, false)).toBe(false);
+		assert.strictEqual(
+			shouldUseFallback(settings, "structural", 1, false),
+			false,
+		);
+		assert.strictEqual(shouldUseFallback(settings, "race", 1, false), false);
+		assert.strictEqual(shouldUseFallback(settings, "git", 1, false), false);
+		assert.strictEqual(shouldUseFallback(settings, "network", 1, false), false);
 	});
 });
 
@@ -81,14 +88,10 @@ describe("buildFallbackSettings", () => {
 			fallbackModel: "gpt-5.5",
 		};
 
-		// Import dynamic
-		const {
-			buildFallbackSettings,
-		} = require("../../src/modules/core/fallback-model.ts");
 		const result = buildFallbackSettings(settings);
 
-		expect(result.provider).toBe("openai");
-		expect(result.model).toBe("gpt-5.5");
+		assert.strictEqual(result.provider, "openai");
+		assert.strictEqual(result.model, "gpt-5.5");
 	});
 
 	test("preserves other settings fields", () => {
@@ -98,12 +101,9 @@ describe("buildFallbackSettings", () => {
 			fallbackModel: "claude-sonnet-4",
 		};
 
-		const {
-			buildFallbackSettings,
-		} = require("../../src/modules/core/fallback-model.ts");
 		const result = buildFallbackSettings(settings);
 
-		expect(result.temperature).toBe(0);
-		expect(result.autoPush).toBe(false);
+		assert.strictEqual(result.temperature, 0);
+		assert.strictEqual(result.autoPush, false);
 	});
 });

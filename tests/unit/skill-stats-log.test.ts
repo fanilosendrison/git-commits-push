@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import { pathToFileURL } from "node:url";
 import {
 	createSkillStatsLog,
@@ -61,6 +62,11 @@ describe("skill-stats-log Core Unit Tests", () => {
 		}
 	});
 
+	function sleepSynchronously(milliseconds: number): void {
+		const signal = new Int32Array(new SharedArrayBuffer(4));
+		Atomics.wait(signal, 0, 0, milliseconds);
+	}
+
 	function readLatestEvent(logDir: string): {
 		agent: string;
 		eventType: string;
@@ -73,8 +79,7 @@ describe("skill-stats-log Core Unit Tests", () => {
 		// appears to avoid a race on slow CI / local runs.
 		const deadline = Date.now() + 2000;
 		while (!fs.existsSync(logFile) && Date.now() < deadline) {
-			// yield the event loop so the pending async write can land
-			Bun.sleepSync(5);
+			sleepSynchronously(5);
 		}
 		if (!fs.existsSync(logFile)) {
 			throw new Error(`Expected events.jsonl to exist at ${logFile} within 2s`);
@@ -87,27 +92,30 @@ describe("skill-stats-log Core Unit Tests", () => {
 		delete process.env.PI_SESSION_ID;
 		process.env.CODEX_THREAD_ID = "codex-thread-123";
 
-		expect(getAgentName()).toBe("codex");
-		expect(getActiveSessionId()).toBe("codex-thread-123");
+		assert.strictEqual(getAgentName(), "codex");
+		assert.strictEqual(getActiveSessionId(), "codex-thread-123");
 	});
 
 	test("keeps Antigravity and Pi telemetry detection intact", () => {
 		process.env.ANTIGRAVITY_AGENT = "1";
 		process.env.ANTIGRAVITY_TRAJECTORY_ID = "ag-trajectory-123";
-		expect(getAgentName()).toBe("antigravity");
-		expect(getActiveSessionId()).toBe("ag-trajectory-123");
+		assert.strictEqual(getAgentName(), "antigravity");
+		assert.strictEqual(getActiveSessionId(), "ag-trajectory-123");
 
 		delete process.env.ANTIGRAVITY_AGENT;
 		delete process.env.ANTIGRAVITY_TRAJECTORY_ID;
 		process.env.PI_SESSION_ID = "pi-session-123";
 		process.env.CODEX_THREAD_ID = "codex-thread-ignored";
-		expect(getAgentName()).toBe("pi");
-		expect(getActiveSessionId()).toBe("pi-session-123");
+		assert.strictEqual(getAgentName(), "pi");
+		assert.strictEqual(getActiveSessionId(), "pi-session-123");
 	});
 
 	test("throws outside known agent environments", () => {
 		const statsLoggerUrl = pathToFileURL(
-			path.join(import.meta.dir, "../../src/modules/telemetry/stats-logger.ts"),
+			path.join(
+				import.meta.dirname,
+				"../../src/modules/telemetry/stats-logger.ts",
+			),
 		).href;
 		const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "production" };
 		delete env.ANTIGRAVITY_AGENT;
@@ -117,8 +125,9 @@ describe("skill-stats-log Core Unit Tests", () => {
 		delete env.PI_SKILL_STATS_MODE;
 
 		const result = spawnSync(
-			"bun",
+			process.execPath,
 			[
+				"--input-type=module",
 				"-e",
 				"const mod = await import(process.argv[1]); try { mod.getAgentName(); process.exit(0); } catch (err) { process.stderr.write(err instanceof Error ? err.message : String(err)); process.exit(7); }",
 				statsLoggerUrl,
@@ -126,15 +135,15 @@ describe("skill-stats-log Core Unit Tests", () => {
 			{ env, encoding: "utf-8" },
 		);
 
-		expect(result.status).toBe(7);
-		expect(result.stderr).toContain("Missing required environment variables");
+		assert.strictEqual(result.status, 7);
+		assert.ok(result.stderr.includes("Missing required environment variables"));
 	});
 
 	test("logSecretPass writes passed event", () => {
 		log.logSecretPass({ repoId: "test-repo", repoPath: "/workspace/repo" });
 		const event = readLatestEvent(statsDir);
-		expect(event.eventType).toBe("passed");
-		expect(event.namespace).toBe("secret-scanner");
+		assert.strictEqual(event.eventType, "passed");
+		assert.strictEqual(event.namespace, "secret-scanner");
 	});
 
 	test("logSecretBlock writes block event with structured findings", () => {
@@ -145,15 +154,15 @@ describe("skill-stats-log Core Unit Tests", () => {
 			details: "AWS Key at line 42",
 		});
 		const event = readLatestEvent(statsDir);
-		expect(event.eventType).toBe("block");
-		expect(event.namespace).toBe("secret-scanner");
-		expect(event.details.findingsCount).toBe(1);
+		assert.strictEqual(event.eventType, "block");
+		assert.strictEqual(event.namespace, "secret-scanner");
+		assert.strictEqual(event.details.findingsCount, 1);
 		const findings = event.details.findings as Array<{
 			name: string;
 			lineNumber: number;
 		}>;
-		expect(findings[0]?.name).toBe("AWS Key");
-		expect(findings[0]?.lineNumber).toBe(42);
+		assert.strictEqual(findings[0]?.name, "AWS Key");
+		assert.strictEqual(findings[0]?.lineNumber, 42);
 	});
 
 	test("logSecretWarning writes warning event with structured findings", () => {
@@ -164,15 +173,15 @@ describe("skill-stats-log Core Unit Tests", () => {
 			details: "Generic API Key at line 12",
 		});
 		const event = readLatestEvent(statsDir);
-		expect(event.eventType).toBe("warning");
-		expect(event.namespace).toBe("secret-scanner");
-		expect(event.details.findingsCount).toBe(1);
+		assert.strictEqual(event.eventType, "warning");
+		assert.strictEqual(event.namespace, "secret-scanner");
+		assert.strictEqual(event.details.findingsCount, 1);
 		const findings = event.details.findings as Array<{
 			name: string;
 			lineNumber: number;
 		}>;
-		expect(findings[0]?.name).toBe("Generic API Key");
-		expect(findings[0]?.lineNumber).toBe(12);
+		assert.strictEqual(findings[0]?.name, "Generic API Key");
+		assert.strictEqual(findings[0]?.lineNumber, 12);
 	});
 
 	test("git-commits-push events include order context from environment", () => {
@@ -194,13 +203,13 @@ describe("skill-stats-log Core Unit Tests", () => {
 		});
 
 		const event = readLatestEvent(gitStatsDir);
-		expect(event.eventType).toBe("run_start");
-		expect(event.namespace).toBe("git-commits-push");
-		expect(event.details.orderId).toBe("order-session-2");
-		expect(event.details.orderOriginSessionId).toBe("session-2");
-		expect(event.details.orderTriggeredByRunId).toBe("run-session-1");
-		expect(event.details.isQueuedOrder).toBe(true);
-		expect(event.details.executorSessionId).toBe("stats-test-session");
+		assert.strictEqual(event.eventType, "run_start");
+		assert.strictEqual(event.namespace, "git-commits-push");
+		assert.strictEqual(event.details.orderId, "order-session-2");
+		assert.strictEqual(event.details.orderOriginSessionId, "session-2");
+		assert.strictEqual(event.details.orderTriggeredByRunId, "run-session-1");
+		assert.strictEqual(event.details.isQueuedOrder, true);
+		assert.strictEqual(event.details.executorSessionId, "stats-test-session");
 	});
 
 	test("writes git-commits-push events as codex with CODEX_THREAD_ID", () => {
@@ -218,17 +227,20 @@ describe("skill-stats-log Core Unit Tests", () => {
 		});
 
 		const event = readLatestEvent(gitStatsDir);
-		expect(event.agent).toBe("codex");
-		expect(event.eventType).toBe("run_start");
-		expect(event.namespace).toBe("git-commits-push");
-		expect(event.sessionId).toBe("codex-thread-events");
-		expect(event.details.executorSessionId).toBe("codex-thread-events");
-		expect(event.details.parentModel).toBe("gpt-5.5");
+		assert.strictEqual(event.agent, "codex");
+		assert.strictEqual(event.eventType, "run_start");
+		assert.strictEqual(event.namespace, "git-commits-push");
+		assert.strictEqual(event.sessionId, "codex-thread-events");
+		assert.strictEqual(event.details.executorSessionId, "codex-thread-events");
+		assert.strictEqual(event.details.parentModel, "gpt-5.5");
 	});
 
 	test("subprocess writes git-commits-push events as codex in production env", () => {
 		const statsLoggerUrl = pathToFileURL(
-			path.join(import.meta.dir, "../../src/modules/telemetry/stats-logger.ts"),
+			path.join(
+				import.meta.dirname,
+				"../../src/modules/telemetry/stats-logger.ts",
+			),
 		).href;
 		const env: NodeJS.ProcessEnv = {
 			...process.env,
@@ -243,8 +255,9 @@ describe("skill-stats-log Core Unit Tests", () => {
 		delete env.PI_SKILL_STATS_MODE;
 
 		const result = spawnSync(
-			"bun",
+			process.execPath,
 			[
+				"--input-type=module",
 				"-e",
 				"const mod = await import(process.argv[1]); const log = mod.createSkillStatsLog(); log.logRunStart({ runId: 'run-codex-subprocess', parentModel: 'gpt-5.5', skillModel: 'deepseek-v4-flash', skillProvider: 'deepseek', reposCount: 1, thinking: false });",
 				statsLoggerUrl,
@@ -252,13 +265,16 @@ describe("skill-stats-log Core Unit Tests", () => {
 			{ env, encoding: "utf-8" },
 		);
 
-		expect(result.status).toBe(0);
-		expect(result.stderr).toBe("");
+		assert.strictEqual(result.status, 0);
+		assert.strictEqual(result.stderr, "");
 		const event = readLatestEvent(gitStatsDir);
-		expect(event.agent).toBe("codex");
-		expect(event.sessionId).toBe("codex-thread-subprocess");
-		expect(event.details.executorSessionId).toBe("codex-thread-subprocess");
-		expect(event.details.runId).toBe("run-codex-subprocess");
+		assert.strictEqual(event.agent, "codex");
+		assert.strictEqual(event.sessionId, "codex-thread-subprocess");
+		assert.strictEqual(
+			event.details.executorSessionId,
+			"codex-thread-subprocess",
+		);
+		assert.strictEqual(event.details.runId, "run-codex-subprocess");
 	});
 
 	test("logs order lifecycle events with explicit queue metadata", () => {
@@ -275,11 +291,11 @@ describe("skill-stats-log Core Unit Tests", () => {
 		});
 
 		let event = readLatestEvent(gitStatsDir);
-		expect(event.eventType).toBe("order_queued");
-		expect(event.details.orderId).toBe("order-session-2");
-		expect(event.details.requestedRunId).toBe("run-session-2-requested");
-		expect(event.details.originSessionId).toBe("session-2");
-		expect(event.details.blockedByRunId).toBe("run-session-1");
+		assert.strictEqual(event.eventType, "order_queued");
+		assert.strictEqual(event.details.orderId, "order-session-2");
+		assert.strictEqual(event.details.requestedRunId, "run-session-2-requested");
+		assert.strictEqual(event.details.originSessionId, "session-2");
+		assert.strictEqual(event.details.blockedByRunId, "run-session-1");
 
 		log.logOrderFinished({
 			runId: "run-session-2-execution",
@@ -291,8 +307,8 @@ describe("skill-stats-log Core Unit Tests", () => {
 		});
 
 		event = readLatestEvent(gitStatsDir);
-		expect(event.eventType).toBe("order_finished");
-		expect(event.details.runId).toBe("run-session-2-execution");
-		expect(event.details.outcome).toBe("success");
+		assert.strictEqual(event.eventType, "order_finished");
+		assert.strictEqual(event.details.runId, "run-session-2-execution");
+		assert.strictEqual(event.details.outcome, "success");
 	});
 });

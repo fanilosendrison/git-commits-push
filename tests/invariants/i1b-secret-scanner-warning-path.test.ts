@@ -2,11 +2,12 @@
 // Given: a repo with a secret in a non-production path (tests/).
 // Expected: that repo is NOT blocked (included in delegation), a warning event
 // is logged, and no block event is emitted.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -15,11 +16,11 @@ let env: MockTurnlockEnvironment;
 let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(() => {
+before(() => {
 	env = MockTurnlockEnvironment.create();
 	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "i1b-"));
 
@@ -37,13 +38,13 @@ beforeAll(() => {
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
-		systemPromptPath: path.join(import.meta.dir, "../../system-prompt.md"),
+		systemPromptPath: path.join(import.meta.dirname, "../../system-prompt.md"),
 		autoPush: false,
 		skipTests: true,
 	});
 });
 
-afterAll(() => {
+after(() => {
 	repoWarning.dispose();
 	env.dispose();
 	fs.rmSync(searchRoot, { recursive: true, force: true });
@@ -53,7 +54,7 @@ describe("I1b — Secret Scanner Warning Path", () => {
 	let exitCode: number;
 
 	test("I1b-01 | process exits with code 0", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -61,7 +62,7 @@ describe("I1b — Secret Scanner Warning Path", () => {
 			encoding: "utf-8",
 		});
 		exitCode = result.status ?? -1;
-		expect(exitCode).toBe(0);
+		assert.strictEqual(exitCode, 0);
 	});
 
 	test("I1b-02 | delegation manifest contains repo-warning (not blocked)", () => {
@@ -85,7 +86,7 @@ describe("I1b — Secret Scanner Warning Path", () => {
 		}
 		findManifest(runsDir);
 
-		expect(manifest).not.toBeNull();
+		assert.notStrictEqual(manifest, null);
 		const m = manifest as unknown as { jobs: { id: string; prompt: string }[] };
 		const paths = m.jobs.map(
 			(j: { id: string; prompt: string }) =>
@@ -93,7 +94,10 @@ describe("I1b — Secret Scanner Warning Path", () => {
 		);
 
 		// repo-warning MUST be present — the secret was in tests/, so it's a warning not a block
-		expect(paths.some((p: string) => p === repoWarning.dir)).toBe(true);
+		assert.strictEqual(
+			paths.some((p: string) => p === repoWarning.dir),
+			true,
+		);
 	});
 
 	test("I1b-03 | a warning event is logged to secret-scanner stats", () => {
@@ -101,7 +105,7 @@ describe("I1b — Secret Scanner Warning Path", () => {
 		// Both PI_SKILL_STATS_DIR and SECRET_SCANNER_STATS_DIR point to the same
 		// statsDir via env(), so the file may contain mixed event types.
 		const eventsPath = path.join(env.statsDir, "events.jsonl");
-		expect(fs.existsSync(eventsPath)).toBe(true);
+		assert.strictEqual(fs.existsSync(eventsPath), true);
 		const events = fs
 			.readFileSync(eventsPath, "utf-8")
 			.trim()
@@ -111,9 +115,9 @@ describe("I1b — Secret Scanner Warning Path", () => {
 		const warningEvents = events.filter(
 			(e: { eventType: string }) => e.eventType === "warning",
 		);
-		expect(warningEvents.length).toBeGreaterThanOrEqual(1);
-		expect(warningEvents[0].namespace).toBe("secret-scanner");
-		expect(warningEvents[0].details.findingsCount).toBeGreaterThanOrEqual(1);
+		assert.ok(warningEvents.length >= 1);
+		assert.strictEqual(warningEvents[0].namespace, "secret-scanner");
+		assert.ok(warningEvents[0].details.findingsCount >= 1);
 	});
 
 	test("I1b-04 | no block event is logged for this repo", () => {
@@ -128,6 +132,6 @@ describe("I1b — Secret Scanner Warning Path", () => {
 		const blockEvents = events.filter(
 			(e: { eventType: string }) => e.eventType === "block",
 		);
-		expect(blockEvents).toHaveLength(0);
+		assert.strictEqual(blockEvents.length, 0);
 	});
 });

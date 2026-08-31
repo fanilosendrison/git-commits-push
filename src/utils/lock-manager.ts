@@ -19,6 +19,7 @@ import {
 	type ReleaseLockResult,
 } from "../modules/orders/types.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
+import { buildQueuedOrderLaunch } from "./runtime-launch.ts";
 
 function resolveHome(filepath: string): string {
 	if (filepath.startsWith("~")) {
@@ -31,7 +32,7 @@ function getStateDir(): string {
 	if (process.env.ORDER_STATE_DIR) {
 		return resolveHome(process.env.ORDER_STATE_DIR);
 	}
-	return path.join(import.meta.dir, "../../.state/orders");
+	return path.join(import.meta.dirname, "../../.state/orders");
 }
 
 function buildLock(runId: string, context: OrderContext): LockMetadata {
@@ -267,7 +268,10 @@ function buildChildEnv(
 	return env;
 }
 
-export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
+export function releaseLockAndTriggerNext(
+	runId: string,
+	spawnNextOrder: typeof spawnSync = spawnSync,
+): ReleaseLockResult {
 	const dir = getStateDir();
 	const lockPath = path.join(dir, "running.lock");
 
@@ -331,10 +335,11 @@ export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
 		}
 
 		// Run next job in the foreground of the current session
-		const skillRoot = path.resolve(__dirname, "../..");
-		spawnSync("bun", ["run", "start"], {
-			cwd: skillRoot,
+		const launch = buildQueuedOrderLaunch(import.meta.url);
+		spawnNextOrder(launch.command, [...launch.args], {
+			cwd: launch.cwd,
 			env: buildChildEnv(triggeredOrder, runId),
+			shell: false,
 			stdio: "inherit",
 		});
 
@@ -348,7 +353,7 @@ export function releaseLockAndTriggerNext(runId: string): ReleaseLockResult {
 	return { kind: "released", remainingQueuedOrders: 0 };
 }
 
-let heartbeatInterval: Timer | null = null;
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startHeartbeat(intervalMs = 10000): void {
 	if (heartbeatInterval) return;

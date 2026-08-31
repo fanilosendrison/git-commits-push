@@ -5,25 +5,33 @@
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"test": "bun test --timeout 60000",
-		"test:quick": "bun test --timeout 60000 --ignore 'tests/invariants/i1-secret-scanner.test.ts' --ignore 'tests/invariants/i3-parallel-isolation.test.ts' --ignore 'tests/invariants/i4-stdout-compliance.test.ts'",
-		"test:run": "PI_SKILL_STATS_MODE=test bun run src/entrypoints/turnlock-orchestrator.ts",
-		"start": "bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts",
+		"test": "node tests/run-tests.mjs",
+		"test:run": "PI_SKILL_STATS_MODE=test node src/entrypoints/turnlock-orchestrator.ts",
+		"build:node": "pnpm --filter @dotagents/node-runtime run build && node scripts/build-node.mjs",
+		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=180000 --test-reporter=tap tests/node-build/artifacts.node.mjs tests/node-build/bare-remote-pipeline.node.mjs tests/node-build/compiled-security.node.mjs tests/node-build/node-cutover-preflight.node.mjs tests/node-build/runtime-launch.node.mjs tests/node-build/supervisor.node.mjs tests/node-build/test-runner.node.mjs tests/node-build/trust-token.node.mjs",
+		"check:node-cutover": "pnpm --silent run build:node && node scripts/check-node-cutover-state.mjs",
+		"test:node:stats": "node --preserve-symlinks --preserve-symlinks-main --test --test-concurrency=1 tests/node-smoke/stats-logger-event-sink.node.ts",
+		"typecheck:node": "tsc -p tsconfig.node.json",
+		"typecheck:node:stats": "tsc -p tests/node-smoke/tsconfig.json",
+		"start": "node scripts/start-node.mjs",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check src/ tests/"
 	},
 	"dependencies": {
+		"@fanilosendrison/event-sink": "0.1.0",
 		"@fanilosendrison/llm-runtime": "^0.1.2",
-		"turnlock": "^0.9.0",
+		"turnlock": "0.9.1",
 		"ulid": "^2.4.0",
 		"zod": "^3.25.76"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.3.11",
-		"@types/bun": "^1.1.0",
-		"typescript": "^5.7.0"
+		"@biomejs/biome": "2.5.2",
+		"@types/node": "22.20.0",
+		"typescript": "5.9.3"
 	},
+	"packageManager": "pnpm@11.24.0",
 	"engines": {
-		"bun": ">=1.1.0"
+		"node": ">=22.19.0",
+		"pnpm": "11.24.0"
 	}
 }

@@ -7,7 +7,8 @@
  *   - totalRetries computed as sum of attempts
  */
 
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import {
 	buildReport,
 	generateReport,
@@ -19,7 +20,7 @@ import type { RepoState } from "../../src/types.ts";
 describe("buildReport", () => {
 	test("empty repos → empty array", () => {
 		const result = buildReport({});
-		expect(result).toEqual([]);
+		assert.deepStrictEqual(result, []);
 	});
 
 	test("SUCCESS repo with committedShas and attempts", () => {
@@ -32,19 +33,21 @@ describe("buildReport", () => {
 			},
 		};
 		const result = buildReport(repos);
-		expect(result).toHaveLength(1);
-		expect(result[0]?.repository).toBe("/path/a");
-		expect(result[0]?.status).toBe("SUCCESS");
-		expect(result[0]?.committedShas).toHaveLength(1);
-		expect(result[0]?.committedShas[0]?.sha).toBe("abc123");
-		expect(result[0]?.attempts).toEqual({
+		assert.strictEqual(result.length, 1);
+		const reportEntry = result[0];
+		assert.ok(reportEntry);
+		assert.strictEqual(reportEntry.repository, "/path/a");
+		assert.strictEqual(reportEntry.status, "SUCCESS");
+		assert.strictEqual(reportEntry.committedShas.length, 1);
+		assert.strictEqual(reportEntry.committedShas[0]?.sha, "abc123");
+		assert.deepStrictEqual(reportEntry.attempts, {
 			structural: 1,
 			validation: 0,
 			race: 0,
 			git: 0,
 			network: 0,
 		});
-		expect(result[0]?.totalRetries).toBe(1);
+		assert.strictEqual(result[0]?.totalRetries, 1);
 	});
 
 	test("totalRetries sums all attempt kinds", () => {
@@ -62,7 +65,7 @@ describe("buildReport", () => {
 			},
 		};
 		const result = buildReport(repos);
-		expect(result[0]?.totalRetries).toBe(6); // 2+3+0+1+0
+		assert.strictEqual(result[0]?.totalRetries, 6); // 2+3+0+1+0
 	});
 
 	test("FAILED repo with loopDetected", () => {
@@ -76,8 +79,8 @@ describe("buildReport", () => {
 			},
 		};
 		const result = buildReport(repos);
-		expect(result[0]?.error).toBe("Loop detected");
-		expect(result[0]?.loopDetected).toEqual({
+		assert.strictEqual(result[0]?.error, "Loop detected");
+		assert.deepStrictEqual(result[0]?.loopDetected, {
 			kind: "structural",
 			planHash: "hash123",
 		});
@@ -91,7 +94,7 @@ describe("buildReport", () => {
 			},
 		};
 		const result = buildReport(repos);
-		expect(result[0]?.totalRetries).toBe(0);
+		assert.strictEqual(result[0]?.totalRetries, 0);
 	});
 });
 
@@ -110,8 +113,8 @@ describe("generateReport — new fields", () => {
 			},
 		};
 		const report = generateReport(repos);
-		expect(report).toContain("✅");
-		expect(report).toContain("2 commits");
+		assert.ok(report.includes("✅"));
+		assert.ok(report.includes("2 commits"));
 	});
 
 	test("FAILED with attempts shows retry breakdown", () => {
@@ -124,9 +127,9 @@ describe("generateReport — new fields", () => {
 			},
 		};
 		const report = generateReport(repos);
-		expect(report).toContain("❌");
-		expect(report).toContain("1 retry");
-		expect(report).toContain("validation");
+		assert.ok(report.includes("❌"));
+		assert.ok(report.includes("1 retry"));
+		assert.ok(report.includes("validation"));
 	});
 
 	test("loopDetected appears in report", () => {
@@ -140,9 +143,9 @@ describe("generateReport — new fields", () => {
 			},
 		};
 		const report = generateReport(repos);
-		expect(report).toContain("❌");
-		expect(report).toContain("Loop detected");
-		expect(report).toContain("structural");
+		assert.ok(report.includes("❌"));
+		assert.ok(report.includes("Loop detected"));
+		assert.ok(report.includes("structural"));
 	});
 
 	test("committed SHA list renders short SHAs", () => {
@@ -156,7 +159,7 @@ describe("generateReport — new fields", () => {
 			},
 		};
 		const report = generateReport(repos);
-		expect(report).toContain("abcdef1"); // sha.slice(0, 7)
-		expect(report).toContain("src/a.ts");
+		assert.ok(report.includes("abcdef1")); // sha.slice(0, 7)
+		assert.ok(report.includes("src/a.ts"));
 	});
 });

@@ -1,14 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { afterEach, describe, test } from "node:test";
 import type { CommitJobResultSuccess, Settings } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
@@ -62,7 +63,7 @@ function readRetryManifest(runDir: string, runId: string): RetryManifest {
 	const manifestName = fs
 		.readdirSync(delegationsDir)
 		.find((name) => name.startsWith("commit-jobs-retry-"));
-	expect(manifestName).toBeDefined();
+	assert.notStrictEqual(manifestName, undefined);
 	if (!manifestName) {
 		throw new Error("Retry manifest was not written");
 	}
@@ -149,8 +150,8 @@ describe("A3 — Fallback model escalation", () => {
 		env.writeLLMResult(repoId, llmResult, runId);
 
 		const result = spawnSync(
-			"bun",
-			["run", SKILL_ENTRYPOINT, "--resume", "--run-id", runId],
+			process.execPath,
+			[SKILL_ENTRYPOINT, "--resume", "--run-id", runId],
 			{
 				env: {
 					...process.env,
@@ -161,35 +162,37 @@ describe("A3 — Fallback model escalation", () => {
 			},
 		);
 
-		expect(result.status).toBe(0);
-		expect(result.stdout).toContain("action: DELEGATE");
+		assert.strictEqual(result.status, 0);
+		assert.ok(result.stdout.includes("action: DELEGATE"));
 
 		const manifest = readRetryManifest(env.runDir, runId);
-		expect(manifest.manifestVersion).toBe(2);
-		expect(manifest.kind).toBe("batch");
-		expect(manifest.worker).toBe("git-commit-generator");
-		expect(manifest.jobs).toHaveLength(1);
+		assert.strictEqual(manifest.manifestVersion, 2);
+		assert.strictEqual(manifest.kind, "batch");
+		assert.strictEqual(manifest.worker, "git-commit-generator");
+		assert.strictEqual(manifest.jobs.length, 1);
 		const job = manifest.jobs[0];
-		expect(job).toBeDefined();
+		assert.notStrictEqual(job, undefined);
 		if (!job) {
 			throw new Error("Retry manifest did not contain a job");
 		}
 		const payload = JSON.parse(job.prompt) as RetryPayload;
 
-		expect(payload.provider).toBe("deepseek");
-		expect(payload.model).toBe("deepseek-v4-pro");
-		expect(payload.thinking).toBe(true);
-		expect(payload.feedback?.errors[0]?.kind).toBe("validation");
-		expect(payload.feedback?.errors[0]?.message).toContain(
-			"Subject line trop long",
-		);
-		expect(payload.feedback?.previous_commit).toContain(
-			"refactor(git-commits-push): rename modules",
+		assert.strictEqual(payload.provider, "deepseek");
+		assert.strictEqual(payload.model, "deepseek-v4-pro");
+		assert.strictEqual(payload.thinking, true);
+		const feedback = payload.feedback;
+		assert.ok(feedback);
+		assert.strictEqual(feedback.errors[0]?.kind, "validation");
+		assert.ok(feedback.errors[0]?.message.includes("Subject line trop long"));
+		assert.ok(
+			feedback.previous_commit.includes(
+				"refactor(git-commits-push): rename modules",
+			),
 		);
 
 		const state = readPersistedState(env.runDir, runId);
 		const repoState = state.data.repos[repoId];
-		expect(repoState?.fallbackAttempted).toBe(true);
-		expect(repoState?.attempts?.validation).toBe(0);
+		assert.strictEqual(repoState?.fallbackAttempted, true);
+		assert.strictEqual(repoState?.attempts?.validation, 0);
 	});
 });

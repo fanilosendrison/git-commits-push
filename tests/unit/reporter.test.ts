@@ -1,5 +1,6 @@
 // tests/unit/reporter.test.ts — Unit tests for src/modules/reporter.ts
-import { describe, expect, spyOn, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import {
 	generateReport,
 	printReport,
@@ -26,65 +27,73 @@ const FAILED_REPO: RepoState = {
 describe("U-RE-01 | generateReport — header present", () => {
 	test("contains === TURNLOCK EXECUTION REPORT ===", () => {
 		const report = generateReport({});
-		expect(report).toContain("=== TURNLOCK EXECUTION REPORT ===");
+		assert.ok(report.includes("=== TURNLOCK EXECUTION REPORT ==="));
 	});
 });
 
 describe("U-RE-02 | generateReport — SUCCESS line", () => {
 	test("shows ✅ for a SUCCESS repo", () => {
 		const report = generateReport({ abc123: SUCCESS_REPO });
-		expect(report).toContain("✅");
-		expect(report).toContain("abc123");
+		assert.ok(report.includes("✅"));
+		assert.ok(report.includes("abc123"));
 	});
 });
 
 describe("U-RE-03 | generateReport — FAILED line", () => {
 	test("shows ❌ for a FAILED repo", () => {
 		const report = generateReport({ def456: FAILED_REPO });
-		expect(report).toContain("❌");
-		expect(report).toContain("def456");
+		assert.ok(report.includes("❌"));
+		assert.ok(report.includes("def456"));
 	});
 });
 
 describe("U-RE-04 | generateReport — FAILED includes error message", () => {
 	test("includes the error string in the report line", () => {
 		const report = generateReport({ def456: FAILED_REPO });
-		expect(report).toContain("Tests échoués");
+		assert.ok(report.includes("Tests échoués"));
 	});
 });
 
 describe("U-RE-05 | printReport — writes to stderr, not stdout", () => {
 	test("process.stderr.write is called, process.stdout.write is not", () => {
-		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(
-			() => true,
-		);
-		const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(
-			() => true,
-		);
+		const originalStderrWrite = process.stderr.write;
+		const originalStdoutWrite = process.stdout.write;
+		let stderrWasCalled = false;
+		let stdoutWasCalled = false;
+		Reflect.set(process.stderr, "write", () => {
+			stderrWasCalled = true;
+			return true;
+		});
+		Reflect.set(process.stdout, "write", () => {
+			stdoutWasCalled = true;
+			return true;
+		});
 
-		printReport({ abc123: SUCCESS_REPO });
+		try {
+			printReport({ abc123: SUCCESS_REPO });
+		} finally {
+			Reflect.set(process.stderr, "write", originalStderrWrite);
+			Reflect.set(process.stdout, "write", originalStdoutWrite);
+		}
 
-		expect(stderrSpy).toHaveBeenCalled();
-		expect(stdoutSpy).not.toHaveBeenCalled();
-
-		stderrSpy.mockRestore();
-		stdoutSpy.mockRestore();
+		assert.strictEqual(stderrWasCalled, true);
+		assert.strictEqual(stdoutWasCalled, false);
 	});
 });
 
 describe("U-RE-06 | generateReport — footer present", () => {
 	test("contains ================================= footer", () => {
 		const report = generateReport({});
-		expect(report).toContain("=================================");
+		assert.ok(report.includes("================================="));
 	});
 });
 
 describe("U-RE-07 | generateReport — zero repos", () => {
 	test("produces valid report with header and footer even when empty", () => {
 		const report = generateReport({});
-		expect(report).toContain("=== TURNLOCK EXECUTION REPORT ===");
-		expect(report).toContain("=================================");
-		expect(report).not.toContain("✅");
-		expect(report).not.toContain("❌");
+		assert.ok(report.includes("=== TURNLOCK EXECUTION REPORT ==="));
+		assert.ok(report.includes("================================="));
+		assert.ok(!report.includes("✅"));
+		assert.ok(!report.includes("❌"));
 	});
 });

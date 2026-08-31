@@ -1,11 +1,12 @@
 // NIB-T — Test I4: Turnlock stdout Compliance (DC-TURNLOCK)
 // Given: any full execution of the orchestrator.
 // Expected: stdout contains ONLY valid @@TURNLOCK@@ protocol blocks — no other bytes.
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -14,7 +15,7 @@ let env: MockTurnlockEnvironment;
 let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
@@ -30,7 +31,7 @@ beforeEach(() => {
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
-		systemPromptPath: path.join(import.meta.dir, "../../system-prompt.md"),
+		systemPromptPath: path.join(import.meta.dirname, "../../system-prompt.md"),
 		autoPush: false,
 		skipTests: true,
 	});
@@ -55,7 +56,7 @@ function extractNonProtocolBytes(stdout: string): string {
 
 describe("I4 — Turnlock stdout Compliance", () => {
 	test("I4-01 | initial run: stdout contains zero bytes outside protocol blocks", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -65,11 +66,11 @@ describe("I4 — Turnlock stdout Compliance", () => {
 		});
 		const stdout = result.stdout ?? "";
 		const pollution = extractNonProtocolBytes(stdout);
-		expect(pollution).toBe("");
+		assert.strictEqual(pollution, "");
 	});
 
 	test("I4-02 | initial run: Phase 5 report is on stderr, not stdout", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -79,13 +80,13 @@ describe("I4 — Turnlock stdout Compliance", () => {
 		});
 		const stdout = result.stdout ?? "";
 		// The execution report must NOT appear in stdout
-		expect(stdout).not.toContain("=== TURNLOCK EXECUTION REPORT ===");
-		expect(stdout).not.toContain("✅");
-		expect(stdout).not.toContain("❌");
+		assert.ok(!stdout.includes("=== TURNLOCK EXECUTION REPORT ==="));
+		assert.ok(!stdout.includes("✅"));
+		assert.ok(!stdout.includes("❌"));
 	});
 
 	test("I4-03 | initial run: no console.log / debug traces in stdout", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -95,12 +96,12 @@ describe("I4 — Turnlock stdout Compliance", () => {
 		});
 		const stdout = result.stdout ?? "";
 		// Common debug artifacts that must not appear in stdout
-		expect(stdout).not.toContain("[DEBUG]");
-		expect(stdout).not.toContain("[INFO]");
-		expect(stdout).not.toContain("[ERROR]");
-		expect(stdout).not.toContain("console.log");
+		assert.ok(!stdout.includes("[DEBUG]"));
+		assert.ok(!stdout.includes("[INFO]"));
+		assert.ok(!stdout.includes("[ERROR]"));
+		assert.ok(!stdout.includes("console.log"));
 		// Any line that is not a @@ marker is a violation
 		const pollution = extractNonProtocolBytes(stdout);
-		expect(pollution).toBe("");
+		assert.strictEqual(pollution, "");
 	});
 });

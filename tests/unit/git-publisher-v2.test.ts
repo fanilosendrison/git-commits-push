@@ -10,11 +10,12 @@
  * Plan reference: §7.1 Publisher tests (U-GE-15 through U-GE-25, U-GE-42–U-GE-45)
  */
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { execSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import {
 	CommitPlanError,
 	DiffHashMismatchError,
@@ -63,11 +64,11 @@ describe("U-GE-17 | all commits succeed → return committedShas", () => {
 			NO_PUSH_SETTINGS,
 		);
 
-		expect(result.committedShas).toHaveLength(2);
-		expect(result.committedShas[0]?.files).toEqual(["a.ts"]);
-		expect(result.committedShas[1]?.files).toEqual(["b.ts"]);
-		expect(result.originalHead).toBeTruthy();
-		expect(typeof result.originalHead).toBe("string");
+		assert.strictEqual(result.committedShas.length, 2);
+		assert.deepStrictEqual(result.committedShas[0]?.files, ["a.ts"]);
+		assert.deepStrictEqual(result.committedShas[1]?.files, ["b.ts"]);
+		assert.ok(result.originalHead);
+		assert.strictEqual(typeof result.originalHead, "string");
 
 		repo.dispose();
 	});
@@ -105,7 +106,7 @@ describe("U-GE-17 | all commits succeed → return committedShas", () => {
 				encoding: "utf-8",
 			},
 		).stdout.trim();
-		expect(headShow).toBe("y.ts");
+		assert.strictEqual(headShow, "y.ts");
 
 		const prevShow = spawnSync(
 			"git",
@@ -115,7 +116,7 @@ describe("U-GE-17 | all commits succeed → return committedShas", () => {
 				encoding: "utf-8",
 			},
 		).stdout.trim();
-		expect(prevShow).toBe("x.ts");
+		assert.strictEqual(prevShow, "x.ts");
 
 		repo.dispose();
 	});
@@ -125,12 +126,12 @@ describe("U-GE-17 | all commits succeed → return committedShas", () => {
 
 describe("U-GE-18 | diffHash mismatch → DiffHashMismatchError", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("f.ts", "export const a = 1;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("throws DiffHashMismatchError and makes no commits", async () => {
 		const plans: CommitPlan[] = [
@@ -140,20 +141,21 @@ describe("U-GE-18 | diffHash mismatch → DiffHashMismatchError", () => {
 			},
 		];
 
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(
 				repo.dir,
 				plans,
 				"wrong-hash",
 				NO_PUSH_SETTINGS,
 			),
-		).rejects.toThrow(DiffHashMismatchError);
+			DiffHashMismatchError,
+		);
 
 		const log = spawnSync("git", ["log", "--oneline"], {
 			cwd: repo.dir,
 			encoding: "utf-8",
 		});
-		expect(log.stdout.trim().split("\n").length).toBe(1);
+		assert.strictEqual(log.stdout.trim().split("\n").length, 1);
 	});
 });
 
@@ -181,9 +183,10 @@ describe("U-GE-19 | missing-file → CommitPlanError", () => {
 			},
 		];
 
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).rejects.toMatchObject({ kind: "missing-file" });
+			{ kind: "missing-file" },
+		);
 
 		repo.dispose();
 	});
@@ -205,9 +208,10 @@ describe("U-GE-22 | nonexistent-file → CommitPlanError", () => {
 			},
 		];
 
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).rejects.toMatchObject({ kind: "nonexistent-file" });
+			{ kind: "nonexistent-file" },
+		);
 
 		repo.dispose();
 	});
@@ -217,13 +221,13 @@ describe("U-GE-22 | nonexistent-file → CommitPlanError", () => {
 
 describe("U-GE-15v2 | duplicate file → CommitPlanError(kind: duplicate-file)", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("shared.ts", "export const a = 1;\n");
 		repo.writeAndStage("other.ts", "export const b = 2;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("throws CommitPlanError with kind duplicate-file", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
@@ -238,9 +242,10 @@ describe("U-GE-15v2 | duplicate file → CommitPlanError(kind: duplicate-file)",
 			},
 		];
 
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).rejects.toMatchObject({ kind: "duplicate-file" });
+			{ kind: "duplicate-file" },
+		);
 	});
 });
 
@@ -274,9 +279,10 @@ describe("U-GE-42 | path normalization catches src/./foo.ts vs src/foo.ts", () =
 			},
 		];
 
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).rejects.toMatchObject({ kind: "duplicate-file" });
+			{ kind: "duplicate-file" },
+		);
 
 		repo.dispose();
 	});
@@ -310,9 +316,10 @@ describe("U-GE-43 | path normalization catches trailing slash", () => {
 			},
 		];
 
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).rejects.toMatchObject({ kind: "duplicate-file" });
+			{ kind: "duplicate-file" },
+		);
 
 		repo.dispose();
 	});
@@ -365,9 +372,15 @@ describe("U-GE-44 | case-insensitive FS tolerant", () => {
 			},
 		];
 
-		await expect(
-			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).resolves.toBeDefined();
+		await assert.notStrictEqual(
+			await executeMultiCommitAndPush(
+				repo.dir,
+				plans,
+				diffHash,
+				NO_PUSH_SETTINGS,
+			),
+			undefined,
+		);
 
 		repo.dispose();
 	});
@@ -377,19 +390,25 @@ describe("U-GE-44 | case-insensitive FS tolerant", () => {
 
 describe("classifyTransient", () => {
 	test("auth error → transient=false", () => {
-		expect(classifyTransient("Permission denied (publickey).")).toBe(false);
+		assert.strictEqual(
+			classifyTransient("Permission denied (publickey)."),
+			false,
+		);
 	});
 
 	test("network error → transient=true", () => {
-		expect(classifyTransient("Could not resolve host: github.com")).toBe(true);
+		assert.strictEqual(
+			classifyTransient("Could not resolve host: github.com"),
+			true,
+		);
 	});
 
 	test("repository not found → transient=false", () => {
-		expect(classifyTransient("repository not found")).toBe(false);
+		assert.strictEqual(classifyTransient("repository not found"), false);
 	});
 
 	test("empty message → transient=true", () => {
-		expect(classifyTransient("")).toBe(true);
+		assert.strictEqual(classifyTransient(""), true);
 	});
 });
 
@@ -430,16 +449,22 @@ describe("U-GE-16 | mid-loop failure preserves committed SHAs in context", () =>
 			caught = err;
 		}
 
-		expect(caught).toBeInstanceOf(CommitPlanError);
+		assert.ok(caught instanceof CommitPlanError);
 		if (caught instanceof CommitPlanError) {
-			expect(caught.kind).toBe("nonexistent-file");
+			assert.strictEqual(caught.kind, "nonexistent-file");
 			// R59: context captures plan 1's landed commit
-			expect(caught.context?.committedShas).toHaveLength(1);
-			expect(caught.context?.committedShas?.[0]?.files).toEqual(["a.ts"]);
-			expect(caught.context?.pendingFiles).toContain("c.ts");
-			expect(caught.context?.pendingFiles).not.toContain("a.ts");
+			const context = caught.context;
+			assert.ok(context);
+			const committedShas = context.committedShas;
+			const pendingFiles = context.pendingFiles;
+			assert.ok(committedShas);
+			assert.ok(pendingFiles);
+			assert.strictEqual(committedShas.length, 1);
+			assert.deepStrictEqual(committedShas[0]?.files, ["a.ts"]);
+			assert.ok(pendingFiles.includes("c.ts"));
+			assert.ok(!pendingFiles.includes("a.ts"));
 			// ghost.ts from the failed plan IS in pendingFiles (planned but not committed)
-			expect(caught.context?.pendingFiles).toContain("ghost.ts");
+			assert.ok(pendingFiles.includes("ghost.ts"));
 		}
 
 		// Verify plan 1's commit landed in git history
@@ -447,7 +472,7 @@ describe("U-GE-16 | mid-loop failure preserves committed SHAs in context", () =>
 			cwd: repo.dir,
 			encoding: "utf-8",
 		});
-		expect(log).toContain("add a");
+		assert.ok(log.includes("add a"));
 
 		repo.dispose();
 	});
@@ -461,9 +486,10 @@ describe("empty plans → CommitPlanError(empty-plans)", () => {
 		repo.commit("initial");
 		const { diffHash } = await extractDiff(repo.dir);
 
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, [], diffHash, NO_PUSH_SETTINGS),
-		).rejects.toMatchObject({ kind: "empty-plans" });
+			{ kind: "empty-plans" },
+		);
 
 		repo.dispose();
 	});

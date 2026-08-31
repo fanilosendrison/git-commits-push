@@ -1,9 +1,10 @@
 // NIB-T — Test A1: End-to-End Initial Run (Phases 1, 2, 3)
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -13,11 +14,11 @@ let env: MockTurnlockEnvironment;
 let searchRoot: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(() => {
+before(() => {
 	env = MockTurnlockEnvironment.create();
 	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "a1-"));
 
@@ -35,13 +36,13 @@ beforeAll(() => {
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
-		systemPromptPath: path.join(import.meta.dir, "../../system-prompt.md"),
+		systemPromptPath: path.join(import.meta.dirname, "../../system-prompt.md"),
 		autoPush: false,
 		skipTests: true,
 	});
 });
 
-afterAll(() => {
+after(() => {
 	repoClean.dispose();
 	repoDirty.dispose();
 	env.dispose();
@@ -53,7 +54,7 @@ describe("A1 — End-to-End Initial Run", () => {
 	let exitCode: number;
 
 	test("A1-01 | skill process exits with code 0", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -62,23 +63,23 @@ describe("A1 — End-to-End Initial Run", () => {
 		});
 		stdout = result.stdout ?? "";
 		exitCode = result.status ?? -1;
-		expect(exitCode).toBe(0);
+		assert.strictEqual(exitCode, 0);
 	});
 
 	test("A1-02 | stdout contains exactly one @@TURNLOCK@@ block", () => {
 		const matches = stdout.match(/@@TURNLOCK@@/g);
-		expect(matches).not.toBeNull();
-		expect(matches?.length).toBe(1); // one opening marker
+		assert.notStrictEqual(matches, null);
+		assert.strictEqual(matches?.length, 1); // one opening marker
 	});
 
 	test("A1-03 | delegation uses the Turnlock v2 batch protocol", () => {
-		expect(stdout).toContain("version: 2");
-		expect(stdout).toContain("kind: batch");
+		assert.ok(stdout.includes("version: 2"));
+		assert.ok(stdout.includes("kind: batch"));
 	});
 
 	test("A1-05 | repo-clean is NOT included in the delegation", () => {
 		// The clean repo path should not appear in the stdout protocol block
-		expect(stdout).not.toContain(repoClean.dir);
+		assert.ok(!stdout.includes(repoClean.dir));
 	});
 
 	test("A1-06 | state.json is written to runDir", () => {
@@ -97,19 +98,19 @@ describe("A1 — End-to-End Initial Run", () => {
 		}
 
 		findState(runsDir);
-		expect(stateFiles.length).toBeGreaterThan(0);
+		assert.ok(stateFiles.length > 0);
 		const firstStateFile = stateFiles[0];
-		expect(firstStateFile).toBeDefined();
+		assert.notStrictEqual(firstStateFile, undefined);
 		if (!firstStateFile) return;
 		const state = JSON.parse(fs.readFileSync(firstStateFile, "utf-8")) as {
 			schemaVersion: number;
 			currentPhase: string;
 			pendingDelegation?: { kind: string; jobIds?: string[] };
 		};
-		expect(state.schemaVersion).toBe(2);
-		expect(state.currentPhase).toBe("discovery-and-validation");
-		expect(state.pendingDelegation?.kind).toBe("batch");
-		expect(state.pendingDelegation?.jobIds?.length ?? 0).toBeGreaterThan(0);
+		assert.strictEqual(state.schemaVersion, 2);
+		assert.strictEqual(state.currentPhase, "discovery-and-validation");
+		assert.strictEqual(state.pendingDelegation?.kind, "batch");
+		assert.ok((state.pendingDelegation?.jobIds?.length ?? 0) > 0);
 	});
 
 	test("A1-07 | delegation manifest contains prompt with diff payload", () => {
@@ -132,7 +133,7 @@ describe("A1 — End-to-End Initial Run", () => {
 		}
 
 		findManifest(runsDir);
-		expect(manifest).not.toBeNull();
+		assert.notStrictEqual(manifest, null);
 		const m = manifest as {
 			manifestVersion: number;
 			orchestratorName: string;
@@ -143,21 +144,21 @@ describe("A1 — End-to-End Initial Run", () => {
 			maxAttempts: number;
 			jobs: { id: string; prompt: string; resultPath: string }[];
 		};
-		expect(m.manifestVersion).toBe(2);
-		expect(m.orchestratorName).toBe("git-commits-push-tl");
-		expect(m.phase).toBe("discovery-and-validation");
-		expect(m.resumeAt).toBe("commit-and-push");
-		expect(m.kind).toBe("batch");
-		expect(m.worker).toBe("git-commit-generator");
-		expect(m.maxAttempts).toBe(1);
-		expect(m.jobs.length).toBeGreaterThan(0);
+		assert.strictEqual(m.manifestVersion, 2);
+		assert.strictEqual(m.orchestratorName, "git-commits-push-tl");
+		assert.strictEqual(m.phase, "discovery-and-validation");
+		assert.strictEqual(m.resumeAt, "commit-and-push");
+		assert.strictEqual(m.kind, "batch");
+		assert.strictEqual(m.worker, "git-commit-generator");
+		assert.strictEqual(m.maxAttempts, 1);
+		assert.ok(m.jobs.length > 0);
 
 		// The prompt must be a valid JSON-serialized CommitJobPayload
 		const firstJob = m.jobs[0];
-		expect(firstJob).toBeDefined();
+		assert.notStrictEqual(firstJob, undefined);
 		if (!firstJob) return;
 		const payload = JSON.parse(firstJob.prompt);
-		expect(payload).toHaveProperty("diff");
-		expect(payload).toHaveProperty("diffHash");
+		assert.ok(Object.hasOwn(payload, "diff"));
+		assert.ok(Object.hasOwn(payload, "diffHash"));
 	});
 });

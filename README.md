@@ -140,11 +140,11 @@ the cheap model can't produce valid Conventional Commits.
 
 ## What you need
 
-- **Bun** ≥ 1.1.0 installed.
+- **Node.js** ≥ 22.19.0 and **pnpm** 11.24.0 for the skill itself.
 - **An LLM provider** configured with valid credentials. The skill uses
   `@fanilosendrison/llm-runtime` under the hood and supports any provider it knows.
-- **Git** and your usual package manager (bun, pnpm, yarn, npm, pytest) available
-  on `PATH` so it can run tests inside target repos.
+- **Git** and each package manager required by your target repositories (`bun`,
+  `pnpm`, `yarn`, `npm`, or `pytest`) available on `PATH` so their tests can run.
 
 ---
 
@@ -316,17 +316,17 @@ for the exact trigger conditions.
 
 ## Architecture
 
-The skill is built on **Turnlock v0.8.0+** (v2 delegation protocol). It runs as a
-two-process pipeline:
+The skill is built on **Turnlock v0.8.0+** (v2 delegation protocol). Its public
+Node launcher compiles and starts a shell-free supervisor:
 
 ```
-turnlock-orchestrator.ts | turnlock-to-llm-bridge.ts
+start-node.mjs → node-supervisor.ts → orchestrator + LLM bridge
 ```
 
 The orchestrator owns the finite-state machine and persists snapshots to disk.
 The bridge intercepts delegation blocks, runs LLM inference in parallel, writes
-results, and resumes the orchestrator. This separation lets either process exit
-and restart independently.
+results, and resumes the orchestrator. The supervisor owns process isolation,
+signal forwarding, backpressure, and protocol-safe stdout routing.
 
 ### Compatibility with older Turnlock runs
 

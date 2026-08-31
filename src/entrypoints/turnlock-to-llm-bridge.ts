@@ -5,10 +5,11 @@
  * and resumes turnlock.
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	buildSimplePrompt,
 	createAnthropicAdapter,
@@ -18,11 +19,18 @@ import {
 	type ProviderAdapter,
 } from "@fanilosendrison/llm-runtime";
 import { z } from "zod";
+import { resolveAuthToken } from "../modules/core/auth-resolver.ts";
+import { isDirectExecution } from "../utils/direct-execution.ts";
 import {
 	setupCleanupHooks,
 	startHeartbeat,
 	stopHeartbeat,
 } from "../utils/lock-manager.ts";
+import {
+	buildResumeCommand,
+	buildResumeLaunch,
+	isCompiledJavaScriptModule,
+} from "../utils/runtime-launch.ts";
 
 type OpenAICompatibleProvider =
 	| "deepseek"
@@ -31,18 +39,43 @@ type OpenAICompatibleProvider =
 	| "together"
 	| "ollama";
 
-import { resolveAuthToken } from "../modules/core/auth-resolver.ts";
+function logBridgeMessage(message: string): void {
+	if (isCompiledJavaScriptModule(import.meta.url)) {
+		process.stderr.write(`${message}\n`);
+		return;
+	}
+	console.log(message);
+}
 
-export async function invokeLlm(payload: {
-	provider: string;
-	model: string;
-	token: string;
-	temperature: number;
-	systemPrompt: string;
-	userPrompt: string;
-	stripJsonFence?: boolean;
-	thinking?: boolean;
-}): Promise<string> {
+export interface LlmAdapterFactories {
+	readonly buildSimplePrompt: typeof buildSimplePrompt;
+	readonly createAnthropicAdapter: typeof createAnthropicAdapter;
+	readonly createGoogleAdapter: typeof createGoogleAdapter;
+	readonly createOpenAIAdapter: typeof createOpenAIAdapter;
+	readonly createOpenAICompatibleAdapter: typeof createOpenAICompatibleAdapter;
+}
+
+const defaultLlmAdapterFactories: LlmAdapterFactories = {
+	buildSimplePrompt,
+	createAnthropicAdapter,
+	createGoogleAdapter,
+	createOpenAIAdapter,
+	createOpenAICompatibleAdapter,
+};
+
+export async function invokeLlm(
+	payload: {
+		provider: string;
+		model: string;
+		token: string;
+		temperature: number;
+		systemPrompt: string;
+		userPrompt: string;
+		stripJsonFence?: boolean;
+		thinking?: boolean;
+	},
+	adapterFactories: LlmAdapterFactories = defaultLlmAdapterFactories,
+): Promise<string> {
 	const commonConfig = {
 		model: payload.model,
 		apiKey: payload.token,
@@ -54,20 +87,20 @@ export async function invokeLlm(payload: {
 
 	let adapter: ProviderAdapter;
 	if (payload.provider === "anthropic") {
-		adapter = createAnthropicAdapter(commonConfig);
+		adapter = adapterFactories.createAnthropicAdapter(commonConfig);
 	} else if (payload.provider === "openai") {
-		adapter = createOpenAIAdapter(commonConfig);
+		adapter = adapterFactories.createOpenAIAdapter(commonConfig);
 	} else if (payload.provider === "google") {
-		adapter = createGoogleAdapter(commonConfig);
+		adapter = adapterFactories.createGoogleAdapter(commonConfig);
 	} else {
-		adapter = createOpenAICompatibleAdapter({
+		adapter = adapterFactories.createOpenAICompatibleAdapter({
 			...commonConfig,
 			provider: payload.provider as OpenAICompatibleProvider,
 		});
 	}
 
 	const response = await adapter.call({
-		messages: buildSimplePrompt({
+		messages: adapterFactories.buildSimplePrompt({
 			system: payload.systemPrompt,
 			user: payload.userPrompt,
 		}),
@@ -184,11 +217,86 @@ function extractTurnlockBlocks(output: string): {
 	return { manifestPath, resumeCmd };
 }
 
+class ResumeExecutionError extends Error {
+	readonly stdout: string;
+
+	constructor(message: string, stdout: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "ResumeExecutionError";
+		this.stdout = stdout;
+	}
+}
+
+export async function executeResumeCommand(
+	resumeCommand: string,
+	runId: string,
+	bridgeModuleUrl: string = import.meta.url,
+): Promise<string> {
+	if (!isCompiledJavaScriptModule(bridgeModuleUrl)) {
+		return execSync(resumeCommand, { encoding: "utf-8" });
+	}
+
+	const bridgePath = fileURLToPath(bridgeModuleUrl);
+	const orchestratorPath = path.join(
+		path.dirname(bridgePath),
+		"turnlock-orchestrator.js",
+	);
+	const orchestratorUrl = pathToFileURL(orchestratorPath).href;
+	const expectedCommand = buildResumeCommand(runId, orchestratorUrl);
+	if (resumeCommand !== expectedCommand) {
+		throw new Error(
+			"Resume command is incompatible with the compiled Node runtime. " +
+				"Close the historical run explicitly and start a fresh run.",
+		);
+	}
+
+	const launch = buildResumeLaunch(runId, orchestratorUrl);
+	const result = spawnSync(launch.command, [...launch.args], {
+		cwd: launch.cwd,
+		encoding: "utf-8",
+		env: process.env,
+		maxBuffer: 50 * 1024 * 1024,
+		shell: false,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const stdout = result.stdout ?? "";
+	const stderr = result.stderr ?? "";
+	if (stderr.length > 0) process.stderr.write(stderr);
+	if (result.error) {
+		throw new ResumeExecutionError(
+			`Compiled resume failed to start: ${result.error.message}`,
+			stdout,
+			{ cause: result.error },
+		);
+	}
+	if (result.status !== 0) {
+		const outcome =
+			result.status === null
+				? `signal ${result.signal ?? "unknown"}`
+				: `exit code ${result.status}`;
+		throw new ResumeExecutionError(
+			`Compiled resume failed with ${outcome}`,
+			stdout,
+		);
+	}
+	return stdout;
+}
+
+export interface BridgeDependencies {
+	readonly invokeLlm: typeof invokeLlm;
+	readonly resolveAuthToken: typeof resolveAuthToken;
+}
+
+const defaultBridgeDependencies: BridgeDependencies = {
+	invokeLlm,
+	resolveAuthToken,
+};
+
 export async function handleTurnlockDelegation(
 	manifestPath: string,
 	resumeCmd: string,
-	execFn: (cmd: string) => string = (cmd) =>
-		execSync(cmd, { encoding: "utf-8" }),
+	execFn?: (cmd: string) => string | Promise<string>,
+	dependencies: BridgeDependencies = defaultBridgeDependencies,
 ): Promise<void> {
 	if (!fs.existsSync(manifestPath)) {
 		throw new Error(`Manifest file not found at ${manifestPath}`);
@@ -200,7 +308,7 @@ export async function handleTurnlockDelegation(
 	startHeartbeat();
 	setupCleanupHooks(manifest.runId);
 
-	console.log(
+	logBridgeMessage(
 		`\n[Turnlock→LLM] Received batch delegation for '${manifest.label}' with ${manifest.jobs.length} jobs.`,
 	);
 
@@ -209,12 +317,15 @@ export async function handleTurnlockDelegation(
 		manifest.jobs.map(async (job) => {
 			try {
 				const payload: CommitJobPayload = JSON.parse(job.prompt);
-				console.log(
+				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}${payload.agent ? ` (agent: ${payload.agent})` : ""}...`,
 				);
-				const token = await resolveAuthToken(payload.provider, payload.agent);
+				const token = await dependencies.resolveAuthToken(
+					payload.provider,
+					payload.agent,
+				);
 
-				console.log(
+				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
 				);
 				let finalUserPrompt: string;
@@ -235,7 +346,7 @@ export async function handleTurnlockDelegation(
 				let llmResponse = "";
 				let commits: CommitPlan[] = [];
 				for (let attempt = 0; attempt < 2; attempt++) {
-					llmResponse = await invokeLlm({
+					llmResponse = await dependencies.invokeLlm({
 						provider: payload.provider,
 						model: payload.model,
 						token: token,
@@ -245,7 +356,7 @@ export async function handleTurnlockDelegation(
 						stripJsonFence: true, // Mandatory per specs
 					});
 
-					console.log(
+					logBridgeMessage(
 						`[Turnlock→LLM] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
 					);
 					try {
@@ -279,7 +390,7 @@ export async function handleTurnlockDelegation(
 					JSON.stringify(successResult, null, 2),
 					"utf-8",
 				);
-				console.log(
+				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Success result written to ${job.resultPath}`,
 				);
 			} catch (err: unknown) {
@@ -303,7 +414,7 @@ export async function handleTurnlockDelegation(
 		}),
 	);
 
-	console.log(
+	logBridgeMessage(
 		`\n[Turnlock→LLM] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
 
@@ -312,9 +423,11 @@ export async function handleTurnlockDelegation(
 	// Print the resumed orchestrator's output even if it fails (report is in stdout)
 	let output = "";
 	try {
-		output = execFn(resumeCmd);
+		output = execFn
+			? await execFn(resumeCmd)
+			: await executeResumeCommand(resumeCmd, manifest.runId);
 	} catch (e: unknown) {
-		// execSync captures stdout before throwing — preserve it for display
+		// Resume execution captures stdout before throwing — preserve it for display.
 		output =
 			e && typeof e === "object" && "stdout" in e
 				? String((e as { stdout: unknown }).stdout)
@@ -328,10 +441,15 @@ export async function handleTurnlockDelegation(
 	const { manifestPath: nextManifest, resumeCmd: nextResume } =
 		extractTurnlockBlocks(output);
 	if (nextManifest && nextResume) {
-		console.log(
+		logBridgeMessage(
 			`\n[Turnlock→LLM] Retry delegation detected. Processing next cycle...\n`,
 		);
-		await handleTurnlockDelegation(nextManifest, nextResume, execFn);
+		await handleTurnlockDelegation(
+			nextManifest,
+			nextResume,
+			execFn,
+			dependencies,
+		);
 	}
 }
 
@@ -373,7 +491,7 @@ export async function main() {
 		if (inBlock) {
 			blockLines.push(line);
 		} else {
-			console.log(line);
+			logBridgeMessage(line);
 		}
 	});
 
@@ -392,6 +510,6 @@ export async function main() {
 	});
 }
 
-if (import.meta.main) {
+if (isDirectExecution(import.meta.url)) {
 	main();
 }

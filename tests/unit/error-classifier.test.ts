@@ -6,7 +6,8 @@
  *   - §7.4c LLM-side error classification tests (classifyLLMFailure)
  */
 
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import {
 	classifyError,
 	classifyLLMFailure,
@@ -28,48 +29,50 @@ describe("classifyError", () => {
 	test("CommitPlanError(empty-plans) + committedShasExist=true → success", () => {
 		const err = new CommitPlanError("empty plans", "empty-plans");
 		const result = classifyError(err, true);
-		expect(result).toEqual({ kind: "success" });
+		assert.deepStrictEqual(result, { kind: "success" });
 	});
 
 	test("CommitPlanError(empty-plans) + committedShasExist=false → structural retry", () => {
 		const err = new CommitPlanError("empty plans", "empty-plans");
 		const result = classifyError(err, false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("retry");
-			expect(result.error.kind).toBe("structural");
-			expect(result.error.message).toBe("empty plans");
+			assert.strictEqual(result.kind, "retry");
+			assert.strictEqual(result.error.kind, "structural");
+			assert.strictEqual(result.error.message, "empty plans");
 		}
 	});
 
-	test.each([
+	for (const [kind, files] of [
 		["duplicate-file", ["a.ts"]],
 		["missing-file", ["b.ts"]],
 		["nonexistent-file", ["c.ts"]],
-	] as const)("CommitPlanError(%s) → structural retry with resolution_hint", (kind, files) => {
-		const err = new CommitPlanError(`test ${kind}`, kind, [...files]);
-		const result = classifyError(err, true);
-		expect(result).not.toEqual({ kind: "success" });
-		if (result.kind !== "success") {
-			expect(result.kind).toBe("retry");
-			expect(result.error.kind).toBe("structural");
-			expect(result.error.message).toBe(`test ${kind}`);
-			expect(result.error.files).toEqual([...files]);
-			expect(result.error.resolution_hint).toBeTruthy();
-		}
-	});
+	] as const) {
+		test(`CommitPlanError(${kind}) → structural retry with resolution_hint`, () => {
+			const err = new CommitPlanError(`test ${kind}`, kind, [...files]);
+			const result = classifyError(err, true);
+			assert.notDeepStrictEqual(result, { kind: "success" });
+			if (result.kind !== "success") {
+				assert.strictEqual(result.kind, "retry");
+				assert.strictEqual(result.error.kind, "structural");
+				assert.strictEqual(result.error.message, `test ${kind}`);
+				assert.deepStrictEqual(result.error.files, [...files]);
+				assert.ok(result.error.resolution_hint);
+			}
+		});
+	}
 
 	// ── DiffHashMismatchError ──────────────────────────────────────────────
 
 	test("DiffHashMismatchError → race retry", () => {
 		const err = new DiffHashMismatchError();
 		const result = classifyError(err, false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("retry");
-			expect(result.error.kind).toBe("race");
-			expect(result.error.message).toContain("DiffHash mismatch");
-			expect(result.error.resolution_hint).toBeTruthy();
+			assert.strictEqual(result.kind, "retry");
+			assert.strictEqual(result.error.kind, "race");
+			assert.ok(result.error.message.includes("DiffHash mismatch"));
+			assert.ok(result.error.resolution_hint);
 		}
 	});
 
@@ -85,12 +88,12 @@ describe("classifyError", () => {
 		};
 		const err = new PartialCommitError("commit 2/3 failed", ctx);
 		const result = classifyError(err, false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("retry");
-			expect(result.error.kind).toBe("git");
-			expect(result.error.message).toContain("commit 2/3 failed");
-			expect(result.error.resolution_hint).toBeTruthy();
+			assert.strictEqual(result.kind, "retry");
+			assert.strictEqual(result.error.kind, "git");
+			assert.ok(result.error.message.includes("commit 2/3 failed"));
+			assert.ok(result.error.resolution_hint);
 		}
 	});
 
@@ -99,11 +102,11 @@ describe("classifyError", () => {
 	test("GitExecError → git fail (non-retryable)", () => {
 		const err = new GitExecError("fatal: index.lock", "git commit", 128);
 		const result = classifyError(err, false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("fail");
-			expect(result.error.kind).toBe("git");
-			expect(result.error.message).toBe("fatal: index.lock");
+			assert.strictEqual(result.kind, "fail");
+			assert.strictEqual(result.error.kind, "git");
+			assert.strictEqual(result.error.message, "fatal: index.lock");
 		}
 	});
 
@@ -112,22 +115,22 @@ describe("classifyError", () => {
 	test("PushError(transient=true) → network retry", () => {
 		const err = new PushError("network timeout", true);
 		const result = classifyError(err, false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("retry");
-			expect(result.error.kind).toBe("network");
-			expect(result.error.message).toBe("network timeout");
+			assert.strictEqual(result.kind, "retry");
+			assert.strictEqual(result.error.kind, "network");
+			assert.strictEqual(result.error.message, "network timeout");
 		}
 	});
 
 	test("PushError(transient=false) → network fail", () => {
 		const err = new PushError("auth failed", false);
 		const result = classifyError(err, false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("fail");
-			expect(result.error.kind).toBe("network");
-			expect(result.error.message).toBe("auth failed");
+			assert.strictEqual(result.kind, "fail");
+			assert.strictEqual(result.error.kind, "network");
+			assert.strictEqual(result.error.message, "auth failed");
 		}
 	});
 
@@ -136,21 +139,21 @@ describe("classifyError", () => {
 	test("unknown Error → git fail (fail-closed)", () => {
 		const err = new Error("something unexpected");
 		const result = classifyError(err, false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("fail");
-			expect(result.error.kind).toBe("git");
-			expect(result.error.message).toBe("something unexpected");
+			assert.strictEqual(result.kind, "fail");
+			assert.strictEqual(result.error.kind, "git");
+			assert.strictEqual(result.error.message, "something unexpected");
 		}
 	});
 
 	test("non-Error value → git fail with string message", () => {
 		const result = classifyError("string error", false);
-		expect(result).not.toEqual({ kind: "success" });
+		assert.notDeepStrictEqual(result, { kind: "success" });
 		if (result.kind !== "success") {
-			expect(result.kind).toBe("fail");
-			expect(result.error.kind).toBe("git");
-			expect(result.error.message).toBe("string error");
+			assert.strictEqual(result.kind, "fail");
+			assert.strictEqual(result.error.kind, "git");
+			assert.strictEqual(result.error.message, "string error");
 		}
 	});
 });
@@ -160,30 +163,30 @@ describe("classifyError", () => {
 describe("getResolutionHint", () => {
 	test("duplicate-file returns a non-empty hint", () => {
 		const hint = getResolutionHint("duplicate-file");
-		expect(hint).toBeTruthy();
-		expect(typeof hint).toBe("string");
-		expect(hint).toContain("Fat Commit");
+		assert.ok(hint);
+		assert.strictEqual(typeof hint, "string");
+		assert.ok(hint.includes("Fat Commit"));
 	});
 
 	test("missing-file returns a non-empty hint", () => {
 		const hint = getResolutionHint("missing-file");
-		expect(hint).toBeTruthy();
-		expect(typeof hint).toBe("string");
-		expect(hint).toContain("no changes");
+		assert.ok(hint);
+		assert.strictEqual(typeof hint, "string");
+		assert.ok(hint.includes("no changes"));
 	});
 
 	test("nonexistent-file returns a non-empty hint", () => {
 		const hint = getResolutionHint("nonexistent-file");
-		expect(hint).toBeTruthy();
-		expect(typeof hint).toBe("string");
-		expect(hint).toContain("does not exist");
+		assert.ok(hint);
+		assert.strictEqual(typeof hint, "string");
+		assert.ok(hint.includes("does not exist"));
 	});
 
 	test("empty-plans returns a non-empty hint", () => {
 		const hint = getResolutionHint("empty-plans");
-		expect(hint).toBeTruthy();
-		expect(typeof hint).toBe("string");
-		expect(hint).toContain("empty array");
+		assert.ok(hint);
+		assert.strictEqual(typeof hint, "string");
+		assert.ok(hint.includes("empty array"));
 	});
 });
 
@@ -193,7 +196,7 @@ describe("classifyLLMFailure", () => {
 	// U-GE-34: "validation rejected" → "validation" (documented extension point)
 	test("U-GE-34 | 'validation rejected' → returns 'validation'", () => {
 		const result = classifyLLMFailure("validation rejected: bad format");
-		expect(result).toBe("validation");
+		assert.strictEqual(result, "validation");
 	});
 
 	// U-GE-35: "LLM Fatal Error: ..." → null (fail-closed)
@@ -201,7 +204,7 @@ describe("classifyLLMFailure", () => {
 		const result = classifyLLMFailure(
 			"LLM Fatal Error: LLM returned an invalid response",
 		);
-		expect(result).toBeNull();
+		assert.strictEqual(result, null);
 	});
 
 	// U-GE-35 variant: JSON parse error
@@ -209,7 +212,7 @@ describe("classifyLLMFailure", () => {
 		const result = classifyLLMFailure(
 			"LLM Fatal Error: Unexpected token '<' in JSON",
 		);
-		expect(result).toBeNull();
+		assert.strictEqual(result, null);
 	});
 
 	// U-GE-36: "LLM Fatal Error: network timeout" → null
@@ -217,18 +220,18 @@ describe("classifyLLMFailure", () => {
 		const result = classifyLLMFailure(
 			"LLM Fatal Error: network timeout after 30s",
 		);
-		expect(result).toBeNull();
+		assert.strictEqual(result, null);
 	});
 
 	// U-GE-37: unknown error (no prefix) → null
 	test("U-GE-37 | unknown error string → returns null", () => {
 		const result = classifyLLMFailure("Something went wrong");
-		expect(result).toBeNull();
+		assert.strictEqual(result, null);
 	});
 
 	// Edge: empty string → null
 	test("empty string → returns null", () => {
 		const result = classifyLLMFailure("");
-		expect(result).toBeNull();
+		assert.strictEqual(result, null);
 	});
 });

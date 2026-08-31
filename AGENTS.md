@@ -5,11 +5,11 @@ This file is your local operating guide to work on the
 
 ## Path Rules
 
-- Edit this skill through `/Users/famillesendrison/.agents/skills/git-commits-push`.
+- Edit this skill through `$HOME/.agents/skills/git-commits-push`.
 - Do not edit the physical `~/Developper/Projects/dotagents/...` path directly.
 - Keep `SKILL.md` as the user-facing activation contract.
-- Do not run `bun run start` while developing unless the task explicitly needs a
-  full skill execution.
+- Do not run `pnpm --silent run start` while developing unless the task explicitly
+  needs a full skill execution.
 - Prefer targeted tests, typecheck, and lint while iterating.
 
 ## Quick Workflow
@@ -17,8 +17,8 @@ This file is your local operating guide to work on the
 When iterating:
 
 1. Edit through this gateway path.
-2. Run `bun run typecheck && bun run lint`, then targeted tests.
-3. Run `bun run test` before finishing code changes.
+2. Run `pnpm run typecheck && pnpm run lint`, then targeted tests.
+3. Run `pnpm run test` before finishing code changes.
 4. If committing, commit from the dotagents repo using `/git-commits-push`.
 
 ## Important Invariants
@@ -36,40 +36,59 @@ When iterating:
 `SKILL.md` requires host agents to run:
 
 ```bash
-cd /Users/famillesendrison/.agents/skills/git-commits-push && bun run start
+cd "$HOME/.agents/skills/git-commits-push" && pnpm --silent run start
 ```
 
 Run it without an external timeout. The skill manages its own timeout and retry
 behavior.
 
-`bun run start` runs this pipeline:
-
-```bash
-bun run src/entrypoints/turnlock-orchestrator.ts | bun run src/entrypoints/turnlock-to-llm-bridge.ts
-```
+The pnpm public launch invokes `scripts/start-node.mjs`. The launcher compiles
+the shared runtime and the untracked NodeNext artifacts through
+`process.execPath`, then starts the compiled supervisor without an internal
+package-manager or shell pipeline. Node is the only internal runtime; compatibility
+with package managers in external target repositories is handled at validation boundaries.
 
 The orchestrator owns Turnlock state. The bridge owns LLM delegation execution.
+The supervisor owns isolated process groups, signal forwarding, backpressure,
+and stdout routing. Compiled resumes and dequeues use `process.execPath` with
+shell-free argument arrays. The read-only `check:node-cutover` gate classifies
+persisted runs and rejects all Turnlock or queue lock/order residue. Compiled
+security vectors cover scanner boundaries, telemetry redaction, hooks, Git
+modes, forged tokens, and output leaks. The bare-remote gate exercises this
+active launcher through a real retry, commit, and push pipeline. Real
+self-hosting run `01M16Z8A030MJZAHMZX554CJPM` committed and pushed changes in
+both dotagents and dotpi, and all four resulting Node/Bun CI runs passed. The
+direct-Git bootstrap exception is closed: all later commit and push operations
+must use the canonical public launch, except for Git subprocesses owned by the
+orchestrator itself.
 
 ## Testing Expectations
 
 Run these before finishing code changes:
 
 ```bash
-bun run typecheck
-bun run lint
-bun run test
+pnpm run typecheck:node
+pnpm run test:node:build
+pnpm run typecheck
+pnpm run lint
+pnpm run test
+```
+
+Before each designated self-hosted commit, run the local persisted-state gate:
+
+```bash
+pnpm --silent run check:node-cutover
 ```
 
 Use targeted tests while iterating:
 
 ```bash
-bun test \
+node --test --test-concurrency=1 --test-timeout=60000 \
   tests/unit/order-store.test.ts \
   tests/unit/lock-manager.test.ts \
   tests/unit/skill-stats-log.test.ts \
   tests/acceptance/a4-queued-order-observability.test.ts \
-  tests/acceptance/a5-v2-full-pipeline.test.ts \
-  --timeout 60000
+  tests/acceptance/a5-v2-full-pipeline.test.ts
 ```
 
 Tests that spawn the orchestrator must use `MockTurnlockEnvironment` and include
@@ -81,23 +100,25 @@ it may mock only the external LLM HTTP boundary.
 
 Runtime and package dependencies:
 
-- Bun `>=1.1.0` is the runtime and test runner.
-- TypeScript runs in ESM mode with Bun-compatible imports.
-- `turnlock` comes from the npm registry at `^0.8.0`. Do not reintroduce a
+- Node `>=22.19.0` builds, tests, and runs both compiled entrypoints through the
+  active shell-free supervisor.
+- pnpm `11.24.0` owns dependency installation and package scripts.
+- TypeScript runs in ESM mode with explicit Node-compatible imports.
+- `turnlock` comes from the npm registry at exact `0.9.1`. Do not reintroduce a
   local `file:` dependency unless actively testing unreleased Turnlock changes.
 - `tsconfig.json` resolves `turnlock` through normal package exports, not through
   a local source path mapping.
 - `@fanilosendrison/llm-runtime` powers provider adapters and prompt building.
 - `zod` validates Turnlock state and LLM result schemas.
-- `src/modules/telemetry/stats-logger.ts` imports `createEventSink` from the
-  local telemetry-tools checkout at
-  `/Users/famillesendrison/Developper/Projects/telemetry-tools/event-sink/src/index.ts`.
+- `src/modules/telemetry/stats-logger.ts` imports `createEventSink` from exact
+  `@fanilosendrison/event-sink@0.1.0`; no telemetry-tools source checkout is
+  required.
 
 Development dependencies:
 
-- `typescript` powers `bun run typecheck`.
-- `@biomejs/biome` powers `bun run lint`.
-- `@types/bun` provides Bun runtime types.
+- `typescript` powers `pnpm run typecheck`.
+- `@biomejs/biome` powers `pnpm run lint`.
+- `@types/node` provides runtime types.
 
 External tools the skill may invoke while validating target repositories:
 
@@ -113,6 +134,7 @@ git-commits-push/
 ├── README.md                  # Human-facing architecture and usage docs
 ├── SKILL.md                   # Activation contract for host agents
 ├── docs/
+│   ├── node-cutover-preflight.md # Persisted-state cutover procedure
 │   └── order-rationale.md     # Design rationale for the order queue
 ├── specs/
 │   └── order.md               # Technical contract for lock/order behavior
@@ -137,7 +159,8 @@ git-commits-push/
 │   └── utils/
 │       ├── cli-bootstrap.ts   # Pre-Turnlock run and order bootstrap
 │       ├── git-utils.ts       # Shared Git helpers
-│       └── lock-manager.ts    # Lock, heartbeat, queue, next-order spawn
+│       ├── lock-manager.ts    # Lock, heartbeat, queue, next-order spawn
+│       └── node-cutover-preflight.ts # Read-only persisted-state gate
 ├── system-prompt.md           # Prompt injected into commit-planning jobs
 └── tests/
     ├── acceptance/            # End-to-end Turnlock flows
@@ -213,9 +236,10 @@ The order queue exists to serialize local executions.
 - A lock older than 40 seconds is stale.
 - A concurrent process writes an order JSON file, logs `order_queued`, prints
   its position, and exits with status `0`.
-- The active process releases the lock, dequeues the oldest order, logs
-  `order_dequeued`, and spawns a fresh `bun run start`.
-- Spawned queued runs receive `GCP_ORDER_*` environment variables.
+- The active process releases the lock, dequeues the oldest order, and logs
+  `order_dequeued`. Queued runs spawn the compiled Node supervisor through
+  `process.execPath`.
+- Spawned queued runs receive the unchanged `GCP_ORDER_*` environment variables.
 - Legacy `order-*.flag` files may exist; JSON files are canonical.
 
 ## Retry And Fallback
@@ -279,7 +303,7 @@ order context.
 When upgrading the Turnlock dependency:
 
 1. Read the Turnlock changelog and diff the `src/` API surface.
-2. Update `package.json` and run `bun install`.
+2. Update `package.json` and run `pnpm install`.
 3. Adapt `src/phases/` if the delegation API changed (kinds, method names).
 4. Regenerate `tests/helpers/test-helpers.ts` manifests to match the new
    Turnlock version (canonical manifest shape, schemaVersion, kind).
@@ -287,7 +311,7 @@ When upgrading the Turnlock dependency:
 6. Update acceptance test assertions that match protocol string literals.
 7. Run the full pipeline test as a smoke check:
    ```bash
-   bun test tests/acceptance/a5-v2-full-pipeline.test.ts --timeout 60000
+   node --test --test-concurrency=1 --test-timeout=60000 tests/acceptance/a5-v2-full-pipeline.test.ts
    ```
 8. Run the full suite and fix any remaining failures.
 9. Document the operational impact of persisted runs from the previous version

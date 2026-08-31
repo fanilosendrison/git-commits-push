@@ -12,7 +12,8 @@
  * Tests B use GitRepoFixture (real git repos).
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { afterEach, describe, test } from "node:test";
 import { queueRetry, retryJobs } from "../../src/modules/core/queue-retry.ts";
 import type {
 	CommitPlan,
@@ -90,27 +91,27 @@ describe("U-GE-26 | queueRetry basic queued result", () => {
 		);
 
 		// Must be queued
-		expect(result.kind).toBe("queued");
+		assert.strictEqual(result.kind, "queued");
 		if (result.kind !== "queued") return;
 
 		// repoState must be a NEW object (immutable update)
-		expect(result.repoState).not.toBe(repoState);
-		expect(result.repoState.lastPlanHash).toBeTruthy();
-		expect(typeof result.repoState.lastPlanHash).toBe("string");
+		assert.notStrictEqual(result.repoState, repoState);
+		assert.ok(result.repoState.lastPlanHash);
+		assert.strictEqual(typeof result.repoState.lastPlanHash, "string");
 
 		// feedbackHistory initialized
-		expect(result.repoState.feedbackHistory).toHaveLength(1);
-		expect(result.repoState.feedbackHistory?.[0]).toBeTruthy();
+		assert.strictEqual(result.repoState.feedbackHistory?.length, 1);
+		assert.ok(result.repoState.feedbackHistory?.[0]);
 
 		// job structure
-		expect(result.job.id).toBe("repo-1");
-		expect(typeof result.job.prompt).toBe("string");
+		assert.strictEqual(result.job.id, "repo-1");
+		assert.strictEqual(typeof result.job.prompt, "string");
 
 		// job.prompt must be parseable JSON
 		const payload = JSON.parse(result.job.prompt);
-		expect(payload.repository).toBe("/tmp/nonexistent-repo");
-		expect(typeof payload.diffHash).toBe("string");
-		expect(payload.feedback.errors).toEqual(errors);
+		assert.strictEqual(payload.repository, "/tmp/nonexistent-repo");
+		assert.strictEqual(typeof payload.diffHash, "string");
+		assert.deepStrictEqual(payload.feedback.errors, errors);
 	});
 
 	test("retryJobs contains the job after queueRetry", () => {
@@ -127,7 +128,7 @@ describe("U-GE-26 | queueRetry basic queued result", () => {
 			[makePlan(1)],
 		);
 
-		expect(countJobs()).toBe(before + 1);
+		assert.strictEqual(countJobs(), before + 1);
 	});
 
 	test("retry payload includes agent when settings.agent is set", () => {
@@ -147,11 +148,11 @@ describe("U-GE-26 | queueRetry basic queued result", () => {
 			[makePlan(1)],
 		);
 
-		expect(result.kind).toBe("queued");
+		assert.strictEqual(result.kind, "queued");
 		if (result.kind !== "queued") return;
 
 		const payload = JSON.parse(result.job.prompt);
-		expect(payload.agent).toBe("git-commits-push");
+		assert.strictEqual(payload.agent, "git-commits-push");
 	});
 
 	test("retry payload omits agent when settings.agent is not set", () => {
@@ -167,11 +168,11 @@ describe("U-GE-26 | queueRetry basic queued result", () => {
 			[makePlan(1)],
 		);
 
-		expect(result.kind).toBe("queued");
+		assert.strictEqual(result.kind, "queued");
 		if (result.kind !== "queued") return;
 
 		const payload = JSON.parse(result.job.prompt);
-		expect(payload.agent).toBeUndefined();
+		assert.strictEqual(payload.agent, undefined);
 	});
 });
 
@@ -195,7 +196,7 @@ describe("U-GE-27 | queueRetry loop detection", () => {
 			SYSTEM_PROMPT,
 			[plan],
 		);
-		expect(first.kind).toBe("queued");
+		assert.strictEqual(first.kind, "queued");
 		if (first.kind !== "queued") return;
 
 		// Second call with same plan — loop detected
@@ -208,7 +209,7 @@ describe("U-GE-27 | queueRetry loop detection", () => {
 			SYSTEM_PROMPT,
 			[plan],
 		);
-		expect(second.kind).toBe("loop-detected");
+		assert.strictEqual(second.kind, "loop-detected");
 	});
 
 	test("no job pushed on loop detection", () => {
@@ -225,7 +226,7 @@ describe("U-GE-27 | queueRetry loop detection", () => {
 			SYSTEM_PROMPT,
 			[plan],
 		);
-		expect(first.kind).toBe("queued");
+		assert.strictEqual(first.kind, "queued");
 		const afterFirst = countJobs();
 
 		if (first.kind !== "queued") return;
@@ -238,8 +239,8 @@ describe("U-GE-27 | queueRetry loop detection", () => {
 			SYSTEM_PROMPT,
 			[plan],
 		);
-		expect(second.kind).toBe("loop-detected");
-		expect(countJobs()).toBe(afterFirst); // no new job pushed
+		assert.strictEqual(second.kind, "loop-detected");
+		assert.strictEqual(countJobs(), afterFirst); // no new job pushed
 	});
 });
 
@@ -263,14 +264,14 @@ describe("U-GE-31 | pendingFiles filtered against committedShas", () => {
 			SYSTEM_PROMPT,
 			[makePlan(1)],
 		);
-		expect(result.kind).toBe("queued");
+		assert.strictEqual(result.kind, "queued");
 		if (result.kind !== "queued") return;
 
 		const payload = JSON.parse(result.job.prompt);
 		// src/foo.ts should be removed (committed), src/bar.ts and src/baz.ts remain
-		expect(payload.feedback.pending_files).not.toContain("src/foo.ts");
-		expect(payload.feedback.pending_files).toContain("src/bar.ts");
-		expect(payload.feedback.pending_files).toContain("src/baz.ts");
+		assert.ok(!payload.feedback.pending_files.includes("src/foo.ts"));
+		assert.ok(payload.feedback.pending_files.includes("src/bar.ts"));
+		assert.ok(payload.feedback.pending_files.includes("src/baz.ts"));
 	});
 
 	test("R75: path normalization catches src/./foo.ts vs src/foo.ts", () => {
@@ -290,13 +291,13 @@ describe("U-GE-31 | pendingFiles filtered against committedShas", () => {
 			SYSTEM_PROMPT,
 			[makePlan(1)],
 		);
-		expect(result.kind).toBe("queued");
+		assert.strictEqual(result.kind, "queued");
 		if (result.kind !== "queued") return;
 
 		const payload = JSON.parse(result.job.prompt);
 		// src/./foo.ts normalizes to src/foo.ts → should be filtered out
-		expect(payload.feedback.pending_files).not.toContain("src/./foo.ts");
-		expect(payload.feedback.pending_files).toContain("src/bar.ts");
+		assert.ok(!payload.feedback.pending_files.includes("src/./foo.ts"));
+		assert.ok(payload.feedback.pending_files.includes("src/bar.ts"));
 	});
 
 	test("no committedShas → pending_files unchanged", () => {
@@ -313,12 +314,12 @@ describe("U-GE-31 | pendingFiles filtered against committedShas", () => {
 			SYSTEM_PROMPT,
 			[makePlan(1)],
 		);
-		expect(result.kind).toBe("queued");
+		assert.strictEqual(result.kind, "queued");
 		if (result.kind !== "queued") return;
 
 		const payload = JSON.parse(result.job.prompt);
-		expect(payload.feedback.pending_files).toContain("src/a.ts");
-		expect(payload.feedback.pending_files).toContain("src/b.ts");
+		assert.ok(payload.feedback.pending_files.includes("src/a.ts"));
+		assert.ok(payload.feedback.pending_files.includes("src/b.ts"));
 	});
 });
 
@@ -341,7 +342,7 @@ describe("U-GE-32 | feedbackHistory capped at MAX_FEEDBACK_HISTORY", () => {
 				SYSTEM_PROMPT,
 				[plan],
 			);
-			expect(result.kind).toBe("queued");
+			assert.strictEqual(result.kind, "queued");
 			if (result.kind !== "queued") return;
 			repoState = result.repoState;
 		}
@@ -349,7 +350,7 @@ describe("U-GE-32 | feedbackHistory capped at MAX_FEEDBACK_HISTORY", () => {
 		// MAX_FEEDBACK_HISTORY = Math.max(10, sum of all MAX_ATTEMPTS_BY_KIND)
 		// With validation=10, others=1: sum=14, so max=14
 		// After 18 calls, history should be capped at 14
-		expect(repoState.feedbackHistory?.length).toBeLessThanOrEqual(14);
+		assert.ok((repoState.feedbackHistory?.length ?? 0) <= 14);
 	});
 });
 
@@ -379,7 +380,7 @@ describe("U-GE-33 | same structure different wording → loop detected", () => {
 			SYSTEM_PROMPT,
 			[plan],
 		);
-		expect(first.kind).toBe("queued");
+		assert.strictEqual(first.kind, "queued");
 		if (first.kind !== "queued") return;
 
 		const second = queueRetry(
@@ -391,7 +392,7 @@ describe("U-GE-33 | same structure different wording → loop detected", () => {
 			SYSTEM_PROMPT,
 			[plan],
 		);
-		expect(second.kind).toBe("loop-detected");
+		assert.strictEqual(second.kind, "loop-detected");
 	});
 
 	test("files sorted differently → loop detected (canonical sort)", () => {
@@ -412,7 +413,7 @@ describe("U-GE-33 | same structure different wording → loop detected", () => {
 			SYSTEM_PROMPT,
 			[planA],
 		);
-		expect(first.kind).toBe("queued");
+		assert.strictEqual(first.kind, "queued");
 		if (first.kind !== "queued") return;
 
 		// Same files in different order → canonical sort normalizes them → same hash
@@ -430,7 +431,7 @@ describe("U-GE-33 | same structure different wording → loop detected", () => {
 			SYSTEM_PROMPT,
 			[planB],
 		);
-		expect(second.kind).toBe("loop-detected");
+		assert.strictEqual(second.kind, "loop-detected");
 	});
 
 	test("different files → different hash → queued (not loop)", () => {
@@ -446,7 +447,7 @@ describe("U-GE-33 | same structure different wording → loop detected", () => {
 			SYSTEM_PROMPT,
 			[makePlan(1, ["a.ts"])],
 		);
-		expect(first.kind).toBe("queued");
+		assert.strictEqual(first.kind, "queued");
 		if (first.kind !== "queued") return;
 
 		const second = queueRetry(
@@ -458,7 +459,7 @@ describe("U-GE-33 | same structure different wording → loop detected", () => {
 			SYSTEM_PROMPT,
 			[makePlan(2, ["b.ts"])],
 		);
-		expect(second.kind).toBe("queued");
+		assert.strictEqual(second.kind, "queued");
 	});
 });
 
@@ -467,17 +468,20 @@ describe("U-GE-33 | same structure different wording → loop detected", () => {
 describe("queueRetry edge cases", () => {
 	test("missing diffHash throws", () => {
 		const repoState = makeRepoState({ diffHash: undefined });
-		expect(() =>
-			queueRetry(
-				"repo-1",
-				repoState,
-				[{ kind: "structural", message: "err" }],
-				{},
-				MINIMAL_SETTINGS,
-				SYSTEM_PROMPT,
-				[makePlan(1)],
-			),
-		).toThrow("diffHash");
+		assert.throws(
+			() =>
+				queueRetry(
+					"repo-1",
+					repoState,
+					[{ kind: "structural", message: "err" }],
+					{},
+					MINIMAL_SETTINGS,
+					SYSTEM_PROMPT,
+					[makePlan(1)],
+				),
+			(error: unknown) =>
+				error instanceof Error && error.message.includes("diffHash"),
+		);
 	});
 
 	test("feedbackHistory entry truncated at MAX_FEEDBACK_ENTRY_BYTES", () => {
@@ -501,19 +505,19 @@ describe("queueRetry edge cases", () => {
 			SYSTEM_PROMPT,
 			[hugePlan],
 		);
-		expect(result.kind).toBe("queued");
+		assert.strictEqual(result.kind, "queued");
 		if (result.kind !== "queued") return;
 
 		const entry = result.repoState.feedbackHistory?.[0];
-		expect(entry).toBeTruthy();
+		assert.ok(entry);
 		if (!entry) return;
 		// If the entry exceeds 16KB, it should have the [truncated] marker
 		if (entry.length > 16 * 1024) {
-			expect(entry).toMatch(/\[truncated\]$/);
+			assert.match(entry, /\[truncated\]$/);
 		}
 	});
 
 	test("retryJobs cleared between tests (afterEach works)", () => {
-		expect(countJobs()).toBe(0);
+		assert.strictEqual(countJobs(), 0);
 	});
 });

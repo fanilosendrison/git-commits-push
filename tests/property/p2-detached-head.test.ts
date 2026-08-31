@@ -1,7 +1,8 @@
 // NIB-T — Test P2: Detached HEAD Exclusion (Phase 1)
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
@@ -9,11 +10,11 @@ let repoDetached: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
-beforeAll(() => {
+before(() => {
 	env = MockTurnlockEnvironment.create();
 
 	// Create a repo with a commit, then put it in detached HEAD, then stage changes
@@ -36,7 +37,7 @@ beforeAll(() => {
 	});
 });
 
-afterAll(() => {
+after(() => {
 	repoDetached.dispose();
 	env.dispose();
 });
@@ -46,7 +47,7 @@ describe("P2 — Detached HEAD Exclusion", () => {
 	let exitCode: number;
 
 	test("P2-01 | skill process exits with code 0", () => {
-		const result = spawnSync("bun", ["run", SKILL_ENTRYPOINT], {
+		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
@@ -55,16 +56,16 @@ describe("P2 — Detached HEAD Exclusion", () => {
 		});
 		stdout = result.stdout ?? "";
 		exitCode = result.status ?? -1;
-		expect(exitCode).toBe(0);
+		assert.strictEqual(exitCode, 0);
 	});
 
 	test("P2-02 | no @@TURNLOCK@@ DELEGATE block is emitted (nothing to delegate)", () => {
 		// If no valid repo is found, the orchestrator should call io.done() directly
 		// rather than producing a delegation block
-		expect(stdout).not.toContain("action: DELEGATE");
+		assert.ok(!stdout.includes("action: DELEGATE"));
 	});
 
 	test("P2-03 | detached repo path is not present in any delegation job", () => {
-		expect(stdout).not.toContain(repoDetached.dir);
+		assert.ok(!stdout.includes(repoDetached.dir));
 	});
 });

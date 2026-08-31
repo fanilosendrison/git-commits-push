@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import type { OrderContext } from "../../src/modules/orders/types.ts";
 import {
 	checkAndAcquireLock,
@@ -47,15 +48,15 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 			"run-1",
 			orderContext({ orderId: "order-1", callerName: "TestAgent" }),
 		);
-		expect(result.kind).toBe("ACQUIRED");
+		assert.strictEqual(result.kind, "ACQUIRED");
 
 		const lockPath = path.join(testStateDir, "running.lock");
-		expect(fs.existsSync(lockPath)).toBe(true);
+		assert.strictEqual(fs.existsSync(lockPath), true);
 
 		const lockContent = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
-		expect(lockContent.runId).toBe("run-1");
-		expect(lockContent.callerName).toBe("TestAgent");
-		expect(lockContent.orderId).toBe("order-1");
+		assert.strictEqual(lockContent.runId, "run-1");
+		assert.strictEqual(lockContent.callerName, "TestAgent");
+		assert.strictEqual(lockContent.orderId, "order-1");
 	});
 
 	test("checkAndAcquireLock queues if lock exists and is fresh", () => {
@@ -74,25 +75,25 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 				originSessionId: "session-2",
 			}),
 		);
-		expect(result.kind).toBe("QUEUED");
+		assert.strictEqual(result.kind, "QUEUED");
 		if (result.kind !== "QUEUED") return;
-		expect(result.position).toBe(1);
-		expect(result.blockedByRunId).toBe("run-1");
+		assert.strictEqual(result.position, 1);
+		assert.strictEqual(result.blockedByRunId, "run-1");
 
 		// Check that durable order JSON is created
 		const files = fs.readdirSync(testStateDir);
 		const orderFiles = files.filter(
 			(f) => f.startsWith("order-") && f.endsWith(".json"),
 		);
-		expect(orderFiles.length).toBe(1);
+		assert.strictEqual(orderFiles.length, 1);
 		const queued = JSON.parse(
 			fs.readFileSync(path.join(testStateDir, orderFiles[0] ?? ""), "utf-8"),
 		);
-		expect(queued.orderId).toBe("order-2");
-		expect(queued.requestedRunId).toBe("run-2");
-		expect(queued.originSessionId).toBe("session-2");
-		expect(queued.blockedByRunId).toBe("run-1");
-		expect(queued.queuePosition).toBe(1);
+		assert.strictEqual(queued.orderId, "order-2");
+		assert.strictEqual(queued.requestedRunId, "run-2");
+		assert.strictEqual(queued.originSessionId, "session-2");
+		assert.strictEqual(queued.blockedByRunId, "run-1");
+		assert.strictEqual(queued.queuePosition, 1);
 	});
 
 	test("checkAndAcquireLock resumes if same runId", () => {
@@ -104,7 +105,7 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 			"run-1",
 			orderContext({ orderId: "order-1", callerName: "AgentA" }),
 		);
-		expect(result.kind).toBe("ACQUIRED");
+		assert.strictEqual(result.kind, "ACQUIRED");
 	});
 
 	test("checkAndAcquireLock overwrites lock if stale (> 40 seconds)", () => {
@@ -145,13 +146,13 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 			"run-new",
 			orderContext({ orderId: "order-new", callerName: "AgentNew" }),
 		);
-		expect(result.kind).toBe("ACQUIRED");
+		assert.strictEqual(result.kind, "ACQUIRED");
 
 		// Check that stale lock was overwritten and stale flag deleted
 		const lockContent = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
-		expect(lockContent.runId).toBe("run-new");
-		expect(fs.existsSync(flagPath)).toBe(false);
-		expect(fs.existsSync(jsonPath)).toBe(false);
+		assert.strictEqual(lockContent.runId, "run-new");
+		assert.strictEqual(fs.existsSync(flagPath), false);
+		assert.strictEqual(fs.existsSync(jsonPath), false);
 	});
 
 	test("heartbeat updates running.lock mtime", async () => {
@@ -160,6 +161,10 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 			orderContext({ orderId: "order-1", callerName: "AgentA" }),
 		);
 		const lockPath = path.join(testStateDir, "running.lock");
+		// Some supported filesystems expose one-second mtime precision. Move the
+		// baseline into the past so a 10ms heartbeat is still observable.
+		const baseline = new Date(Date.now() - 2_000);
+		fs.utimesSync(lockPath, baseline, baseline);
 		const initialMtime = fs.statSync(lockPath).mtimeMs;
 
 		// Start heartbeat with custom 10ms interval
@@ -169,7 +174,7 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 		await new Promise((resolve) => setTimeout(resolve, 25));
 
 		const newMtime = fs.statSync(lockPath).mtimeMs;
-		expect(newMtime).toBeGreaterThan(initialMtime);
+		assert.ok(newMtime > initialMtime);
 		stopHeartbeat();
 	});
 
@@ -201,25 +206,25 @@ describe("Order Queue and Heartbeat Unit Tests", () => {
 
 		// Lock should be deleted
 		const lockPath = path.join(testStateDir, "running.lock");
-		expect(fs.existsSync(lockPath)).toBe(false);
+		assert.strictEqual(fs.existsSync(lockPath), false);
 
-		expect(result.kind).toBe("released");
+		assert.strictEqual(result.kind, "released");
 		if (result.kind !== "released") return;
-		expect(result.triggeredOrder?.orderId).toBe("order-2");
-		expect(result.triggeredOrder?.originSessionId).toBe("session-2");
-		expect(result.triggeredOrder?.triggeredByRunId).toBe("run-1");
-		expect(result.remainingQueuedOrders).toBe(1);
+		assert.strictEqual(result.triggeredOrder?.orderId, "order-2");
+		assert.strictEqual(result.triggeredOrder?.originSessionId, "session-2");
+		assert.strictEqual(result.triggeredOrder?.triggeredByRunId, "run-1");
+		assert.strictEqual(result.remainingQueuedOrders, 1);
 
 		const remainingOrderFiles = fs
 			.readdirSync(testStateDir)
 			.filter((file) => file.startsWith("order-") && file.endsWith(".json"));
-		expect(remainingOrderFiles.length).toBe(1);
+		assert.strictEqual(remainingOrderFiles.length, 1);
 		const remaining = JSON.parse(
 			fs.readFileSync(
 				path.join(testStateDir, remainingOrderFiles[0] ?? ""),
 				"utf-8",
 			),
 		);
-		expect(remaining.orderId).toBe("order-3");
+		assert.strictEqual(remaining.orderId, "order-3");
 	});
 });

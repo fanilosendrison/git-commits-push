@@ -1,9 +1,10 @@
 // tests/unit/git-publisher.test.ts — Unit tests for src/modules/git/publisher.ts
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import { formatConventionalCommit } from "../../src/modules/formatters/commit-formatter.ts";
 import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import type { CommitMessage, CommitPlan, Settings } from "../../src/types.ts";
@@ -19,7 +20,7 @@ describe("U-GE-01 | formatConventionalCommit — no scope, no breaking", () => {
 			description: "add feature",
 			isBreaking: false,
 		};
-		expect(formatConventionalCommit(commit)).toBe("feat: add feature");
+		assert.strictEqual(formatConventionalCommit(commit), "feat: add feature");
 	});
 });
 
@@ -31,7 +32,7 @@ describe("U-GE-02 | formatConventionalCommit — with scope", () => {
 			description: "add JWT",
 			isBreaking: false,
 		};
-		expect(formatConventionalCommit(commit)).toBe("feat(auth): add JWT");
+		assert.strictEqual(formatConventionalCommit(commit), "feat(auth): add JWT");
 	});
 });
 
@@ -42,7 +43,7 @@ describe("U-GE-03 | formatConventionalCommit — breaking without scope", () => 
 			description: "remove API",
 			isBreaking: true,
 		};
-		expect(formatConventionalCommit(commit)).toBe("feat!: remove API");
+		assert.strictEqual(formatConventionalCommit(commit), "feat!: remove API");
 	});
 });
 
@@ -54,7 +55,10 @@ describe("U-GE-04 | formatConventionalCommit — breaking with scope", () => {
 			description: "remove v1",
 			isBreaking: true,
 		};
-		expect(formatConventionalCommit(commit)).toBe("feat(api)!: remove v1");
+		assert.strictEqual(
+			formatConventionalCommit(commit),
+			"feat(api)!: remove v1",
+		);
 	});
 });
 
@@ -66,7 +70,8 @@ describe("U-GE-05 | formatConventionalCommit — with body", () => {
 			isBreaking: false,
 			body: "Fixes #42",
 		};
-		expect(formatConventionalCommit(commit)).toBe(
+		assert.strictEqual(
+			formatConventionalCommit(commit),
 			"fix: crash on null\n\nFixes #42",
 		);
 	});
@@ -88,13 +93,13 @@ const AUTO_PUSH_SETTINGS: Settings = { ...NO_PUSH_SETTINGS, autoPush: true };
 
 describe("U-GE-08 | executeMultiCommitAndPush — autoPush false → no push attempt", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.setRemote("origin", "https://github.com/nonexistent/nonexistent.git");
 		repo.writeAndStage("h.ts", "export const c = 3;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("does not invoke git push and does not set upstream tracking", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
@@ -108,19 +113,29 @@ describe("U-GE-08 | executeMultiCommitAndPush — autoPush false → no push att
 				files: ["h.ts"],
 			},
 		];
-		await expect(
-			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).resolves.toBeDefined();
+		await assert.notStrictEqual(
+			await executeMultiCommitAndPush(
+				repo.dir,
+				plans,
+				diffHash,
+				NO_PUSH_SETTINGS,
+			),
+			undefined,
+		);
 
 		// Strong assertion: even though `origin` is configured, no upstream tracking
 		// should be set on the local branch. `git push -u` would set both
 		// `branch.<name>.remote` and `branch.<name>.merge`; `git push` alone doesn't
 		// touch them. If the publisher ignored autoPush=false and called push (or
 		// push -u), at least one of these would be populated.
-		const branch = spawnSync("git", ["branch", "--show-current"], {
-			cwd: repo.dir,
-			encoding: "utf-8",
-		}).stdout.trim();
+		const branch = spawnSync(
+			"git",
+			["symbolic-ref", "--quiet", "--short", "HEAD"],
+			{
+				cwd: repo.dir,
+				encoding: "utf-8",
+			},
+		).stdout.trim();
 		const remote = spawnSync(
 			"git",
 			["config", "--get", `branch.${branch}.remote`],
@@ -137,19 +152,19 @@ describe("U-GE-08 | executeMultiCommitAndPush — autoPush false → no push att
 				encoding: "utf-8",
 			},
 		).stdout.trim();
-		expect(remote).toBe("");
-		expect(merge).toBe("");
+		assert.strictEqual(remote, "");
+		assert.strictEqual(merge, "");
 	});
 });
 
 describe("U-GE-09 | executeMultiCommitAndPush — no remote → push skipped silently", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("i.ts", "export const d = 4;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("does not throw and does not attempt any push variant when no remote is configured", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
@@ -163,9 +178,15 @@ describe("U-GE-09 | executeMultiCommitAndPush — no remote → push skipped sil
 				files: ["i.ts"],
 			},
 		];
-		await expect(
-			executeMultiCommitAndPush(repo.dir, plans, diffHash, AUTO_PUSH_SETTINGS),
-		).resolves.toBeDefined();
+		await assert.notStrictEqual(
+			await executeMultiCommitAndPush(
+				repo.dir,
+				plans,
+				diffHash,
+				AUTO_PUSH_SETTINGS,
+			),
+			undefined,
+		);
 
 		// Strong assertion: still no remote configured (the publisher's no-remote
 		// check should return BEFORE attempting any push command, including the
@@ -175,14 +196,14 @@ describe("U-GE-09 | executeMultiCommitAndPush — no remote → push skipped sil
 			cwd: repo.dir,
 			encoding: "utf-8",
 		}).stdout.trim();
-		expect(remotes).toBe("");
+		assert.strictEqual(remotes, "");
 	});
 });
 
 describe("U-GE-10 | executeMultiCommitAndPush — no upstream → push -u fallback", () => {
 	let repoSource: GitRepoFixture;
 	let bareRepoPath: string;
-	beforeAll(() => {
+	before(() => {
 		// Create a true bare repo to act as the real push target
 		bareRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "git-bare-"));
 		spawnSync("git", ["init", "--bare", bareRepoPath], { encoding: "utf-8" });
@@ -192,7 +213,7 @@ describe("U-GE-10 | executeMultiCommitAndPush — no upstream → push -u fallba
 		repoSource.setRemote("custom-remote", bareRepoPath);
 		repoSource.writeAndStage("j.ts", "export const e = 5;\n");
 	});
-	afterAll(() => {
+	after(() => {
 		repoSource.dispose();
 		try {
 			fs.rmSync(bareRepoPath, { recursive: true, force: true });
@@ -222,7 +243,7 @@ describe("U-GE-10 | executeMultiCommitAndPush — no upstream → push -u fallba
 			cwd: bareRepoPath,
 			encoding: "utf-8",
 		});
-		expect(log.stdout).toContain("feat: push via fallback");
+		assert.ok(log.stdout.includes("feat: push via fallback"));
 	});
 });
 
@@ -245,8 +266,8 @@ describe("U-GE-11 | GIT_TERMINAL_PROMPT=0 is set on all git invocations", () => 
 		);
 		const elapsed = Date.now() - start;
 		// Should fail fast (no interactive prompt) — not necessarily exit 0
-		expect(result.status).not.toBeNull();
-		expect(elapsed).toBeLessThan(5000);
+		assert.notStrictEqual(result.status, null);
+		assert.ok(elapsed < 5000);
 	});
 });
 
@@ -254,13 +275,13 @@ describe("U-GE-11 | GIT_TERMINAL_PROMPT=0 is set on all git invocations", () => 
 
 describe("U-GE-12 | executeMultiCommitAndPush — two files → two distinct commits", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("api.ts", "export const api = 1;\n");
 		repo.writeAndStage("ci.yml", "name: CI\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("git log shows 2 commits in the right order", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
@@ -293,19 +314,19 @@ describe("U-GE-12 | executeMultiCommitAndPush — two files → two distinct com
 			cwd: repo.dir,
 			encoding: "utf-8",
 		});
-		expect(log.stdout).toContain("feat: add api module");
-		expect(log.stdout).toContain("ci: add ci workflow");
+		assert.ok(log.stdout.includes("feat: add api module"));
+		assert.ok(log.stdout.includes("ci: add ci workflow"));
 	});
 });
 
 describe("U-GE-13 | executeMultiCommitAndPush — hallucinated file → throws", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("real.ts", "export const x = 1;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("throws when a listed file is not present in staging", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
@@ -319,20 +340,20 @@ describe("U-GE-13 | executeMultiCommitAndPush — hallucinated file → throws",
 				files: ["real.ts", "ghost.ts"], // ghost.ts does not exist
 			},
 		];
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).rejects.toThrow();
+		);
 	});
 });
 
 describe("U-GE-14 | executeMultiCommitAndPush — diffHash mismatch → throws before any commit", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("f.ts", "export const a = 1;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("throws DiffHash mismatch and makes no commits", async () => {
 		const plans: CommitPlan[] = [
@@ -341,33 +362,35 @@ describe("U-GE-14 | executeMultiCommitAndPush — diffHash mismatch → throws b
 				files: ["f.ts"],
 			},
 		];
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(
 				repo.dir,
 				plans,
 				"wrong-hash-00000000",
 				NO_PUSH_SETTINGS,
 			),
-		).rejects.toThrow("DiffHash mismatch");
+			(error: unknown) =>
+				error instanceof Error && error.message.includes("DiffHash mismatch"),
+		);
 
 		// No commit should have been created beyond "initial"
 		const log = spawnSync("git", ["log", "--oneline"], {
 			cwd: repo.dir,
 			encoding: "utf-8",
 		});
-		expect(log.stdout.trim().split("\n").length).toBe(1);
+		assert.strictEqual(log.stdout.trim().split("\n").length, 1);
 	});
 });
 
 describe("U-GE-15 | executeMultiCommitAndPush — duplicate file across plans → throws before git", () => {
 	let repo: GitRepoFixture;
-	beforeAll(() => {
+	before(() => {
 		repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("shared.ts", "export const a = 1;\n");
 		repo.writeAndStage("other.ts", "export const b = 2;\n");
 	});
-	afterAll(() => repo.dispose());
+	after(() => repo.dispose());
 
 	test("throws with clear Fat Commit message before any git operation", async () => {
 		const { diffHash } = await extractDiff(repo.dir);
@@ -381,15 +404,16 @@ describe("U-GE-15 | executeMultiCommitAndPush — duplicate file across plans �
 				files: ["shared.ts", "other.ts"], // shared.ts appears twice!
 			},
 		];
-		await expect(
+		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-		).rejects.toThrow(/shared\.ts.*multiple plans|Fat Commit/i);
+			/shared\.ts.*multiple plans|Fat Commit/i,
+		);
 
 		// No commit should have been created — guard fires before git reset
 		const log = spawnSync("git", ["log", "--oneline"], {
 			cwd: repo.dir,
 			encoding: "utf-8",
 		});
-		expect(log.stdout.trim().split("\n").length).toBe(1);
+		assert.strictEqual(log.stdout.trim().split("\n").length, 1);
 	});
 });

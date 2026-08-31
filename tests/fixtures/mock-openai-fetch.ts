@@ -1,9 +1,9 @@
 /**
- * Bun preload used by the full-pipeline acceptance test.
+ * Node preload used by the full-pipeline acceptance test.
  *
  * It replaces only the external HTTP boundary. The orchestrator, Turnlock
  * protocol, bridge CLI, result persistence, resume command, and Git publisher
- * all run as production code in separate Bun processes.
+ * all run as production code in separate Node processes.
  */
 const OPENAI_COMPLETIONS_ENDPOINT =
 	"https://api.openai.com/v1/chat/completions";
@@ -75,8 +75,8 @@ const mockFetch = async (
 	);
 };
 
-// Bun augments fetch with nonstandard helpers, so replace the property instead
-// of assigning a narrower test function to its enriched TypeScript type.
+// Replace the property so the test function can keep a deliberately narrow
+// signature while intercepting only the external HTTP boundary.
 Object.defineProperty(globalThis, "fetch", {
 	configurable: true,
 	writable: true,

@@ -1,9 +1,10 @@
 // NIB-T — Test I2: Non-Interactive Shell Safety (Global Invariant I1)
 // Given: a push where git would normally prompt for credentials.
 // Expected: push fails immediately (no hang), failure recorded in report.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
+import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
@@ -14,7 +15,7 @@ let env: MockTurnlockEnvironment;
 let repoId: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
-	import.meta.dir,
+	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
@@ -22,7 +23,7 @@ const SKILL_ENTRYPOINT = path.resolve(
 const UNREACHABLE_HTTPS_REMOTE =
 	"https://github.com/nonexistent-org/nonexistent-repo-xyz.git";
 
-beforeAll(async () => {
+before(async () => {
 	env = MockTurnlockEnvironment.create();
 	repoFakeRemote = GitRepoFixture.create();
 	repoFakeRemote.commit("initial commit");
@@ -71,7 +72,7 @@ beforeAll(async () => {
 	env.writeLLMResult(repoId, llmResult);
 });
 
-afterAll(() => {
+after(() => {
 	repoFakeRemote.dispose();
 	env.dispose();
 });
@@ -84,14 +85,8 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 	test("I2-01 | process completes within 10 seconds (no hang)", () => {
 		const start = Date.now();
 		const result = spawnSync(
-			"bun",
-			[
-				"run",
-				SKILL_ENTRYPOINT,
-				"--resume",
-				"--run-id",
-				"01J00000000000000000000000",
-			],
+			process.execPath,
+			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{
 				env: {
 					...process.env,
@@ -107,17 +102,17 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 		stdout = result.stdout ?? "";
 		// We do not assert exit code 0 here — the push WILL fail, but gracefully
 		// The important thing is that it does NOT hang
-		expect(durationMs).toBeLessThan(10_000);
+		assert.ok(durationMs < 10_000);
 	});
 
 	test("I2-02 | orchestrator delegates retry (transient push → retryable)", () => {
 		// Phase 4 classifies PushError(transient=true) as retryable (network kind, 1 attempt),
 		// so the orchestrator delegates again instead of reporting FAILED immediately.
-		expect(stdout).toContain("action: DELEGATE");
-		expect(stdout).toContain("commit-jobs-retry");
+		assert.ok(stdout.includes("action: DELEGATE"));
+		assert.ok(stdout.includes("commit-jobs-retry"));
 		// Stderr must NOT contain unhandled exceptions
-		expect(stderr).not.toContain("Uncaught");
-		expect(stderr).not.toContain("UnhandledPromiseRejection");
+		assert.ok(!stderr.includes("Uncaught"));
+		assert.ok(!stderr.includes("UnhandledPromiseRejection"));
 	});
 
 	test("I2-03 | git commit WAS executed (commit succeeds, only push fails)", () => {
@@ -125,6 +120,6 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 			cwd: repoFakeRemote.dir,
 			encoding: "utf-8",
 		});
-		expect(result.stdout).toContain("fix: push this");
+		assert.ok(result.stdout.includes("fix: push this"));
 	});
 });

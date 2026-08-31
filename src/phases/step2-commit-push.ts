@@ -33,7 +33,7 @@ export async function runCommitAndPushPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
 ): Promise<PhaseResult<GlobalState, unknown>> {
-	const settings = readSettings(path.resolve(import.meta.dir, "../config"));
+	const settings = readSettings(path.resolve(import.meta.dirname, "../config"));
 
 	// ── Init stats vars for resume flow ────────────────────────────
 	const currentRunId = io.runId;
@@ -42,7 +42,7 @@ export async function runCommitAndPushPhase(
 	let systemPrompt = "";
 	try {
 		const promptPath = path.resolve(
-			import.meta.dir,
+			import.meta.dirname,
 			settings.systemPromptPath || "../../system-prompt.md",
 		);
 		if (fs.existsSync(promptPath)) {

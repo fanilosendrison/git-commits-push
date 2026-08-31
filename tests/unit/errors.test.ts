@@ -8,7 +8,8 @@
  *   - instanceof <specific class> is true
  */
 
-import { describe, expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
 import {
 	CommitPlanError,
 	type CommitPlanErrorKind,
@@ -23,28 +24,30 @@ import {
 describe("CommitPlanError", () => {
 	test("constructor stores message and kind", () => {
 		const err = new CommitPlanError("test message", "duplicate-file");
-		expect(err.message).toBe("test message");
-		expect(err.kind).toBe("duplicate-file");
+		assert.strictEqual(err.message, "test message");
+		assert.strictEqual(err.kind, "duplicate-file");
 	});
 
-	test.each([
-		["duplicate-file" as CommitPlanErrorKind],
-		["empty-plans" as CommitPlanErrorKind],
-		["missing-file" as CommitPlanErrorKind],
-		["nonexistent-file" as CommitPlanErrorKind],
-	])("accepts kind '%s'", (kind) => {
-		const err = new CommitPlanError("msg", kind);
-		expect(err.kind).toBe(kind);
-	});
+	for (const kind of [
+		"duplicate-file",
+		"empty-plans",
+		"missing-file",
+		"nonexistent-file",
+	] as const satisfies readonly CommitPlanErrorKind[]) {
+		test(`accepts kind '${kind}'`, () => {
+			const err = new CommitPlanError("msg", kind);
+			assert.strictEqual(err.kind, kind);
+		});
+	}
 
 	test("stores optional files array", () => {
 		const err = new CommitPlanError("msg", "duplicate-file", ["a.ts", "b.ts"]);
-		expect(err.files).toEqual(["a.ts", "b.ts"]);
+		assert.deepStrictEqual(err.files, ["a.ts", "b.ts"]);
 	});
 
 	test("files defaults to undefined when omitted", () => {
 		const err = new CommitPlanError("msg", "empty-plans");
-		expect(err.files).toBeUndefined();
+		assert.strictEqual(err.files, undefined);
 	});
 
 	test("stores optional context", () => {
@@ -53,27 +56,27 @@ describe("CommitPlanError", () => {
 			pendingFiles: ["g.ts"],
 		};
 		const err = new CommitPlanError("msg", "missing-file", undefined, context);
-		expect(err.context).toEqual(context);
+		assert.deepStrictEqual(err.context, context);
 	});
 
 	test("context defaults to undefined when omitted", () => {
 		const err = new CommitPlanError("msg", "empty-plans");
-		expect(err.context).toBeUndefined();
+		assert.strictEqual(err.context, undefined);
 	});
 
 	test("name property matches class name", () => {
 		const err = new CommitPlanError("msg", "duplicate-file");
-		expect(err.name).toBe("CommitPlanError");
+		assert.strictEqual(err.name, "CommitPlanError");
 	});
 
 	test("instanceof Error", () => {
 		const err = new CommitPlanError("msg", "duplicate-file");
-		expect(err).toBeInstanceOf(Error);
+		assert.ok(err instanceof Error);
 	});
 
 	test("instanceof CommitPlanError", () => {
 		const err = new CommitPlanError("msg", "duplicate-file");
-		expect(err).toBeInstanceOf(CommitPlanError);
+		assert.ok(err instanceof CommitPlanError);
 	});
 });
 
@@ -82,22 +85,22 @@ describe("CommitPlanError", () => {
 describe("DiffHashMismatchError", () => {
 	test("has a default message", () => {
 		const err = new DiffHashMismatchError();
-		expect(err.message).toContain("DiffHash mismatch");
+		assert.ok(err.message.includes("DiffHash mismatch"));
 	});
 
 	test("name property matches class name", () => {
 		const err = new DiffHashMismatchError();
-		expect(err.name).toBe("DiffHashMismatchError");
+		assert.strictEqual(err.name, "DiffHashMismatchError");
 	});
 
 	test("instanceof Error", () => {
 		const err = new DiffHashMismatchError();
-		expect(err).toBeInstanceOf(Error);
+		assert.ok(err instanceof Error);
 	});
 
 	test("instanceof DiffHashMismatchError", () => {
 		const err = new DiffHashMismatchError();
-		expect(err).toBeInstanceOf(DiffHashMismatchError);
+		assert.ok(err instanceof DiffHashMismatchError);
 	});
 });
 
@@ -106,24 +109,24 @@ describe("DiffHashMismatchError", () => {
 describe("GitExecError", () => {
 	test("stores message, command and exitCode", () => {
 		const err = new GitExecError("command failed", "git push", 128);
-		expect(err.message).toBe("command failed");
-		expect(err.command).toBe("git push");
-		expect(err.exitCode).toBe(128);
+		assert.strictEqual(err.message, "command failed");
+		assert.strictEqual(err.command, "git push");
+		assert.strictEqual(err.exitCode, 128);
 	});
 
 	test("name property matches class name", () => {
 		const err = new GitExecError("msg", "git status", 1);
-		expect(err.name).toBe("GitExecError");
+		assert.strictEqual(err.name, "GitExecError");
 	});
 
 	test("instanceof Error", () => {
 		const err = new GitExecError("msg", "git log", 1);
-		expect(err).toBeInstanceOf(Error);
+		assert.ok(err instanceof Error);
 	});
 
 	test("instanceof GitExecError", () => {
 		const err = new GitExecError("msg", "git log", 1);
-		expect(err).toBeInstanceOf(GitExecError);
+		assert.ok(err instanceof GitExecError);
 	});
 });
 
@@ -140,32 +143,32 @@ describe("PartialCommitError", () => {
 
 	test("stores message and context", () => {
 		const err = new PartialCommitError("partial failure", sampleContext);
-		expect(err.message).toBe("partial failure");
-		expect(err.context).toEqual(sampleContext);
+		assert.strictEqual(err.message, "partial failure");
+		assert.deepStrictEqual(err.context, sampleContext);
 	});
 
 	test("context contains all required fields", () => {
 		const err = new PartialCommitError("msg", sampleContext);
-		expect(err.context.committedShas).toHaveLength(1);
-		expect(err.context.originalHead).toBe("def");
-		expect(err.context.failedIndex).toBe(1);
-		expect(err.context.totalCount).toBe(3);
-		expect(err.context.pendingFiles).toHaveLength(2);
+		assert.strictEqual(err.context.committedShas.length, 1);
+		assert.strictEqual(err.context.originalHead, "def");
+		assert.strictEqual(err.context.failedIndex, 1);
+		assert.strictEqual(err.context.totalCount, 3);
+		assert.strictEqual(err.context.pendingFiles.length, 2);
 	});
 
 	test("name property matches class name", () => {
 		const err = new PartialCommitError("msg", sampleContext);
-		expect(err.name).toBe("PartialCommitError");
+		assert.strictEqual(err.name, "PartialCommitError");
 	});
 
 	test("instanceof Error", () => {
 		const err = new PartialCommitError("msg", sampleContext);
-		expect(err).toBeInstanceOf(Error);
+		assert.ok(err instanceof Error);
 	});
 
 	test("instanceof PartialCommitError", () => {
 		const err = new PartialCommitError("msg", sampleContext);
-		expect(err).toBeInstanceOf(PartialCommitError);
+		assert.ok(err instanceof PartialCommitError);
 	});
 });
 
@@ -174,28 +177,28 @@ describe("PartialCommitError", () => {
 describe("PushError", () => {
 	test("stores transient=true for retryable failures", () => {
 		const err = new PushError("network timeout", true);
-		expect(err.message).toBe("network timeout");
-		expect(err.transient).toBe(true);
+		assert.strictEqual(err.message, "network timeout");
+		assert.strictEqual(err.transient, true);
 	});
 
 	test("stores transient=false for permanent failures", () => {
 		const err = new PushError("auth failed", false);
-		expect(err.message).toBe("auth failed");
-		expect(err.transient).toBe(false);
+		assert.strictEqual(err.message, "auth failed");
+		assert.strictEqual(err.transient, false);
 	});
 
 	test("name property matches class name", () => {
 		const err = new PushError("msg", true);
-		expect(err.name).toBe("PushError");
+		assert.strictEqual(err.name, "PushError");
 	});
 
 	test("instanceof Error", () => {
 		const err = new PushError("msg", true);
-		expect(err).toBeInstanceOf(Error);
+		assert.ok(err instanceof Error);
 	});
 
 	test("instanceof PushError", () => {
 		const err = new PushError("msg", true);
-		expect(err).toBeInstanceOf(PushError);
+		assert.ok(err instanceof PushError);
 	});
 });
