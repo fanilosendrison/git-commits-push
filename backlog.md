@@ -1,0 +1,8 @@
+# Backlog
+
+Open items. Resolved items archived in `backlog.archive.md`.
+
+## 2026-09-02 push incident
+
+- [ ] [major] `src/modules/git/push.ts` — `classifyTransient()` (and `PERMANENT_PUSH_SIGNATURES`) does not recognize GitHub branch-protection rejections (`GH006`, `protected branch`, `protected branch hook declined`) as permanent. A direct push to a protected branch is therefore classified `kind=network` (transient), which triggers retries that can never succeed and ends in a misleading `LLM fatal error` report instead of a clear "changes must be made through a pull request" message. A future fix must: add the protected-branch signatures to the permanent set (or classify them as a distinct permanent kind) and surface the actual remote rejection in the report. (correctness / error-classification)
+- [ ] [major] `src/modules/core/discovery.ts` (+ `src/utils/git-utils.ts`) — `runDiscovery()` only includes repositories with a dirty working tree (`hasLocalChanges`); it ignores repositories that have committed-but-unpushed changes, even though `hasUnpushedCommits()` already exists in `git-utils.ts` and is never imported. After a push failure, the repo is left clean but ahead of its upstream, and a subsequent skill run reports "0 repos" and exits without pushing — stranding the commit (observed 2026-09-02 on the Turnlock repo). A future fix must: include repos with unpushed commits in discovery (or add an explicit push-only path) and ensure the commit-and-push retry loop does not re-delegate commit-plan generation against an already-empty diff once the commit has already landed. (correctness / discovery)
