@@ -71,7 +71,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
 	{
 		name: "Password / Secret",
 		pattern:
-			/(?:password|passwd|pwd|DB_PASSWORD|MYSQL_PASSWORD|POSTGRES_PASSWORD)\s*=\s*/i,
+			/(?:password|passwd|pwd|DB_PASSWORD|MYSQL_PASSWORD|POSTGRES_PASSWORD)\s*=(?!=)\s*/i,
 		confirm: (content: string) => {
 			const value = extractAssignedValue(content);
 			if (value.length < 8) return false;

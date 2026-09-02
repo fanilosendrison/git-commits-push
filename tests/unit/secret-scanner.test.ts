@@ -121,6 +121,17 @@ describe("secret-scanner Core Unit Tests", () => {
 		);
 	});
 
+	test("does not flag equality comparisons as password assignments", () => {
+		const comparisons = [
+			'+parsed.password === "" &&',
+			"+if (user.password == candidate) {",
+			"+const isValid = password === input;",
+		];
+		for (const line of comparisons) {
+			assert.strictEqual(scanDiff(line).clean, true, line);
+		}
+	});
+
 	test("detects Slack tokens", () => {
 		assert.strictEqual(
 			scanDiff("+xoxb-1234567890-abcdefghijklmnop").clean,
