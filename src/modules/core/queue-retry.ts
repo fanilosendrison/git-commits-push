@@ -3,6 +3,7 @@ import * as crypto from "node:crypto";
 import * as path from "node:path";
 import type {
 	CommitJobPayload,
+	CommitMessageRepairPayload,
 	CommitPlan,
 	CommittedSha,
 	Feedback,
@@ -72,6 +73,108 @@ function formatFailedPlans(plans: CommitPlan[]): string {
 		.join("\n---\n");
 }
 
+function hashPlans(plans: CommitPlan[]): string {
+	const canonical = plans
+		.map((plan) => ({
+			commit: {
+				type: plan.commit.type,
+				scope: plan.commit.scope ?? null,
+				description: plan.commit.description,
+				body: plan.commit.body ?? null,
+				isBreaking: plan.commit.isBreaking,
+			},
+			files: [...plan.files].sort(),
+		}))
+		.sort((left, right) =>
+			JSON.stringify(left).localeCompare(JSON.stringify(right)),
+		);
+	return crypto
+		.createHash("sha256")
+		.update(JSON.stringify(canonical))
+		.digest("hex");
+}
+
+function appendFeedbackHistory(
+	history: string[] | undefined,
+	failedPlans: CommitPlan[],
+): { nextHistory: string[]; previousCommit: string } {
+	const displayEntry = formatFailedPlans(failedPlans);
+	const truncatedEntry =
+		displayEntry.length > MAX_FEEDBACK_ENTRY_BYTES
+			? `${displayEntry.slice(0, MAX_FEEDBACK_ENTRY_BYTES)}\n[truncated]`
+			: displayEntry;
+	const nextHistory = [...(history ?? []), truncatedEntry];
+	if (nextHistory.length > MAX_FEEDBACK_HISTORY) {
+		nextHistory.splice(0, nextHistory.length - MAX_FEEDBACK_HISTORY);
+	}
+	const joinedHistory = nextHistory.join("\n\n--- NEXT ATTEMPT ---\n\n");
+	return {
+		nextHistory,
+		previousCommit:
+			joinedHistory.length > MAX_FEEDBACK_TOTAL_BYTES
+				? `${joinedHistory.slice(0, MAX_FEEDBACK_TOTAL_BYTES)}\n[truncated]`
+				: joinedHistory,
+	};
+}
+
+function queueCommitMessageRepair(
+	repoId: string,
+	repoState: RepoState,
+	errors: FeedbackError[],
+	settings: Settings,
+	systemPrompt: string,
+	failedPlans: CommitPlan[],
+): QueueRetryResult {
+	const diffHash = repoState.diffHash;
+	if (!diffHash) {
+		throw new Error(
+			`Cannot repair repo ${repoId}: missing diffHash on RepoState`,
+		);
+	}
+	const planHash = hashPlans(failedPlans);
+	if (repoState.lastPlanHash === planHash) {
+		return {
+			kind: "loop-detected",
+			repoState: { ...repoState, lastPlanHash: planHash },
+		};
+	}
+
+	const { nextHistory } = appendFeedbackHistory(
+		repoState.feedbackHistory,
+		failedPlans,
+	);
+	const payload: CommitMessageRepairPayload = {
+		mode: "repair-commit-messages",
+		repository: repoState.repository,
+		diffHash,
+		provider: settings.provider,
+		model: settings.model,
+		temperature: settings.temperature,
+		systemPrompt,
+		rejectedPlans: failedPlans,
+		validationErrors: errors,
+		thinking: settings.thinking,
+		agent: settings.agent,
+	};
+	const currentAttempt = repoState.attempts?.validation ?? 0;
+	logRetry(
+		repoId,
+		"validation",
+		currentAttempt,
+		diffHash,
+		"queueCommitMessageRepair",
+		settings.model,
+	);
+	const newRepoState: RepoState = {
+		...repoState,
+		lastPlanHash: planHash,
+		feedbackHistory: nextHistory,
+	};
+	const job = { id: repoId, prompt: JSON.stringify(payload) };
+	retryJobs.push(job);
+	return { kind: "queued", repoState: newRepoState, job };
+}
+
 // ── queueRetry ───────────────────────────────────────────────────────────────
 
 export function queueRetry(
@@ -90,6 +193,21 @@ export function queueRetry(
 	if (!repoState.diffHash) {
 		throw new Error(
 			`Cannot retry repo ${repoId}: missing diffHash on RepoState`,
+		);
+	}
+
+	if (
+		failedPlans.length > 0 &&
+		errors.length > 0 &&
+		errors.every((error) => error.kind === "validation")
+	) {
+		return queueCommitMessageRepair(
+			repoId,
+			repoState,
+			errors,
+			settings,
+			systemPrompt,
+			failedPlans,
 		);
 	}
 
@@ -149,22 +267,7 @@ export function queueRetry(
 		.digest("hex");
 
 	// 4. Loop detection
-	const canonical = failedPlans
-		.map((p) => ({
-			commit: {
-				type: p.commit.type,
-				scope: p.commit.scope ?? null,
-				description: p.commit.description,
-				body: p.commit.body ?? null,
-				isBreaking: p.commit.isBreaking,
-			},
-			files: [...p.files].sort(),
-		}))
-		.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-	const planHash = crypto
-		.createHash("sha256")
-		.update(JSON.stringify(canonical))
-		.digest("hex");
+	const planHash = hashPlans(failedPlans);
 
 	if (repoState.lastPlanHash === planHash) {
 		return {
@@ -174,23 +277,10 @@ export function queueRetry(
 	}
 
 	// 5. Cap feedbackHistory
-	const displayEntry = formatFailedPlans(failedPlans);
-	const truncatedEntry =
-		displayEntry.length > MAX_FEEDBACK_ENTRY_BYTES
-			? `${displayEntry.slice(0, MAX_FEEDBACK_ENTRY_BYTES)}\n[truncated]`
-			: displayEntry;
-
-	const history = repoState.feedbackHistory ?? [];
-	const nextHistory = [...history, truncatedEntry];
-	if (nextHistory.length > MAX_FEEDBACK_HISTORY) {
-		nextHistory.splice(0, nextHistory.length - MAX_FEEDBACK_HISTORY);
-	}
-
-	const joinedHistory = nextHistory.join("\n\n--- NEXT ATTEMPT ---\n\n");
-	const previousCommit =
-		joinedHistory.length > MAX_FEEDBACK_TOTAL_BYTES
-			? `${joinedHistory.slice(0, MAX_FEEDBACK_TOTAL_BYTES)}\n[truncated]`
-			: joinedHistory;
+	const { nextHistory, previousCommit } = appendFeedbackHistory(
+		repoState.feedbackHistory,
+		failedPlans,
+	);
 
 	// 6. Build payload
 	const feedback: Feedback = {

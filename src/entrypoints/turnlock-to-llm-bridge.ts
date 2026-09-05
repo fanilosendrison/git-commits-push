@@ -10,34 +10,22 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-	buildSimplePrompt,
-	createAnthropicAdapter,
-	createGoogleAdapter,
-	createOpenAIAdapter,
-	createOpenAICompatibleAdapter,
-	type ProviderAdapter,
-} from "@fanilosendrison/llm-runtime";
-import { z } from "zod";
 import { resolveAuthToken } from "../modules/core/auth-resolver.ts";
-import { isDirectExecution } from "../utils/direct-execution.ts";
+import { sanitizeSensitiveDiagnostic } from "../modules/core/sensitive-diagnostic-sanitizer.ts";
 import {
-	setupCleanupHooks,
-	startHeartbeat,
-	stopHeartbeat,
-} from "../utils/lock-manager.ts";
+	invokeLlm,
+	type LlmAdapterFactories,
+} from "../modules/llm/llm-invoker.ts";
+import { parseTurnlockV2BatchManifest } from "../modules/turnlock/batch-manifest.ts";
+import { writeCommitJobResult } from "../modules/turnlock/job-result-store.ts";
+import { isDirectExecution } from "../utils/direct-execution.ts";
 import {
 	buildResumeCommand,
 	buildResumeLaunch,
 	isCompiledJavaScriptModule,
 } from "../utils/runtime-launch.ts";
 
-type OpenAICompatibleProvider =
-	| "deepseek"
-	| "mistral"
-	| "groq"
-	| "together"
-	| "ollama";
+export { invokeLlm, type LlmAdapterFactories };
 
 function logBridgeMessage(message: string): void {
 	if (isCompiledJavaScriptModule(import.meta.url)) {
@@ -47,122 +35,17 @@ function logBridgeMessage(message: string): void {
 	console.log(message);
 }
 
-export interface LlmAdapterFactories {
-	readonly buildSimplePrompt: typeof buildSimplePrompt;
-	readonly createAnthropicAdapter: typeof createAnthropicAdapter;
-	readonly createGoogleAdapter: typeof createGoogleAdapter;
-	readonly createOpenAIAdapter: typeof createOpenAIAdapter;
-	readonly createOpenAICompatibleAdapter: typeof createOpenAICompatibleAdapter;
-}
-
-const defaultLlmAdapterFactories: LlmAdapterFactories = {
-	buildSimplePrompt,
-	createAnthropicAdapter,
-	createGoogleAdapter,
-	createOpenAIAdapter,
-	createOpenAICompatibleAdapter,
-};
-
-export async function invokeLlm(
-	payload: {
-		provider: string;
-		model: string;
-		token: string;
-		temperature: number;
-		systemPrompt: string;
-		userPrompt: string;
-		stripJsonFence?: boolean;
-		thinking?: boolean;
-	},
-	adapterFactories: LlmAdapterFactories = defaultLlmAdapterFactories,
-): Promise<string> {
-	const commonConfig = {
-		model: payload.model,
-		apiKey: payload.token,
-		sanitization: {
-			stripThinkingTags: true,
-			stripJsonFence: payload.stripJsonFence ?? true,
-		},
-	};
-
-	let adapter: ProviderAdapter;
-	if (payload.provider === "anthropic") {
-		adapter = adapterFactories.createAnthropicAdapter(commonConfig);
-	} else if (payload.provider === "openai") {
-		adapter = adapterFactories.createOpenAIAdapter(commonConfig);
-	} else if (payload.provider === "google") {
-		adapter = adapterFactories.createGoogleAdapter(commonConfig);
-	} else {
-		adapter = adapterFactories.createOpenAICompatibleAdapter({
-			...commonConfig,
-			provider: payload.provider as OpenAICompatibleProvider,
-		});
-	}
-
-	const response = await adapter.call({
-		messages: adapterFactories.buildSimplePrompt({
-			system: payload.systemPrompt,
-			user: payload.userPrompt,
-		}),
-		temperature: payload.temperature,
-		...(payload.thinking ? { thinking: true, reasoningEffort: "high" } : {}),
-	});
-
-	return response.content;
-}
-
+import { parseCommitJobResponse } from "../modules/core/commit-job-response.ts";
+import {
+	COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT,
+	formatCommitMessageRepairPrompt,
+} from "../modules/core/commit-message-repair.ts";
 import { formatFeedbackBlock } from "../modules/core/feedback-formatter.ts";
 import type {
-	CommitJobPayload,
+	BridgeJobPayload,
 	CommitJobResult,
 	CommitPlan,
 } from "../types.ts";
-
-const turnlockV2BatchManifestSchema = z.object({
-	manifestVersion: z.literal(2),
-	runId: z.string().min(1),
-	orchestratorName: z.string().min(1),
-	phase: z.string().min(1),
-	resumeAt: z.string().min(1),
-	label: z.string().min(1),
-	kind: z.literal("batch"),
-	emittedAt: z.string().min(1),
-	emittedAtEpochMs: z.number().finite(),
-	timeoutMs: z.number().positive(),
-	deadlineAtEpochMs: z.number().finite(),
-	attempt: z.number().int().nonnegative(),
-	maxAttempts: z.number().int().positive(),
-	worker: z.string().min(1).optional(),
-	jobs: z
-		.array(
-			z.object({
-				id: z.string().min(1),
-				prompt: z.string(),
-				resultPath: z.string().min(1),
-			}),
-		)
-		.min(1),
-});
-
-type TurnlockBatchManifest = z.infer<typeof turnlockV2BatchManifestSchema>;
-
-function parseTurnlockV2BatchManifest(content: string): TurnlockBatchManifest {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(content);
-	} catch {
-		throw new Error("Turnlock delegation manifest is not valid JSON");
-	}
-
-	const result = turnlockV2BatchManifestSchema.safeParse(parsed);
-	if (!result.success) {
-		throw new Error(
-			"Turnlock delegation manifest is not a valid v2 batch manifest",
-		);
-	}
-
-	return result.data;
-}
 
 export function parseSerializedValue(val: string): string {
 	if (val.startsWith('"') && val.endsWith('"')) {
@@ -305,9 +188,6 @@ export async function handleTurnlockDelegation(
 	const manifestContent = fs.readFileSync(manifestPath, "utf-8");
 	const manifest = parseTurnlockV2BatchManifest(manifestContent);
 
-	startHeartbeat();
-	setupCleanupHooks(manifest.runId);
-
 	logBridgeMessage(
 		`\n[Turnlock→LLM] Received batch delegation for '${manifest.label}' with ${manifest.jobs.length} jobs.`,
 	);
@@ -316,7 +196,18 @@ export async function handleTurnlockDelegation(
 	await Promise.all(
 		manifest.jobs.map(async (job) => {
 			try {
-				const payload: CommitJobPayload = JSON.parse(job.prompt);
+				const payload: BridgeJobPayload = JSON.parse(job.prompt);
+				if (payload.mode === "checkpoint-push-only") {
+					writeCommitJobResult(job.resultPath, {
+						success: true,
+						id: job.id,
+						commits: [],
+					});
+					logBridgeMessage(
+						`[Turnlock→LLM] [${job.id}] Durable push-only checkpoint acknowledged.`,
+					);
+					return;
+				}
 				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}${payload.agent ? ` (agent: ${payload.agent})` : ""}...`,
 				);
@@ -328,56 +219,59 @@ export async function handleTurnlockDelegation(
 				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
 				);
+				const isCommitMessageRepair = payload.mode === "repair-commit-messages";
 				let finalUserPrompt: string;
-				if (payload.feedback?.pending_files) {
+				if (isCommitMessageRepair) {
+					finalUserPrompt = formatCommitMessageRepairPrompt(payload);
+				} else if (payload.feedback?.pending_files) {
 					// Partial commit retry: the reconstructed diff is only for pending files,
 					// rendered inside <remaining-diff>. No separate diff prefix needed.
 					finalUserPrompt = formatFeedbackBlock(payload.feedback, payload.diff);
 				} else {
-					// First attempt or validation retry: show the full diff, then feedback
-					// (without duplicating the diff — not shown in <remaining-diff>).
 					finalUserPrompt = payload.diff;
 					if (payload.feedback) {
 						finalUserPrompt += formatFeedbackBlock(payload.feedback);
 					}
 				}
 
-				// Retry loop: LLM sometimes returns malformed JSON (transient)
-				let llmResponse = "";
-				let commits: CommitPlan[] = [];
+				// Retry malformed or mode-invalid LLM responses locally at most once.
+				let commits: CommitPlan[] | undefined;
+				let responseError: unknown;
 				for (let attempt = 0; attempt < 2; attempt++) {
-					llmResponse = await dependencies.invokeLlm({
+					const llmResponse = await dependencies.invokeLlm({
 						provider: payload.provider,
 						model: payload.model,
 						token: token,
 						temperature: payload.temperature,
-						systemPrompt: payload.systemPrompt,
+						systemPrompt: isCommitMessageRepair
+							? COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT
+							: payload.systemPrompt,
 						userPrompt: finalUserPrompt,
 						stripJsonFence: true, // Mandatory per specs
+						...(payload.thinking !== undefined
+							? { thinking: payload.thinking }
+							: {}),
 					});
 
 					logBridgeMessage(
 						`[Turnlock→LLM] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
 					);
 					try {
-						commits = JSON.parse(llmResponse);
-						if (Array.isArray(commits)) break;
-					} catch {
-						console.warn(
-							`[Turnlock→LLM] [${job.id}] Invalid JSON on attempt ${attempt + 1}, retrying...`,
-						);
+						commits = parseCommitJobResponse(payload, llmResponse);
+						break;
+					} catch (error) {
+						responseError = error;
+						if (attempt < 1) {
+							console.warn(
+								`[Turnlock→LLM] [${job.id}] Invalid LLM response on attempt ${attempt + 1}, retrying...`,
+							);
+						}
 					}
 				}
-				if (!Array.isArray(commits) || commits.length === 0) {
-					throw new Error(
-						"LLM returned an invalid response: expected a JSON array of commit plans.",
-					);
-				}
-
-				// Ensure directory for result exists
-				const dir = path.dirname(job.resultPath);
-				if (!fs.existsSync(dir)) {
-					fs.mkdirSync(dir, { recursive: true });
+				if (!commits) {
+					throw responseError instanceof Error
+						? responseError
+						: new Error("LLM returned an invalid response.");
 				}
 
 				const successResult: CommitJobResult = {
@@ -385,31 +279,21 @@ export async function handleTurnlockDelegation(
 					id: job.id,
 					commits,
 				};
-				fs.writeFileSync(
-					job.resultPath,
-					JSON.stringify(successResult, null, 2),
-					"utf-8",
-				);
+				writeCommitJobResult(job.resultPath, successResult);
 				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Success result written to ${job.resultPath}`,
 				);
 			} catch (err: unknown) {
-				const errMsg = err instanceof Error ? err.message : String(err);
+				const errMsg = sanitizeSensitiveDiagnostic(
+					err instanceof Error ? err.message : String(err),
+				);
 				console.error(`[Turnlock→LLM] [${job.id}] Error: ${errMsg}`);
 				const errorResult: CommitJobResult = {
 					success: false,
 					id: job.id,
 					error: `LLM Fatal Error: ${errMsg}`,
 				};
-				const dir = path.dirname(job.resultPath);
-				if (!fs.existsSync(dir)) {
-					fs.mkdirSync(dir, { recursive: true });
-				}
-				fs.writeFileSync(
-					job.resultPath,
-					JSON.stringify(errorResult, null, 2),
-					"utf-8",
-				);
+				writeCommitJobResult(job.resultPath, errorResult);
 			}
 		}),
 	);
@@ -417,8 +301,6 @@ export async function handleTurnlockDelegation(
 	logBridgeMessage(
 		`\n[Turnlock→LLM] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
-
-	stopHeartbeat();
 
 	// Print the resumed orchestrator's output even if it fails (report is in stdout)
 	let output = "";
@@ -500,7 +382,9 @@ export async function main() {
 			try {
 				await handleTurnlockDelegation(manifestPath, resumeCmd);
 			} catch (err: unknown) {
-				const errMsg = err instanceof Error ? err.message : String(err);
+				const errMsg = sanitizeSensitiveDiagnostic(
+					err instanceof Error ? err.message : String(err),
+				);
 				console.error(`[Turnlock→LLM] Delegation execution failed: ${errMsg}`);
 				process.exit(1);
 			}

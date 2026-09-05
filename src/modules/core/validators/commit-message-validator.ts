@@ -19,6 +19,8 @@ const VALID_TYPES = [
 
 const COMMIT_MSG_REGEX = /^(\w+)(?:\(([^)]+)\))?(!)?\s*:\s(.+)$/;
 
+export const MAX_COMMIT_SUBJECT_LENGTH = 72;
+
 const PAST_TENSE_PATTERN =
 	/^(added|fixed|removed|updated|changed|deleted|created|modified|moved|renamed|resolved|refactored|implemented|improved)\b/i;
 
@@ -85,8 +87,10 @@ export function validateCommitMessage(message: string): ValidationResult {
 		errors.push("La description ne doit pas se terminer par un point");
 	}
 
-	if (subject.length > 72) {
-		errors.push(`Subject line trop long: ${subject.length}/72 caractères max`);
+	if (subject.length > MAX_COMMIT_SUBJECT_LENGTH) {
+		errors.push(
+			`Subject line trop long: ${subject.length}/${MAX_COMMIT_SUBJECT_LENGTH} caractères max`,
+		);
 	}
 
 	if (PAST_TENSE_PATTERN.test(description)) {

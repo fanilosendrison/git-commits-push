@@ -42,17 +42,34 @@ async function mockFetch(input, init) {
 	const callNumber = completionCallCount + 1;
 	recordRequest(callNumber, requestBody);
 	completionCallCount = callNumber;
-	const completionPlan = {
-		commit: {
-			description:
-				callNumber === 1
-					? "Complete compiled bare remote pipeline"
-					: "complete compiled bare remote pipeline",
-			isBreaking: false,
-			type: "feat",
-		},
-		files: ["pipeline.ts"],
-	};
+	const userPrompt =
+		requestBody.messages?.find((message) => message.role === "user")?.content ??
+		"";
+	const responseContent =
+		callNumber === 1
+			? JSON.stringify([
+					{
+						commit: {
+							description: "Complete compiled bare remote pipeline",
+							isBreaking: false,
+							type: "feat",
+						},
+						files: ["pipeline.ts"],
+					},
+				])
+			: JSON.stringify([
+					{
+						planIndex: 0,
+						commit: {
+							description: "complete compiled bare remote pipeline",
+							isBreaking: false,
+							type: "feat",
+						},
+					},
+				]);
+	if (callNumber > 1 && userPrompt.includes("compiledPipeline = true")) {
+		throw new Error("Compiled repair prompt leaked the full Git diff");
+	}
 
 	return new Response(
 		JSON.stringify({
@@ -61,7 +78,7 @@ async function mockFetch(input, init) {
 					finish_reason: "stop",
 					index: 0,
 					message: {
-						content: JSON.stringify([completionPlan]),
+						content: responseContent,
 						role: "assistant",
 					},
 				},

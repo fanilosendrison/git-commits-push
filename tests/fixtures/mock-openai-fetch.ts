@@ -33,18 +33,46 @@ const mockFetch = async (
 
 	const isInitialResponse = completionCallCount === 0;
 	completionCallCount++;
-	const completionPlan = {
-		commit: {
-			type: "feat",
-			// The first response intentionally violates the lowercase-subject rule.
-			// The bridge must process the retry delegation that Turnlock emits.
-			description: isInitialResponse
-				? "Complete v2 pipeline"
-				: "complete v2 pipeline",
-			isBreaking: false,
-		},
-		files: ["pipeline.ts"],
+	const requestBody = JSON.parse(String(init?.body)) as {
+		messages?: Array<{ role?: string; content?: string }>;
 	};
+	const userPrompt =
+		requestBody.messages?.find((message) => message.role === "user")?.content ??
+		"";
+
+	let responseContent: string;
+	if (isInitialResponse) {
+		responseContent = JSON.stringify([
+			{
+				commit: {
+					type: "feat",
+					description:
+						"complete the delegated v2 pipeline with durable retry processing support",
+					isBreaking: false,
+				},
+				files: ["pipeline.ts"],
+			},
+		]);
+	} else {
+		if (userPrompt.includes("pipelineVersion = 2")) {
+			throw new Error("Validation repair prompt leaked the full Git diff");
+		}
+		if (!userPrompt.includes("72") || !userPrompt.includes("planIndex")) {
+			throw new Error(
+				"Validation repair prompt omitted structured constraints",
+			);
+		}
+		responseContent = JSON.stringify([
+			{
+				planIndex: 0,
+				commit: {
+					type: "feat",
+					description: "complete v2 pipeline",
+					isBreaking: false,
+				},
+			},
+		]);
+	}
 
 	return new Response(
 		JSON.stringify({
@@ -57,7 +85,7 @@ const mockFetch = async (
 					index: 0,
 					message: {
 						role: "assistant",
-						content: JSON.stringify([completionPlan]),
+						content: responseContent,
 					},
 					finish_reason: "stop",
 				},
