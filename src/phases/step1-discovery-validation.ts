@@ -1,14 +1,17 @@
 import { execSync } from "node:child_process";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PhaseIO, PhaseResult } from "turnlock";
 import { readSettings } from "../config/settings.ts";
 import { runDiscovery } from "../modules/core/discovery.ts";
 import { printReport } from "../modules/core/reporter.ts";
+import { loadSystemPrompt } from "../modules/core/system-prompt-loader.ts";
 import { processRepoValidationAndDiff } from "../modules/core/validators/pre-commit-validators.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
-import type { CommitJobPayload, GlobalState } from "../types.ts";
-import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
+import type {
+	CommitJobPayload,
+	GlobalState,
+	PushOnlyCheckpointPayload,
+} from "../types.ts";
 
 const skillLog = createSkillStatsLog();
 const currentParentModel = process.env.PI_PARENT_MODEL || "unknown";
@@ -29,13 +32,10 @@ export async function runDiscoveryAndValidationPhase(
 	// Try to read system prompt if present, else empty string
 	let systemPrompt = "";
 	try {
-		const promptPath = path.resolve(
+		systemPrompt = loadSystemPrompt(
 			import.meta.dirname,
-			settings.systemPromptPath || "../../system-prompt.md",
+			settings.systemPromptPath,
 		);
-		if (fs.existsSync(promptPath)) {
-			systemPrompt = fs.readFileSync(promptPath, "utf-8");
-		}
 	} catch (err) {
 		process.stderr.write(
 			`[orchestrator] Could not read system prompt: ${err}\n`,
@@ -51,7 +51,7 @@ export async function runDiscoveryAndValidationPhase(
 			"[orchestrator] No repositories with changes found. Exiting.\n",
 		);
 		printReport({});
-		skillLog.logOrderFinished({
+		skillLog.logRequestFinished({
 			runId: currentRunId,
 			outcome: "no_changes",
 			successCount: 0,
@@ -59,8 +59,20 @@ export async function runDiscoveryAndValidationPhase(
 			totalRepos: 0,
 			totalRetries: 0,
 		});
-		releaseLockAndTriggerNext(io.runId);
 		return io.done({});
+	}
+
+	if (!runStarted) {
+		runStarted = true;
+		runStartEpochMs = Date.now();
+		skillLog.logRunStart({
+			runId: currentRunId,
+			parentModel: currentParentModel,
+			skillModel: currentSkillModel,
+			skillProvider: currentSkillProvider,
+			reposCount: repos.length,
+			thinking: settings.thinking ?? false,
+		});
 	}
 
 	// Phase 2: Validation
@@ -70,16 +82,46 @@ export async function runDiscoveryAndValidationPhase(
 		diff: string;
 		diffHash: string;
 	}> = [];
+	const checkpointJobs: Array<{ id: string; prompt: string }> = [];
 	const nextRepos = { ...state.repos };
 
 	for (const repo of repos) {
 		try {
 			process.stderr.write(`[DEBUG] Validating repo: ${repo.path}\n`);
 			const t0 = Date.now();
-			const { diff, diffHash } = await processRepoValidationAndDiff(
-				repo,
-				settings,
-			);
+			if (repo.operation === "push-only") {
+				if (!repo.pushSnapshot) {
+					throw new Error(
+						"Push-only repository is missing its tracked snapshot.",
+					);
+				}
+				nextRepos[repo.id] = {
+					repository: repo.path,
+					status: "RUNNING" as const,
+					operation: "push-only" as const,
+					pushSnapshot: repo.pushSnapshot,
+				};
+				const checkpointPayload: PushOnlyCheckpointPayload = {
+					mode: "checkpoint-push-only",
+					repository: repo.path,
+				};
+				checkpointJobs.push({
+					id: repo.id,
+					prompt: JSON.stringify(checkpointPayload),
+				});
+			} else {
+				const { diff, diffHash } = await processRepoValidationAndDiff(
+					repo,
+					settings,
+				);
+				validRepos.push({ id: repo.id, path: repo.path, diff, diffHash });
+				nextRepos[repo.id] = {
+					repository: repo.path,
+					status: "PENDING" as const,
+					operation: "commit-and-push",
+					diffHash,
+				};
+			}
 			process.stderr.write(
 				"[DEBUG] Repo validated in " +
 					(Date.now() - t0) +
@@ -87,26 +129,35 @@ export async function runDiscoveryAndValidationPhase(
 					repo.path +
 					"\n",
 			);
-			validRepos.push({ id: repo.id, path: repo.path, diff, diffHash });
-			nextRepos[repo.id] = {
-				repository: repo.path,
-				status: "PENDING" as const,
-				diffHash,
-			};
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			nextRepos[repo.id] = {
 				repository: repo.path,
 				status: "FAILED" as const,
+				operation: repo.operation ?? "commit-and-push",
+				...(repo.pushSnapshot ? { pushSnapshot: repo.pushSnapshot } : {}),
 				error: msg,
 			};
+			skillLog.logRepoOutcome({
+				runId: currentRunId,
+				repoId: repo.id,
+				repository: repo.path,
+				status: "FAILED",
+				error: msg,
+				attempts: {},
+				totalRetries: 0,
+				committedCount: 0,
+			});
 		}
 	}
 
-	if (validRepos.length === 0) {
+	if (validRepos.length === 0 && checkpointJobs.length === 0) {
 		process.stderr.write(
-			"[orchestrator] No repositories passed validation. Exiting.\n",
+			"[orchestrator] No repositories require commit planning. Exiting.\n",
 		);
+		const successCount = Object.values(nextRepos).filter(
+			(r) => r.status === "SUCCESS",
+		).length;
 		const failCount = Object.values(nextRepos).filter(
 			(r) => r.status === "FAILED",
 		).length;
@@ -115,29 +166,23 @@ export async function runDiscoveryAndValidationPhase(
 		skillLog.logRunEnd({
 			runId: currentRunId,
 			durationMs: Date.now() - runStartEpochMs,
-			successCount: 0,
+			successCount,
 			failCount,
 			totalRepos,
 			totalRetries: 0,
 			loopCount: 0,
 		});
-		skillLog.logOrderFinished({
+		skillLog.logRequestFinished({
 			runId: currentRunId,
-			outcome: failCount > 0 ? "failed" : "no_valid_repos",
-			successCount: 0,
+			outcome: failCount > 0 ? "failed" : "success",
+			successCount,
 			failCount,
 			totalRepos,
 			totalRetries: 0,
 		});
-		releaseLockAndTriggerNext(io.runId);
-		const hasFailedRepo = Object.values(nextRepos).some(
-			(r) => r.status === "FAILED",
-		);
-		if (hasFailedRepo) {
+		if (failCount > 0) {
 			return io.fail(
-				new Error(
-					"No repositories passed validation. Check report for details.",
-				),
+				new Error("Push-only validation failed. Check report for details."),
 			);
 		}
 		return io.done({});
@@ -145,7 +190,7 @@ export async function runDiscoveryAndValidationPhase(
 
 	// Phase 3: Delegate to LLM
 	const maxDiff = settings.maxDiffChars ?? 3_000_000;
-	const jobs = validRepos.map((r) => {
+	const planningJobs = validRepos.map((r) => {
 		let diffForLlm = r.diff;
 		if (diffForLlm.length > maxDiff) {
 			let statFallback = "";
@@ -179,20 +224,7 @@ export async function runDiscoveryAndValidationPhase(
 			prompt: JSON.stringify(payload),
 		};
 	});
-
-	// Log run_start once per invocation (not on retries back to this phase)
-	if (!runStarted) {
-		runStarted = true;
-		runStartEpochMs = Date.now();
-		skillLog.logRunStart({
-			runId: currentRunId,
-			parentModel: currentParentModel,
-			skillModel: currentSkillModel,
-			skillProvider: currentSkillProvider,
-			reposCount: jobs.length,
-			thinking: settings.thinking ?? false,
-		});
-	}
+	const jobs = [...checkpointJobs, ...planningJobs];
 
 	for (const r of validRepos) {
 		const repoState = nextRepos[r.id];

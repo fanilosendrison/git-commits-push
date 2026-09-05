@@ -168,6 +168,37 @@ function execCwd(cmd: string, cwd: string): void {
 	});
 }
 
+export async function validateDiffForSecrets(
+	repo: RepositoryInfo,
+	diff: string,
+	scanner: SecretScanner = defaultScanner,
+): Promise<void> {
+	const scanResult = await scanner(diff);
+	if (scanResult.hasSecrets) {
+		skillLog.logSecretBlock({
+			repoId: repo.id,
+			repoPath: repo.path,
+			matchCount: scanResult.matchCount,
+			details: scanResult.details ?? "",
+		});
+		throw new Error(
+			`Security Exception: Secret detected in diff. ${scanResult.details ?? ""}`,
+		);
+	}
+
+	if (scanResult.warningCount && scanResult.warningCount > 0) {
+		skillLog.logSecretWarning({
+			repoId: repo.id,
+			repoPath: repo.path,
+			matchCount: scanResult.warningCount,
+			details: scanResult.warningDetails ?? "",
+		});
+		return;
+	}
+
+	skillLog.logSecretPass({ repoId: repo.id, repoPath: repo.path });
+}
+
 export async function processRepoValidationAndDiff(
 	repo: RepositoryInfo,
 	settings: Settings,
@@ -195,33 +226,7 @@ export async function processRepoValidationAndDiff(
 
 	const diffHash = crypto.createHash("sha256").update(diff).digest("hex");
 
-	const scanResult = await scanner(diff);
-	if (scanResult.hasSecrets) {
-		skillLog.logSecretBlock({
-			repoId: repo.id,
-			repoPath: repo.path,
-			matchCount: scanResult.matchCount,
-			details: scanResult.details ?? "",
-		});
-
-		throw new Error(
-			`Security Exception: Secret detected in diff. ${scanResult.details ?? ""}`,
-		);
-	}
-
-	if (scanResult.warningCount && scanResult.warningCount > 0) {
-		skillLog.logSecretWarning({
-			repoId: repo.id,
-			repoPath: repo.path,
-			matchCount: scanResult.warningCount,
-			details: scanResult.warningDetails ?? "",
-		});
-	} else {
-		skillLog.logSecretPass({
-			repoId: repo.id,
-			repoPath: repo.path,
-		});
-	}
+	await validateDiffForSecrets(repo, diff, scanner);
 
 	return { diff, diffHash };
 }

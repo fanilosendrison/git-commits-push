@@ -2,7 +2,7 @@
 // Given: a push where git would normally prompt for credentials.
 // Expected: push fails immediately (no hang), failure recorded in report.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess } from "../../src/types.ts";
@@ -13,23 +13,45 @@ import { computeStateJson } from "../helpers/test-helpers.ts";
 let repoFakeRemote: GitRepoFixture;
 let env: MockTurnlockEnvironment;
 let repoId: string;
+let authServer: ChildProcess;
 
 const SKILL_ENTRYPOINT = path.resolve(
 	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
+const AUTH_REMOTE_FIXTURE = path.resolve(
+	import.meta.dirname,
+	"../fixtures/http-auth-remote.mjs",
+);
 
-// Use an HTTPS URL that would require interactive credentials
-const UNREACHABLE_HTTPS_REMOTE =
-	"https://github.com/nonexistent-org/nonexistent-repo-xyz.git";
+function startAuthRemote(): Promise<number> {
+	authServer = spawn(process.execPath, [AUTH_REMOTE_FIXTURE], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(
+			() => reject(new Error("HTTP auth fixture startup timed out")),
+			10_000,
+		);
+		authServer.once("error", reject);
+		authServer.stdout?.once("data", (chunk) => {
+			clearTimeout(timeout);
+			resolve(Number.parseInt(chunk.toString("utf8").trim(), 10));
+		});
+	});
+}
 
 before(async () => {
 	env = MockTurnlockEnvironment.create();
+	const authRemotePort = await startAuthRemote();
 	repoFakeRemote = GitRepoFixture.create();
 	repoFakeRemote.commit("initial commit");
 	repoFakeRemote.writeAndStage("pushed.ts", "export const pushed = true;\n");
-	// Register a remote that requires auth — GIT_TERMINAL_PROMPT=0 must prevent prompting
-	repoFakeRemote.setRemote("origin", UNREACHABLE_HTTPS_REMOTE);
+	// A local HTTP 401 challenge would prompt without GIT_TERMINAL_PROMPT=0.
+	repoFakeRemote.setRemote(
+		"origin",
+		`http://127.0.0.1:${authRemotePort}/repository.git`,
+	);
 
 	repoId = await import("../../src/utils/git-utils.ts").then((m) =>
 		m.computeRepoId(repoFakeRemote.dir),
@@ -73,6 +95,7 @@ before(async () => {
 });
 
 after(() => {
+	authServer.kill("SIGTERM");
 	repoFakeRemote.dispose();
 	env.dispose();
 });
@@ -90,8 +113,11 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 			{
 				env: {
 					...process.env,
-					GIT_TERMINAL_PROMPT: "0", // explicitly set — matches Global Invariant I1
 					...env.env(),
+					GIT_CONFIG_NOSYSTEM: "1",
+					GIT_TERMINAL_PROMPT: "0",
+					HOME: env.runDir,
+					XDG_CONFIG_HOME: env.runDir,
 				},
 				encoding: "utf-8",
 				timeout: 10_000, // fail-safe: bun will kill if it hangs
@@ -105,12 +131,13 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 		assert.ok(durationMs < 10_000);
 	});
 
-	test("I2-02 | orchestrator delegates retry (transient push → retryable)", () => {
-		// Phase 4 classifies PushError(transient=true) as retryable (network kind, 1 attempt),
-		// so the orchestrator delegates again instead of reporting FAILED immediately.
-		assert.ok(stdout.includes("action: DELEGATE"));
-		assert.ok(stdout.includes("commit-jobs-retry"));
-		// Stderr must NOT contain unhandled exceptions
+	test("I2-02 | post-commit push failure never delegates another LLM plan", () => {
+		// The exact commit already exists locally. Publication failure is terminal for
+		// this run so a later invocation can use push-only recovery without recreating it.
+		assert.ok(!stdout.includes("action: DELEGATE"));
+		assert.ok(!stdout.includes("commit-jobs-retry"));
+		assert.ok(stdout.includes("action: ERROR"));
+		assert.ok(stderr.includes("Failed."));
 		assert.ok(!stderr.includes("Uncaught"));
 		assert.ok(!stderr.includes("UnhandledPromiseRejection"));
 	});

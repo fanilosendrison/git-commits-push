@@ -9,6 +9,8 @@ import {
 	DiffHashMismatchError,
 	GitExecError,
 	PartialCommitError,
+	PostCommitPushError,
+	PushError,
 } from "../core/errors.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { gitExec } from "./git-exec.ts";
@@ -28,14 +30,18 @@ function normalizePath(p: string): string {
  * @throws CommitPlanError — structural plan errors (empty, duplicate, missing, nonexistent)
  * @throws DiffHashMismatchError — staged diff changed during inference
  * @throws PartialCommitError — mid-loop failure after partial commits landed
- * @throws PushError — push failure (transient or permanent)
+ * @throws PostCommitPushError — push failure after all commits landed locally
  */
 export async function executeMultiCommitAndPush(
 	repoPath: string,
 	plans: CommitPlan[],
 	expectedDiffHash: string,
 	settings: Settings,
-): Promise<{ committedShas: CommittedSha[]; originalHead: string }> {
+): Promise<{
+	committedShas: CommittedSha[];
+	originalHead: string;
+	pushRetryCount: number;
+}> {
 	// 1. Empty-plans guard
 	if (plans.length === 0) {
 		throw new CommitPlanError(
@@ -251,8 +257,20 @@ export async function executeMultiCommitAndPush(
 		);
 	}
 
-	// 7. Push
-	executePush(repoPath, !!settings.autoPush);
+	// 7. Push. Never send landed commits back through LLM planning on failure.
+	let pushRetryCount: number;
+	try {
+		pushRetryCount = executePush(repoPath, !!settings.autoPush);
+	} catch (error) {
+		if (error instanceof PushError) {
+			throw new PostCommitPushError(error, {
+				committedShas: [...committedShas],
+				originalHead,
+				pushRetryCount: error.retryCount,
+			});
+		}
+		throw error;
+	}
 
-	return { committedShas, originalHead };
+	return { committedShas, originalHead, pushRetryCount };
 }

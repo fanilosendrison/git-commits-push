@@ -26,9 +26,25 @@ export interface Settings {
 	maxDiffChars?: number;
 }
 
+export type RepositoryOperation = "commit-and-push" | "push-only";
+
+export interface TrackedPushSnapshot {
+	sourceBranch: string;
+	validatedHeadSha: string;
+	upstreamRef: string;
+	remote: string;
+	destinationRef: string;
+	destinationBaselineSha: string;
+	outgoingShas: string[];
+	/** SHA-256 of the single effective push URL; the URL itself is never persisted. */
+	pushUrlFingerprint: string;
+}
+
 export interface RepositoryInfo {
 	id: string;
 	path: string;
+	operation?: RepositoryOperation;
+	pushSnapshot?: TrackedPushSnapshot;
 }
 
 export interface CommitMessage {
@@ -60,6 +76,11 @@ export interface FeedbackError {
 	message: string;
 	resolution_hint?: string | undefined;
 	files?: string[] | undefined;
+	planIndex?: number | undefined;
+	rule?: "commit-message" | "subject-max-length" | undefined;
+	rejectedSubject?: string | undefined;
+	actualLength?: number | undefined;
+	maximumLength?: number | undefined;
 }
 
 // ── CommittedSha ─────────────────────────────────────────────────────────
@@ -118,25 +139,43 @@ export type AttemptsByKind = Partial<Record<FeedbackError["kind"], number>>;
  *   - Retries: reconstructed remaining-work diff (populated by queueRetry).
  * The bridge always renders payload.diff inside <remaining-diff> tags.
  */
-export interface CommitJobPayload {
+interface CommitJobPayloadBase {
 	repository: string;
-	diff: string;
 	diffHash: string;
 	provider: string;
 	model: string;
 	temperature: number;
 	systemPrompt: string;
-	/**
-	 * Optional feedback from a previous failed attempt.
-	 * Replaced validation_errors string[] with structured Feedback
-	 * (Phase 2 — Feedback interface).
-	 */
-	feedback?: Feedback | undefined;
 	/** Enable thinking/reasoning for supported providers (e.g. DeepSeek) */
 	thinking?: boolean | undefined;
 	/** Agent name for nested credential lookup in agent-credentials.json */
 	agent?: string | undefined;
 }
+
+export interface CommitPlanningPayload extends CommitJobPayloadBase {
+	mode?: "plan" | undefined;
+	diff: string;
+	/** Structured feedback for non-validation retries. */
+	feedback?: Feedback | undefined;
+}
+
+export interface CommitMessageRepairPayload extends CommitJobPayloadBase {
+	mode: "repair-commit-messages";
+	rejectedPlans: CommitPlan[];
+	validationErrors: FeedbackError[];
+}
+
+export type CommitJobPayload =
+	| CommitPlanningPayload
+	| CommitMessageRepairPayload;
+
+/** Internal Turnlock yield used to persist a push-only snapshot before I/O. */
+export interface PushOnlyCheckpointPayload {
+	mode: "checkpoint-push-only";
+	repository: string;
+}
+
+export type BridgeJobPayload = CommitJobPayload | PushOnlyCheckpointPayload;
 
 /** Written by the Turnlock-to-LLM bridge to each job's resultPath on success */
 export interface CommitJobResultSuccess {
@@ -157,6 +196,9 @@ export type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
 export interface RepoState {
 	repository: string;
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+	operation?: RepositoryOperation | undefined;
+	pushSnapshot?: TrackedPushSnapshot | undefined;
+	pushedShas?: string[] | undefined;
 	diffHash?: string | undefined;
 	/**
 	 * Plural commits. Legacy singular `commit?: CommitMessage` is silently
@@ -203,6 +245,7 @@ export interface RepoReport {
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
 	error?: string | undefined;
 	committedShas: CommittedSha[];
+	pushedShas: string[];
 	attempts: Partial<Record<FeedbackError["kind"], number>>;
 	totalRetries: number;
 	loopDetected?: { kind: FeedbackError["kind"]; planHash: string } | undefined;

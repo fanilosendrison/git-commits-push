@@ -9,6 +9,7 @@ export function buildReport(repos: Record<string, RepoState>): RepoReport[] {
 			status: r.status,
 			error: r.error,
 			committedShas: r.committedShas ?? [],
+			pushedShas: r.pushedShas ?? [],
 			attempts,
 			totalRetries,
 			loopDetected: r.loopDetected
@@ -31,12 +32,15 @@ export function generateReport(repos: Record<string, RepoState>): string {
 		let line = "";
 		if (state.status === "SUCCESS") {
 			const commitCount = state.committedShas?.length ?? 0;
+			const pushedCount = state.pushedShas?.length ?? 0;
 			const firstCommit = state.commits?.[0]?.commit;
 			const commitSummary = firstCommit
 				? ` — ${firstCommit.type}: ${firstCommit.description}`
 				: "";
 			line = `✅ [${id}] Success.${commitSummary}`;
-			if (commitCount > 0) {
+			if (state.operation === "push-only") {
+				line += ` (${pushedCount} existing commit${pushedCount === 1 ? "" : "s"} pushed)`;
+			} else if (commitCount > 0) {
 				line += ` (${commitCount} commit${commitCount > 1 ? "s" : ""})`;
 			}
 		} else if (state.status === "FAILED") {

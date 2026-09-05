@@ -96,6 +96,20 @@ describe("buildReport", () => {
 		const result = buildReport(repos);
 		assert.strictEqual(result[0]?.totalRetries, 0);
 	});
+
+	test("push-only outcome exposes pushed SHAs separately from created commits", () => {
+		const result = buildReport({
+			"repo-1": {
+				repository: "/path",
+				status: "SUCCESS",
+				operation: "push-only",
+				pushedShas: ["first-sha", "second-sha"],
+			},
+		});
+
+		assert.deepStrictEqual(result[0]?.pushedShas, ["first-sha", "second-sha"]);
+		assert.deepStrictEqual(result[0]?.committedShas, []);
+	});
 });
 
 // ── generateReport ──────────────────────────────────────────────────────────
@@ -161,5 +175,19 @@ describe("generateReport — new fields", () => {
 		const report = generateReport(repos);
 		assert.ok(report.includes("abcdef1")); // sha.slice(0, 7)
 		assert.ok(report.includes("src/a.ts"));
+	});
+
+	test("push-only success renders its existing-commit publication count", () => {
+		const report = generateReport({
+			"repo-1": {
+				repository: "/path",
+				status: "SUCCESS",
+				operation: "push-only",
+				pushedShas: ["first-sha", "second-sha"],
+			},
+		});
+
+		assert.match(report, /2 existing commits pushed/u);
+		assert.ok(!report.includes("2 commits)"));
 	});
 });

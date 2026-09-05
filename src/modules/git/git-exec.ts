@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,14 +24,42 @@ function testOnlyGravityTelemetryEnv(): Record<string, string> {
 	};
 }
 
-function buildGitEnv(): Record<string, string> {
+export interface GitProcessConfigEntry {
+	readonly key: string;
+	readonly value: string;
+}
+
+function quoteGitConfigParameter(entry: GitProcessConfigEntry): string {
+	const parameter = `${entry.key}=${entry.value}`;
+	return `'${parameter.replaceAll("'", `'\\''`)}'`;
+}
+
+function appendProcessConfig(
+	environment: NodeJS.ProcessEnv,
+	entries: readonly GitProcessConfigEntry[],
+): NodeJS.ProcessEnv {
+	if (entries.length === 0) return environment;
+	const ambientParameters = environment.GIT_CONFIG_PARAMETERS?.trim();
+	const appendedParameters = entries.map(quoteGitConfigParameter).join(" ");
 	return {
+		...environment,
+		GIT_CONFIG_PARAMETERS: ambientParameters
+			? `${ambientParameters} ${appendedParameters}`
+			: appendedParameters,
+	};
+}
+
+function buildGitEnv(
+	processConfig: readonly GitProcessConfigEntry[] = [],
+): NodeJS.ProcessEnv {
+	const environment: NodeJS.ProcessEnv = {
 		...process.env,
 		...testOnlyGravityTelemetryEnv(),
 		GIT_TERMINAL_PROMPT: "0",
 		[TRUSTED_MARKER_ENV]: TRUSTED_MARKER_VALUE,
 		[TRUSTED_TOKEN_ENV]: createTrustToken(),
-	} as Record<string, string>;
+	};
+	return appendProcessConfig(environment, processConfig);
 }
 
 /**
@@ -45,5 +73,20 @@ export function gitExec(args: string, cwd: string): string {
 		stdio: ["pipe", "pipe", "pipe"],
 		env: buildGitEnv(),
 		maxBuffer: 50 * 1024 * 1024, // 50 MB — avoids ENOBUFS on verbose hooks
+	}).trim();
+}
+
+/** Run Git without a shell when arguments contain discovered refs or remotes. */
+export function gitExecArgs(
+	args: readonly string[],
+	cwd: string,
+	processConfig: readonly GitProcessConfigEntry[] = [],
+): string {
+	return execFileSync("git", [...args], {
+		cwd,
+		encoding: "utf-8",
+		stdio: ["pipe", "pipe", "pipe"],
+		env: buildGitEnv(processConfig),
+		maxBuffer: 50 * 1024 * 1024,
 	}).trim();
 }

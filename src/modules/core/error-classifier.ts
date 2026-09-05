@@ -5,6 +5,7 @@ import {
 	DiffHashMismatchError,
 	GitExecError,
 	PartialCommitError,
+	PostCommitPushError,
 	PushError,
 } from "./errors.ts";
 
@@ -55,6 +56,13 @@ export function classifyError(
 		return {
 			kind: "fail",
 			error: { kind: "git", message: err.message },
+		};
+	}
+
+	if (err instanceof PostCommitPushError) {
+		return {
+			kind: "fail",
+			error: { kind: "network", message: err.message },
 		};
 	}
 

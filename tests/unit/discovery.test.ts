@@ -1,6 +1,7 @@
 // tests/unit/discovery.test.ts — Unit tests for src/modules/discovery.ts
 // and the git-utils helpers it composes.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -200,5 +201,74 @@ describe("U-DI-10 | computeRepoId — deterministic across calls", () => {
 		const id2 = await computeRepoId(repo.dir);
 		assert.strictEqual(id1, id2);
 		assert.ok(id1.length > 0);
+	});
+});
+
+describe("U-DI-11 | runDiscovery — clean tracked repository ahead of upstream", () => {
+	let repo: GitRepoFixture;
+	let remoteRoot: string;
+	let remotePath: string;
+
+	before(() => {
+		remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "di-11-remote-"));
+		remotePath = path.join(remoteRoot, "remote.git");
+		execFileSync("git", ["init", "--bare", remotePath]);
+		repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.setRemote("origin", remotePath);
+		const branch = execFileSync(
+			"git",
+			["symbolic-ref", "--quiet", "--short", "HEAD"],
+			{ cwd: repo.dir, encoding: "utf8" },
+		).trim();
+		execFileSync("git", ["push", "--set-upstream", "origin", branch], {
+			cwd: repo.dir,
+		});
+		repo.writeAndStage("ahead.ts", "export const ahead = true;\n");
+		repo.commit("add ahead commit");
+	});
+
+	after(() => {
+		repo.dispose();
+		fs.rmSync(remoteRoot, { recursive: true, force: true });
+	});
+
+	test("returns the repository as push-only when auto-push is enabled", async () => {
+		const results = await runDiscovery({
+			...BASE_SETTINGS,
+			autoPush: true,
+			searchPaths: [repo.dir],
+		});
+
+		assert.strictEqual(results.length, 1);
+		assert.strictEqual(results[0]?.path, repo.dir);
+		assert.strictEqual(results[0]?.operation, "push-only");
+	});
+
+	test("fails the pass when an ahead repository cannot inspect its remote", async () => {
+		const unavailablePath = `${remotePath}.unavailable`;
+		fs.renameSync(remotePath, unavailablePath);
+		try {
+			await assert.rejects(
+				runDiscovery({
+					...BASE_SETTINGS,
+					autoPush: true,
+					searchPaths: [repo.dir],
+				}),
+				/Cannot inspect tracked push destination/iu,
+			);
+		} finally {
+			fs.renameSync(unavailablePath, remotePath);
+		}
+	});
+
+	test("excludes the repository when auto-push is disabled", async () => {
+		const results = await runDiscovery({
+			...BASE_SETTINGS,
+			autoPush: false,
+			searchPaths: [repo.dir],
+		});
+
+		assert.deepStrictEqual(results, []);
 	});
 });

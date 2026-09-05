@@ -1,294 +1,268 @@
-/**
- * tests/unit/orchestrator-schema.test.ts — State schema tests for Phase 4.
- *
- * Plan ref: Phase 4 — Update stateSchema Zod definition
- *   - R30/R48: attempts tightened to per-kind, constrained to 5-kind union
- *   - R37: legacy attempts:number accepted via preprocessor
- *   - R58: top-level diffHash field
- *   - R62: loopDetected field
- *   - New fields: committedShas, originalHead, feedbackHistory, lastPlanHash
- *   - Status: PENDING, RUNNING, SUCCESS, FAILED
- */
-
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { z } from "zod";
+import { stateSchema } from "../../src/config/state-schema.ts";
 
-// Re-create the schema here for testing (mirrors the one in the orchestrator)
-// We test the schema independently to keep the test isolated from the orchestrator.
+function parseStateWithRepo(repo: Record<string, unknown>) {
+	return stateSchema.safeParse({ repos: { "repo-1": repo } });
+}
 
-const ATTEMPT_KINDS = [
-	"validation",
-	"structural",
-	"race",
-	"git",
-	"network",
-] as const;
-type AttemptKind = (typeof ATTEMPT_KINDS)[number];
-
-const attemptsSchema = z.preprocess(
-	(v) => {
-		if (typeof v === "number") return {}; // legacy: zero out
-		return v;
-	},
-	z
-		.record(
-			z
-				.string()
-				.refine(
-					(k): k is AttemptKind => ATTEMPT_KINDS.includes(k as AttemptKind),
-					{
-						message: `attempts key must be one of: ${ATTEMPT_KINDS.join(", ")}`,
-					},
-				),
-			z.number().int().nonnegative(),
-		)
-		.optional(),
-);
-
-const commitPlanSchema = z.object({
-	commit: z.object({
-		type: z.string(),
-		scope: z.string().optional(),
-		description: z.string(),
-		body: z.string().optional(),
-		isBreaking: z.boolean(),
-	}),
-	files: z.array(z.string()),
-});
-
-const stateSchema = z.object({
-	diffHash: z.string().optional(),
-	repos: z.record(
-		z.string(),
-		z.object({
-			repository: z.string(),
-			status: z.enum(["PENDING", "RUNNING", "SUCCESS", "FAILED"]),
-			diffHash: z.string().optional(),
-			commits: z.array(commitPlanSchema).optional(),
-			error: z.string().optional(),
-			attempts: attemptsSchema,
-			committedShas: z
-				.array(
-					z.object({
-						sha: z.string(),
-						files: z.array(z.string()),
-					}),
-				)
-				.optional(),
-			originalHead: z.string().optional(),
-			feedbackHistory: z.array(z.string()).optional(),
-			lastPlanHash: z.string().optional(),
-			loopDetected: z
-				.object({
-					kind: z.string(),
-					planHash: z.string(),
-				})
-				.optional(),
-			fallbackAttempted: z.boolean().optional(),
-		}),
-	),
-});
-
-// ── Basic valid state ────────────────────────────────────────────────────────
-
-describe("stateSchema accepts valid state", () => {
-	test("minimal valid state", () => {
-		const result = stateSchema.safeParse({
-			repos: {
-				"repo-1": {
-					repository: "/path/to/repo",
-					status: "PENDING",
-				},
-			},
+describe("production state schema", () => {
+	test("accepts a minimal state", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "PENDING",
 		});
 		assert.strictEqual(result.success, true);
 	});
 
-	test("full state with all new fields", () => {
-		const result = stateSchema.safeParse({
-			diffHash: "abc123def456",
+	test("round-trips the complete push-only state without a raw endpoint", () => {
+		const input = {
 			repos: {
 				"repo-1": {
 					repository: "/path/to/repo",
-					status: "RUNNING",
-					diffHash: "abc123",
-					commits: [
-						{
-							commit: {
-								type: "feat",
-								description: "add feature",
-								isBreaking: false,
-							},
-							files: ["src/index.ts"],
-						},
-					],
-					error: "something failed",
-					attempts: {
-						structural: 1,
-						git: 0,
-						validation: 0,
-						race: 0,
-						network: 0,
+					status: "SUCCESS",
+					operation: "push-only",
+					pushSnapshot: {
+						sourceBranch: "main",
+						validatedHeadSha: "c".repeat(40),
+						upstreamRef: "origin/main",
+						remote: "origin",
+						destinationRef: "refs/heads/main",
+						destinationBaselineSha: "b".repeat(40),
+						outgoingShas: ["d".repeat(40), "c".repeat(40)],
+						pushUrlFingerprint: "a".repeat(64),
 					},
-					committedShas: [{ sha: "abc123", files: ["src/index.ts"] }],
-					originalHead: "def456",
-					feedbackHistory: ["plan1", "plan2"],
-					lastPlanHash: "sha256hash",
-					loopDetected: { kind: "structural", planHash: "sha256hash" },
-					fallbackAttempted: true,
+					pushedShas: ["d".repeat(40), "c".repeat(40)],
 				},
 			},
+		} as const;
+		const result = stateSchema.safeParse(input);
+
+		assert.strictEqual(result.success, true);
+		if (!result.success) return;
+		assert.deepStrictEqual(result.data, input);
+		assert.ok(!JSON.stringify(result.data).includes("https://"));
+	});
+
+	test("rejects a push snapshot without its endpoint fingerprint", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "RUNNING",
+			operation: "push-only",
+			pushSnapshot: {
+				sourceBranch: "main",
+				validatedHeadSha: "c".repeat(40),
+				upstreamRef: "origin/main",
+				remote: "origin",
+				destinationRef: "refs/heads/main",
+				destinationBaselineSha: "b".repeat(40),
+				outgoingShas: ["c".repeat(40)],
+			},
+		});
+		assert.strictEqual(result.success, false);
+	});
+
+	test("rejects empty or abbreviated outgoing commit IDs", () => {
+		for (const outgoingShas of [[], ["abc123"]]) {
+			const result = parseStateWithRepo({
+				repository: "/path/to/repo",
+				status: "RUNNING",
+				operation: "push-only",
+				pushSnapshot: {
+					sourceBranch: "main",
+					validatedHeadSha: "c".repeat(40),
+					upstreamRef: "origin/main",
+					remote: "origin",
+					destinationRef: "refs/heads/main",
+					destinationBaselineSha: "b".repeat(40),
+					outgoingShas,
+					pushUrlFingerprint: "a".repeat(64),
+				},
+			});
+			assert.strictEqual(result.success, false);
+		}
+	});
+
+	test("rejects inconsistent operation-specific push evidence", () => {
+		const pushOnlyWithoutSnapshot = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "SUCCESS",
+			operation: "push-only",
+			pushedShas: ["c".repeat(40)],
+		});
+		assert.strictEqual(pushOnlyWithoutSnapshot.success, false);
+
+		const commitWithPushOnlyEvidence = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "SUCCESS",
+			operation: "commit-and-push",
+			pushedShas: ["not-a-sha"],
+		});
+		assert.strictEqual(commitWithPushOnlyEvidence.success, false);
+	});
+
+	test("rejects malformed pushed object IDs", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "SUCCESS",
+			operation: "push-only",
+			pushSnapshot: {
+				sourceBranch: "main",
+				validatedHeadSha: "c".repeat(40),
+				upstreamRef: "origin/main",
+				remote: "origin",
+				destinationRef: "refs/heads/main",
+				destinationBaselineSha: "b".repeat(40),
+				outgoingShas: ["c".repeat(40)],
+				pushUrlFingerprint: "a".repeat(64),
+			},
+			pushedShas: ["not-a-sha"],
+		});
+		assert.strictEqual(result.success, false);
+	});
+
+	test("rejects incomplete successful push-only evidence", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "SUCCESS",
+			operation: "push-only",
+			pushSnapshot: {
+				sourceBranch: "main",
+				validatedHeadSha: "c".repeat(40),
+				upstreamRef: "origin/main",
+				remote: "origin",
+				destinationRef: "refs/heads/main",
+				destinationBaselineSha: "b".repeat(40),
+				outgoingShas: ["d".repeat(40), "c".repeat(40)],
+				pushUrlFingerprint: "a".repeat(64),
+			},
+			pushedShas: ["c".repeat(40)],
+		});
+		assert.strictEqual(result.success, false);
+	});
+
+	test("accepts the complete commit-and-push state", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "RUNNING",
+			operation: "commit-and-push",
+			diffHash: "abc123",
+			commits: [
+				{
+					commit: {
+						type: "feat",
+						description: "add feature",
+						isBreaking: false,
+					},
+					files: ["src/index.ts"],
+				},
+			],
+			error: "something failed",
+			attempts: {
+				structural: 1,
+				git: 0,
+				validation: 0,
+				race: 0,
+				network: 0,
+			},
+			committedShas: [{ sha: "abc123", files: ["src/index.ts"] }],
+			originalHead: "def456",
+			feedbackHistory: ["plan1", "plan2"],
+			lastPlanHash: "sha256hash",
+			loopDetected: { kind: "structural", planHash: "sha256hash" },
+			fallbackAttempted: true,
 		});
 		assert.strictEqual(result.success, true);
 	});
-});
 
-// ── Status validation ────────────────────────────────────────────────────
-
-describe("stateSchema status field", () => {
-	test("rejects invalid status", () => {
-		const result = stateSchema.safeParse({
-			repos: {
-				"repo-1": {
-					repository: "/path",
-					status: "INVALID",
-				},
-			},
+	test("rejects an invalid status", () => {
+		const result = parseStateWithRepo({
+			repository: "/path",
+			status: "INVALID",
 		});
 		assert.strictEqual(result.success, false);
 	});
 });
 
-// ── attempts: per-kind with legacy support ───────────────────────────────────
-
-describe("attempts schema", () => {
-	test("accepts per-kind attempts object", () => {
-		const result = attemptsSchema.safeParse({
+describe("production attempts schema compatibility", () => {
+	test("accepts every supported attempt kind", () => {
+		const attempts = {
 			structural: 2,
 			validation: 1,
 			git: 0,
 			race: 0,
 			network: 0,
+		};
+		const result = parseStateWithRepo({
+			repository: "/path",
+			status: "RUNNING",
+			attempts,
 		});
 		assert.strictEqual(result.success, true);
 		if (result.success) {
-			assert.deepStrictEqual(result.data, {
-				structural: 2,
-				validation: 1,
-				git: 0,
-				race: 0,
-				network: 0,
+			assert.deepStrictEqual(result.data.repos["repo-1"]?.attempts, attempts);
+		}
+	});
+
+	test("normalizes legacy numeric attempts to an empty object", () => {
+		const result = parseStateWithRepo({
+			repository: "/path",
+			status: "RUNNING",
+			attempts: 3,
+		});
+		assert.strictEqual(result.success, true);
+		if (result.success) {
+			assert.deepStrictEqual(result.data.repos["repo-1"]?.attempts, {});
+		}
+	});
+
+	test("rejects invalid attempt keys and values", () => {
+		for (const attempts of [
+			{ validaton: 1 },
+			{ structural: -1 },
+			{ structural: 1.5 },
+		]) {
+			const result = parseStateWithRepo({
+				repository: "/path",
+				status: "RUNNING",
+				attempts,
 			});
+			assert.strictEqual(result.success, false);
 		}
-	});
-
-	test("R37: legacy attempts:number → zeroed to {}", () => {
-		const result = attemptsSchema.safeParse(3);
-		assert.strictEqual(result.success, true);
-		if (result.success) {
-			assert.deepStrictEqual(Object.keys(result.data ?? {}), []);
-		}
-	});
-
-	test("R48: rejects invalid attempt kind key", () => {
-		const result = attemptsSchema.safeParse({
-			validaton: 1, // typo: should be "validation"
-		});
-		assert.strictEqual(result.success, false);
-	});
-
-	test("R30: rejects negative attempts value", () => {
-		const result = attemptsSchema.safeParse({
-			structural: -1,
-		});
-		assert.strictEqual(result.success, false);
-	});
-
-	test("R30: rejects non-integer attempts value", () => {
-		const result = attemptsSchema.safeParse({
-			structural: 1.5,
-		});
-		assert.strictEqual(result.success, false);
-	});
-
-	test("accepts empty object", () => {
-		const result = attemptsSchema.safeParse({});
-		assert.strictEqual(result.success, true);
-		if (result.success) {
-			assert.deepStrictEqual(Object.keys(result.data ?? {}), []);
-		}
-	});
-
-	test("accepts undefined (optional)", () => {
-		const result = attemptsSchema.safeParse(undefined);
-		assert.strictEqual(result.success, true);
 	});
 });
 
-// ── committedShas ────────────────────────────────────────────────────────────
-
-describe("committedShas schema", () => {
-	test("accepts valid committedShas array", () => {
-		const result = stateSchema.safeParse({
-			repos: {
-				"repo-1": {
-					repository: "/path",
-					status: "SUCCESS",
-					committedShas: [
-						{ sha: "abc", files: ["f1.ts"] },
-						{ sha: "def", files: ["f2.ts", "f3.ts"] },
-					],
-				},
-			},
+describe("production persisted outcome fields", () => {
+	test("accepts committed SHAs and structured loop detection", () => {
+		const result = parseStateWithRepo({
+			repository: "/path",
+			status: "FAILED",
+			committedShas: [
+				{ sha: "abc", files: ["f1.ts"] },
+				{ sha: "def", files: ["f2.ts", "f3.ts"] },
+			],
+			loopDetected: { kind: "network", planHash: "hash123" },
+			feedbackHistory: ["attempt 1", "attempt 2"],
 		});
 		assert.strictEqual(result.success, true);
 	});
 
-	test("rejects committedShas with missing sha", () => {
-		const result = stateSchema.safeParse({
-			repos: {
-				"repo-1": {
-					repository: "/path",
-					status: "SUCCESS",
-					committedShas: [{ files: ["f1.ts"] }],
-				},
-			},
-		});
-		assert.strictEqual(result.success, false);
-	});
-});
-
-// ── loopDetected ─────────────────────────────────────────────────────────────
-
-describe("loopDetected schema (R62)", () => {
-	test("accepts valid loopDetected", () => {
-		const result = stateSchema.safeParse({
-			repos: {
-				"repo-1": {
-					repository: "/path",
-					status: "FAILED",
-					loopDetected: { kind: "structural", planHash: "hash123" },
-				},
-			},
-		});
-		assert.strictEqual(result.success, true);
-	});
-});
-
-// ── feedbackHistory ──────────────────────────────────────────────────────────
-
-describe("feedbackHistory schema", () => {
-	test("accepts string array", () => {
-		const result = stateSchema.safeParse({
-			repos: {
-				"repo-1": {
-					repository: "/path",
-					status: "RUNNING",
-					feedbackHistory: ["attempt 1", "attempt 2"],
-				},
-			},
-		});
-		assert.strictEqual(result.success, true);
+	test("rejects malformed committed SHAs and loop kinds", () => {
+		assert.strictEqual(
+			parseStateWithRepo({
+				repository: "/path",
+				status: "FAILED",
+				committedShas: [{ files: ["f1.ts"] }],
+			}).success,
+			false,
+		);
+		assert.strictEqual(
+			parseStateWithRepo({
+				repository: "/path",
+				status: "FAILED",
+				loopDetected: { kind: "unknown", planHash: "hash123" },
+			}).success,
+			false,
+		);
 	});
 });

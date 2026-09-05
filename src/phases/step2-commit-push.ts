@@ -1,33 +1,62 @@
-import { execSync } from "node:child_process";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PhaseIO, PhaseResult } from "turnlock";
 import { readSettings } from "../config/settings.ts";
 import { commitJobResultSchema } from "../config/state-schema.ts";
+import { finalizeCommitPushPhase } from "../modules/core/commit-push-finalizer.ts";
+import { classifyError } from "../modules/core/error-classifier.ts";
 import {
-	classifyError,
-	classifyLLMFailure,
-} from "../modules/core/error-classifier.ts";
-import { CommitPlanError, PartialCommitError } from "../modules/core/errors.ts";
-import {
-	buildFallbackSettings,
-	shouldUseFallback,
-} from "../modules/core/fallback-model.ts";
+	CommitPlanError,
+	PartialCommitError,
+	PostCommitPushError,
+} from "../modules/core/errors.ts";
+import { handleLlmJobFailure } from "../modules/core/llm-job-failure-handler.ts";
 import {
 	MAX_ATTEMPTS_BY_KIND,
 	queueRetry,
 	retryJobs,
 } from "../modules/core/queue-retry.ts";
-import { printReport } from "../modules/core/reporter.ts";
-import { validateCommitMessage } from "../modules/core/validators/commit-message-validator.ts";
-import { formatConventionalCommit } from "../modules/formatters/commit-formatter.ts";
+import { loadSystemPrompt } from "../modules/core/system-prompt-loader.ts";
+import { handleValidationRetry } from "../modules/core/validation-retry-handler.ts";
 import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
+import { handlePushOnlyCheckpointResult } from "../modules/git/push-only-checkpoint.ts";
+import { resetIndexForRetry } from "../modules/git/reset-index.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
-import type { FeedbackError, GlobalState } from "../types.ts";
-import { releaseLockAndTriggerNext } from "../utils/lock-manager.ts";
+import type { CommittedSha, GlobalState } from "../types.ts";
 
 const skillLog = createSkillStatsLog();
-const runStartEpochMs = 0;
+
+function mergeCommittedShas(
+	existing: readonly CommittedSha[],
+	incoming: readonly CommittedSha[],
+): CommittedSha[] {
+	const merged = [...existing];
+	const knownShas = new Set(existing.map(({ sha }) => sha));
+	for (const committedSha of incoming) {
+		if (knownShas.has(committedSha.sha)) continue;
+		knownShas.add(committedSha.sha);
+		merged.push(committedSha);
+	}
+	return merged;
+}
+
+export function mergePostCommitPushFailure(
+	repoState: GlobalState["repos"][string],
+	error: PostCommitPushError,
+): GlobalState["repos"][string] {
+	return {
+		...repoState,
+		committedShas: mergeCommittedShas(
+			repoState.committedShas ?? [],
+			error.context.committedShas,
+		),
+		originalHead: repoState.originalHead ?? error.context.originalHead,
+		attempts: {
+			...(repoState.attempts ?? {}),
+			network:
+				(repoState.attempts?.network ?? 0) + error.context.pushRetryCount,
+		},
+	};
+}
 
 export async function runCommitAndPushPhase(
 	state: GlobalState,
@@ -41,13 +70,10 @@ export async function runCommitAndPushPhase(
 	// Try to read system prompt if present, else empty string
 	let systemPrompt = "";
 	try {
-		const promptPath = path.resolve(
+		systemPrompt = loadSystemPrompt(
 			import.meta.dirname,
-			settings.systemPromptPath || "../../system-prompt.md",
+			settings.systemPromptPath,
 		);
-		if (fs.existsSync(promptPath)) {
-			systemPrompt = fs.readFileSync(promptPath, "utf-8");
-		}
 	} catch {
 		// ignore
 	}
@@ -66,266 +92,43 @@ export async function runCommitAndPushPhase(
 		let repoState = nextRepos[result.id];
 		if (!repoState) continue;
 
-		if (!result.success) {
-			// R7 + R27 fix: classify LLM-side failures instead of hardcoding "git"
-			const llmKind = classifyLLMFailure(result.error);
-			if (llmKind === null) {
-				// R57 mirror (C1): if LLM returned empty plans but commits already landed,
-				// treat as SUCCESS — same logic as classifyError for CommitPlanError(empty-plans).
-				const isLlmEmptyPlans =
-					result.error.includes("empty") ||
-					result.error.includes("non-empty JSON array");
-				const committedShasExist = (repoState.committedShas?.length ?? 0) > 0;
-				if (isLlmEmptyPlans && committedShasExist) {
-					nextRepos[result.id] = {
-						...repoState,
-						status: "SUCCESS" as const,
-						commits: [],
-						error:
-							"LLM returned an empty plan after partial commits completed; treating as success.",
-					};
-					continue;
-				}
-				// Fail-closed for unknown/bridge errors
-				nextRepos[result.id] = {
-					...repoState,
-					status: "FAILED" as const,
-					error: `LLM fatal error: ${result.error}`,
-				};
-				skillLog.logRepoOutcome({
-					runId: currentRunId,
-					repoId: result.id,
-					repository: repoState.repository,
-					status: "FAILED",
-					error: result.error,
-					attempts: repoState.attempts ?? {},
-					totalRetries: Object.values(repoState.attempts ?? {}).reduce(
-						(a, b) => a + b,
-						0,
-					),
-					committedCount: 0,
-				});
-				continue;
-			}
-			// R38 fix: direct access replaces bumpAttempt
-			const attempts = repoState.attempts?.[llmKind] ?? 0;
-			if (attempts < MAX_ATTEMPTS_BY_KIND[llmKind]) {
-				repoState = {
-					...repoState,
-					attempts: {
-						...(repoState.attempts ?? {}),
-						[llmKind]: attempts + 1,
-					},
-				};
-				const retryResult = queueRetry(
-					result.id,
-					repoState,
-					[
-						{
-							kind: llmKind,
-							message: result.error,
-							resolution_hint:
-								"The previous LLM response was malformed. Regenerate based on the current diff.",
-						},
-					],
-					{},
-					settings,
-					systemPrompt,
-					[], // no plans to hash — LLM never returned parseable output
-				);
-				if (retryResult.kind === "loop-detected") {
-					skillLog.logLoopDetected({
-						runId: currentRunId,
-						repoId: result.id,
-						kind: llmKind,
-						planHash: retryResult.repoState.lastPlanHash ?? "",
-					});
-					nextRepos[result.id] = {
-						...retryResult.repoState,
-						status: "FAILED" as const,
-						error: "Loop detected after LLM-side failure.",
-					};
-					continue;
-				}
-				skillLog.logDelegation({
-					runId: currentRunId,
-					repoId: result.id,
-					repository: repoState.repository,
-					isRetry: true,
-					retryKind: llmKind,
-					attempt: attempts + 1,
-					model: settings.model,
-					thinking: settings.thinking ?? false,
-					diffHash: retryResult.repoState.diffHash ?? "",
-					retryReason: result.error?.slice(0, 200),
-					diffSizeBytes: null,
-					previousDiffHash: repoState.diffHash ?? "",
-					diffChanged:
-						(repoState.diffHash ?? "") !==
-						(retryResult.repoState.diffHash ?? ""),
-					pendingFilesCount: null,
-					feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
-				});
-				nextRepos[result.id] = retryResult.repoState;
-				continue;
-			}
-			nextRepos[result.id] = {
-				...repoState,
-				status: "FAILED" as const,
-				error: `LLM fatal error after max retries: ${result.error}`,
-			};
-			skillLog.logRepoOutcome({
-				runId: currentRunId,
+		if (repoState.operation === "push-only") {
+			nextRepos[result.id] = await handlePushOnlyCheckpointResult({
 				repoId: result.id,
-				repository: repoState.repository,
-				status: "FAILED",
-				error: result.error,
-				attempts: repoState.attempts ?? {},
-				totalRetries: Object.values(repoState.attempts ?? {}).reduce(
-					(a, b) => a + b,
-					0,
-				),
-				committedCount: repoState.committedShas?.length ?? 0,
-			});
-			continue;
-		}
-
-		// 1. Validation phase — uses its own per-kind counter (validation)
-		const validationErrors: FeedbackError[] = [];
-		for (const plan of result.commits) {
-			const msgStr = formatConventionalCommit(plan.commit);
-			const subject = msgStr.split("\n")[0] ?? "";
-			const valRes = validateCommitMessage(msgStr);
-			if (!valRes.valid) {
-				for (const e of valRes.errors) {
-					validationErrors.push({
-						kind: "validation",
-						message: `${e} on "${subject}"`,
-						resolution_hint:
-							"Rewrite the commit message to comply with Conventional Commits.",
-					});
-				}
-			}
-		}
-		const validationAttempts = repoState.attempts?.validation ?? 0;
-		if (
-			validationErrors.length > 0 &&
-			validationAttempts < MAX_ATTEMPTS_BY_KIND.validation
-		) {
-			repoState = {
-				...repoState,
-				attempts: {
-					...(repoState.attempts ?? {}),
-					validation: validationAttempts + 1,
-				},
-			};
-			const validationRetrySettings = repoState.fallbackAttempted
-				? buildFallbackSettings(settings)
-				: settings;
-			// R11 fix: pass the plan structure, not formatted messages
-			const retryResult = queueRetry(
-				result.id,
 				repoState,
-				validationErrors,
-				{},
-				validationRetrySettings,
-				systemPrompt,
-				result.commits,
-			);
-			skillLog.logDelegation({
+				result,
 				runId: currentRunId,
-				repoId: result.id,
-				repository: repoState.repository,
-				isRetry: true,
-				retryKind: "validation",
-				attempt: validationAttempts + 1,
-				model: validationRetrySettings.model,
-				retryReason: validationErrors
-					.map((e) => e.message)
-					.join("; ")
-					.slice(0, 200),
-				thinking: settings.thinking ?? false,
-				diffHash: retryResult.repoState.diffHash ?? "",
-				diffSizeBytes: null,
-				previousDiffHash: repoState.diffHash ?? "",
-				diffChanged:
-					(repoState.diffHash ?? "") !== (retryResult.repoState.diffHash ?? ""),
-				pendingFilesCount: null,
-				feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+				settings,
+				skillLog,
 			});
-			if (retryResult.kind === "loop-detected") {
-				nextRepos[result.id] = {
-					...retryResult.repoState,
-					status: "FAILED" as const,
-					error: `Loop detected: LLM returned an identical plan on two consecutive attempts for kind "validation".`,
-				};
-				continue;
-			}
-			nextRepos[result.id] = retryResult.repoState;
 			continue;
 		}
-		if (validationErrors.length > 0) {
-			// Try fallback model before failing
-			if (
-				shouldUseFallback(
-					settings,
-					"validation",
-					validationAttempts,
-					repoState.fallbackAttempted ?? false,
-				)
-			) {
-				const fallbackSettings = buildFallbackSettings(settings);
-				const retryResult = queueRetry(
-					result.id,
-					{
-						...repoState,
-						fallbackAttempted: true,
-						attempts: {
-							...(repoState.attempts ?? {}),
-							validation: 0, // reset budget for fallback
-						},
-					},
-					validationErrors,
-					{},
-					fallbackSettings, // override provider/model
-					systemPrompt,
-					result.commits,
-				);
-				skillLog.logDelegation({
-					runId: currentRunId,
-					repoId: result.id,
-					repository: repoState.repository,
-					isRetry: true,
-					retryKind: "validation",
-					attempt: 1,
-					model: fallbackSettings.model,
-					thinking: settings.thinking ?? false,
-					diffHash: retryResult.repoState.diffHash ?? "",
-					diffSizeBytes: null,
-					previousDiffHash: repoState.diffHash ?? "",
-					diffChanged:
-						(repoState.diffHash ?? "") !==
-						(retryResult.repoState.diffHash ?? ""),
-					pendingFilesCount: null,
-					feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
-				});
-				if (retryResult.kind === "loop-detected") {
-					nextRepos[result.id] = {
-						...retryResult.repoState,
-						status: "FAILED" as const,
-						error: `Loop detected after fallback: LLM returned an identical plan.`,
-					};
-					continue;
-				}
-				nextRepos[result.id] = retryResult.repoState;
-				continue;
-			}
 
-			nextRepos[result.id] = {
-				...repoState,
-				status: "FAILED" as const,
-				error: `Validation failed after max retries: ${validationErrors.map((e) => e.message).join(", ")}`,
-			};
+		if (!result.success) {
+			nextRepos[result.id] = handleLlmJobFailure({
+				result,
+				repoState,
+				runId: currentRunId,
+				settings,
+				skillLog,
+				systemPrompt,
+			});
+			continue;
+		}
+
+		// 1. Validate commit messages and apply the bounded repair policy.
+		const validationResult = handleValidationRetry({
+			repoId: result.id,
+			repoState,
+			plans: result.commits,
+			settings,
+			systemPrompt,
+			runId: currentRunId,
+			skillLog,
+		});
+		if (validationResult.handled) {
+			loopCount += validationResult.loopCountDelta;
+			nextRepos[result.id] = validationResult.repoState;
 			continue;
 		}
 
@@ -335,17 +138,28 @@ export async function runCommitAndPushPhase(
 		}
 
 		try {
-			const { committedShas, originalHead } = await executeMultiCommitAndPush(
-				repoState.repository,
-				result.commits,
-				repoState.diffHash,
-				settings,
-			);
-			// Merge with anything that landed in prior retries
+			const { committedShas, originalHead, pushRetryCount } =
+				await executeMultiCommitAndPush(
+					repoState.repository,
+					result.commits,
+					repoState.diffHash,
+					settings,
+				);
+			// Merge with anything that landed in prior retries.
 			repoState = {
 				...repoState,
-				committedShas: [...(repoState.committedShas ?? []), ...committedShas],
-				originalHead,
+				committedShas: mergeCommittedShas(
+					repoState.committedShas ?? [],
+					committedShas,
+				),
+				originalHead: repoState.originalHead ?? originalHead,
+				attempts:
+					pushRetryCount > 0
+						? {
+								...(repoState.attempts ?? {}),
+								network: (repoState.attempts?.network ?? 0) + pushRetryCount,
+							}
+						: repoState.attempts,
 			};
 			nextRepos[result.id] = {
 				...repoState,
@@ -353,16 +167,18 @@ export async function runCommitAndPushPhase(
 				commits: result.commits,
 			};
 		} catch (err) {
-			// R59 fix (C3): merge err.context.committedShas before checking
+			// Preserve every durable commit before classifying the retry strategy.
 			let pendingFiles: string[] | undefined;
-			if (err instanceof PartialCommitError) {
+			if (err instanceof PostCommitPushError) {
+				repoState = mergePostCommitPushFailure(repoState, err);
+			} else if (err instanceof PartialCommitError) {
 				repoState = {
 					...repoState,
-					committedShas: [
-						...(repoState.committedShas ?? []),
-						...err.context.committedShas,
-					],
-					originalHead: err.context.originalHead,
+					committedShas: mergeCommittedShas(
+						repoState.committedShas ?? [],
+						err.context.committedShas,
+					),
+					originalHead: repoState.originalHead ?? err.context.originalHead,
 				};
 				pendingFiles = err.context.pendingFiles;
 			} else if (
@@ -371,10 +187,10 @@ export async function runCommitAndPushPhase(
 			) {
 				repoState = {
 					...repoState,
-					committedShas: [
-						...(repoState.committedShas ?? []),
-						...err.context.committedShas,
-					],
+					committedShas: mergeCommittedShas(
+						repoState.committedShas ?? [],
+						err.context.committedShas,
+					),
 				};
 				pendingFiles = err.context.pendingFiles;
 			}
@@ -399,19 +215,7 @@ export async function runCommitAndPushPhase(
 			const maxAttempts = MAX_ATTEMPTS_BY_KIND[errKind];
 
 			if (classified.kind === "retry" && attempts < maxAttempts) {
-				// R74 fix: re-attempt git reset HEAD before queuing retry
-				try {
-					execSync("git reset HEAD", {
-						cwd: repoState.repository,
-						encoding: "utf-8",
-						stdio: ["pipe", "pipe", "pipe"],
-					});
-				} catch (resetErr) {
-					process.stderr.write(
-						`[git-commits-push-tl] orchestrator reset HEAD failed during retry prep: ` +
-							`${resetErr instanceof Error ? resetErr.message : String(resetErr)}\n`,
-					);
-				}
+				resetIndexForRetry(repoState.repository);
 
 				repoState = {
 					...repoState,
@@ -531,68 +335,11 @@ export async function runCommitAndPushPhase(
 		);
 	}
 
-	// Phase 5: Reporting
-	printReport(nextRepos);
-
-	const successCount = Object.values(nextRepos).filter(
-		(r) => r.status === "SUCCESS",
-	).length;
-	const failCount = Object.values(nextRepos).filter(
-		(r) => r.status === "FAILED",
-	).length;
-	const totalRepos = Object.keys(nextRepos).length;
-	const totalRetries = Object.values(nextRepos).reduce((sum, repoState) => {
-		return (
-			sum +
-			Object.values(repoState.attempts ?? {}).reduce(
-				(repoSum, count) => repoSum + count,
-				0,
-			)
-		);
-	}, 0);
-
-	// Resolve run start epoch: first invocation sets runStartEpochMs in discovery;
-	// resume must read it from state.json (new process has runStartEpochMs === 0).
-	let startEpoch = runStartEpochMs;
-	if (startEpoch === 0) {
-		try {
-			const statePath = path.join(io.runDir, "state.json");
-			const raw = fs.readFileSync(statePath, "utf-8");
-			const st = JSON.parse(raw) as { startedAtEpochMs?: number };
-			startEpoch = st.startedAtEpochMs ?? Date.now();
-		} catch {
-			startEpoch = Date.now();
-		}
-	}
-
-	skillLog.logRunEnd({
-		runId: currentRunId,
-		durationMs: Date.now() - startEpoch,
-		successCount,
-		failCount,
-		totalRepos,
-		totalRetries,
+	return finalizeCommitPushPhase(
+		nextRepos,
+		io,
+		currentRunId,
 		loopCount,
-	});
-	skillLog.logOrderFinished({
-		runId: currentRunId,
-		outcome: failCount > 0 ? "failed" : "success",
-		successCount,
-		failCount,
-		totalRepos,
-		totalRetries,
-	});
-
-	releaseLockAndTriggerNext(io.runId);
-
-	const hasFailedRepo = failCount > 0;
-	if (hasFailedRepo) {
-		return io.fail(
-			new Error(
-				"One or more repositories failed to publish commits. Check report.",
-			),
-		);
-	}
-
-	return io.done({});
+		skillLog,
+	);
 }

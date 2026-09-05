@@ -71,9 +71,28 @@ export class PartialCommitError extends Error {
 export class PushError extends Error {
 	override name = "PushError";
 	readonly transient: boolean;
+	readonly retryCount: number;
 
-	constructor(message: string, transient: boolean) {
+	constructor(message: string, transient: boolean, retryCount = 0) {
 		super(message);
 		this.transient = transient;
+		this.retryCount = retryCount;
+	}
+}
+
+export interface PostCommitPushErrorContext {
+	readonly committedShas: CommittedSha[];
+	readonly originalHead: string;
+	readonly pushRetryCount: number;
+}
+
+/** A push failed only after every planned commit was durably created locally. */
+export class PostCommitPushError extends PushError {
+	override name = "PostCommitPushError";
+	readonly context: PostCommitPushErrorContext;
+
+	constructor(pushError: PushError, context: PostCommitPushErrorContext) {
+		super(pushError.message, pushError.transient, pushError.retryCount);
+		this.context = context;
 	}
 }

@@ -9,6 +9,7 @@ import {
 	hasLocalChanges,
 	isDetachedHead,
 } from "../../utils/git-utils.ts";
+import { captureTrackedPushSnapshot } from "../git/push-only.ts";
 
 function expandPath(p: string): string {
 	if (p.startsWith("~/")) {
@@ -71,12 +72,22 @@ export async function runDiscovery(
 			}
 
 			const isDirty = hasLocalChanges(repoPath);
-			if (!isDirty) {
+			if (isDirty) {
+				const id = await computeRepoId(repoPath);
+				results.push({ id, path: repoPath, operation: "commit-and-push" });
 				continue;
 			}
+			if (!settings.autoPush) continue;
 
+			const pushSnapshot = captureTrackedPushSnapshot(repoPath);
+			if (!pushSnapshot) continue;
 			const id = await computeRepoId(repoPath);
-			results.push({ id, path: repoPath });
+			results.push({
+				id,
+				path: repoPath,
+				operation: "push-only",
+				pushSnapshot,
+			});
 		}
 	}
 
