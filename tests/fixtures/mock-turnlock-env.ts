@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ORDER_ENV_KEYS } from "../../src/modules/orders/types.ts";
+import { REQUEST_ENV_KEYS } from "../../src/modules/orders/types.ts";
 import type { CommitJobResult, Settings } from "../../src/types.ts";
 
 /**
@@ -53,19 +53,15 @@ export class MockTurnlockEnvironment {
 			NODE_ENV: "test",
 			PI_SESSION_ID: undefined,
 			PI_SKILL_STATS_MODE: undefined,
-			[ORDER_ENV_KEYS.orderId]: undefined,
-			[ORDER_ENV_KEYS.originSessionId]: undefined,
-			[ORDER_ENV_KEYS.originAgent]: undefined,
-			[ORDER_ENV_KEYS.callerName]: undefined,
-			[ORDER_ENV_KEYS.queuedAtEpochMs]: undefined,
-			[ORDER_ENV_KEYS.triggeredByRunId]: undefined,
-			[ORDER_ENV_KEYS.isQueuedOrder]: undefined,
+			[REQUEST_ENV_KEYS.requestId]: undefined,
+			[REQUEST_ENV_KEYS.originSessionId]: undefined,
+			[REQUEST_ENV_KEYS.originAgent]: undefined,
+			[REQUEST_ENV_KEYS.callerName]: undefined,
 			TURNLOCK_RUN_DIR_ROOT: path.join(this.runDir, "runs"),
 			TURNLOCK_SKILL_SETTINGS_PATH: path.join(this.runDir, "settings.json"),
 			PI_SKILL_STATS_DIR: this.statsDir,
 			SECRET_SCANNER_STATS_DIR: this.statsDir,
 			ORDER_STATE_DIR: path.join(this.runDir, "orders"),
-			DISABLE_REAL_SPAWN: "1",
 		};
 	}
 

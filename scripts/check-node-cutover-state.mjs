@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { inspectNodeCutoverState } from "../dist/skills/git-commits-push/src/utils/node-cutover-preflight.js";
+import { inspectNodeCutoverState } from "../src/utils/node-cutover-preflight.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(scriptDirectory, "..");

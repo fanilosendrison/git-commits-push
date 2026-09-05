@@ -31,12 +31,6 @@ const compiledBridgePath = path.join(
 	"entrypoints",
 	"turnlock-to-llm-bridge.js",
 );
-const compiledLockManagerPath = path.join(
-	compiledSkillDirectory,
-	"src",
-	"utils",
-	"lock-manager.js",
-);
 const runtimeLaunch = await import(
 	pathToFileURL(compiledRuntimeLaunchPath).href
 );
@@ -45,9 +39,6 @@ const sourceRuntimeLaunch = await import(
 );
 const { executeResumeCommand } = await import(
 	pathToFileURL(compiledBridgePath).href
-);
-const compiledLockManager = await import(
-	pathToFileURL(compiledLockManagerPath).href
 );
 
 async function withTemporaryDirectory(callback) {
@@ -59,17 +50,7 @@ async function withTemporaryDirectory(callback) {
 	}
 }
 
-function orderContext(orderId, overrides = {}) {
-	return {
-		callerName: "Node Test Agent",
-		isQueuedOrder: false,
-		orderId,
-		originAgent: "test",
-		...overrides,
-	};
-}
-
-test("builds Node source resume and dequeue launches", () => {
+test("builds Node source resume launches", () => {
 	const sourceOrchestratorUrl = pathToFileURL(
 		path.join(skillDirectory, "src", "entrypoints", "turnlock-orchestrator.ts"),
 	).href;
@@ -81,24 +62,9 @@ test("builds Node source resume and dequeue launches", () => {
 		),
 		'"/unused/node" "src/entrypoints/turnlock-orchestrator.ts" "--run-id" "run-historical" "--resume"',
 	);
-
-	const sourceLockManagerUrl = pathToFileURL(
-		path.join(skillDirectory, "src", "utils", "lock-manager.ts"),
-	).href;
-	assert.deepEqual(
-		sourceRuntimeLaunch.buildQueuedOrderLaunch(
-			sourceLockManagerUrl,
-			"/unused/node",
-		),
-		{
-			args: [path.join(skillDirectory, "scripts", "start-node.mjs")],
-			command: "/unused/node",
-			cwd: skillDirectory,
-		},
-	);
 });
 
-test("builds compiled resume and dequeue launches as shell-free Node arguments", async () => {
+test("builds compiled resume launches as shell-free Node arguments", async () => {
 	await withTemporaryDirectory(async (directory) => {
 		const compiledRoot = path.join(directory, "compiled skill 漢字");
 		const orchestratorPath = path.join(
@@ -106,12 +72,6 @@ test("builds compiled resume and dequeue launches as shell-free Node arguments",
 			"src",
 			"entrypoints",
 			"turnlock-orchestrator.js",
-		);
-		const lockManagerPath = path.join(
-			compiledRoot,
-			"src",
-			"utils",
-			"lock-manager.js",
 		);
 		const nodePath = path.join(directory, "Node Runtime", "node");
 		const runId = "run with spaces; $(printf unsafe) — é";
@@ -129,20 +89,6 @@ test("builds compiled resume and dequeue launches as shell-free Node arguments",
 		assert.equal(
 			runtimeLaunch.buildResumeCommand(runId, orchestratorUrl, nodePath),
 			[nodePath, ...resumeLaunch.args].map(JSON.stringify).join(" "),
-		);
-
-		assert.deepEqual(
-			runtimeLaunch.buildQueuedOrderLaunch(
-				pathToFileURL(lockManagerPath).href,
-				nodePath,
-			),
-			{
-				args: [
-					path.join(compiledRoot, "src", "entrypoints", "node-supervisor.js"),
-				],
-				command: nodePath,
-				cwd: compiledRoot,
-			},
 		);
 	});
 });
@@ -210,74 +156,5 @@ test("executes only the exact compiled resume command without a shell", async ()
 				return true;
 			},
 		);
-	});
-});
-
-test("dequeues through process.execPath and the compiled supervisor", async () => {
-	await withTemporaryDirectory(async (directory) => {
-		const previousEnvironment = {
-			DISABLE_REAL_SPAWN: process.env.DISABLE_REAL_SPAWN,
-			ORDER_STATE_DIR: process.env.ORDER_STATE_DIR,
-			PI_SKILL_STATS_DIR: process.env.PI_SKILL_STATS_DIR,
-			PI_SKILL_STATS_MODE: process.env.PI_SKILL_STATS_MODE,
-		};
-		process.env.ORDER_STATE_DIR = path.join(directory, "orders");
-		process.env.PI_SKILL_STATS_DIR = path.join(directory, "stats");
-		process.env.PI_SKILL_STATS_MODE = "test";
-		delete process.env.DISABLE_REAL_SPAWN;
-		let spawnCall;
-		try {
-			compiledLockManager.checkAndAcquireLock(
-				"run-active",
-				orderContext("order-active"),
-			);
-			compiledLockManager.checkAndAcquireLock(
-				"run-queued",
-				orderContext("order-queued", { originSessionId: "session-é" }),
-			);
-			const result = compiledLockManager.releaseLockAndTriggerNext(
-				"run-active",
-				(command, args, options) => {
-					spawnCall = { args, command, options };
-					return {
-						output: [],
-						pid: 1,
-						signal: null,
-						status: 0,
-						stderr: null,
-						stdout: null,
-					};
-				},
-			);
-			assert.equal(result.kind, "released");
-			assert.equal(result.triggeredOrder?.orderId, "order-queued");
-			assert.equal(spawnCall.command, process.execPath);
-			assert.deepEqual(spawnCall.args, [
-				path.join(
-					compiledSkillDirectory,
-					"src",
-					"entrypoints",
-					"node-supervisor.js",
-				),
-			]);
-			assert.equal(spawnCall.options.cwd, compiledSkillDirectory);
-			assert.equal(spawnCall.options.shell, false);
-			assert.equal(spawnCall.options.stdio, "inherit");
-			assert.equal(spawnCall.options.env.GCP_ORDER_ID, "order-queued");
-			assert.equal(
-				spawnCall.options.env.GCP_ORDER_ORIGIN_SESSION_ID,
-				"session-é",
-			);
-			assert.doesNotMatch(
-				`${spawnCall.command} ${spawnCall.args.join(" ")}`,
-				/\b(?:bun|pnpm)\b/,
-			);
-		} finally {
-			compiledLockManager.stopHeartbeat();
-			for (const [key, value] of Object.entries(previousEnvironment)) {
-				if (value === undefined) delete process.env[key];
-				else process.env[key] = value;
-			}
-		}
 	});
 });

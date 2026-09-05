@@ -58,25 +58,3 @@ export function buildResumeCommand(
 	);
 	return [launch.command, ...launch.args].map(serializeShellArgument).join(" ");
 }
-
-export function buildQueuedOrderLaunch(
-	lockManagerModuleUrl: string,
-	executablePath: string = process.execPath,
-): ProcessLaunch {
-	const lockManagerPath = fileURLToPath(lockManagerModuleUrl);
-	const skillDirectory = path.resolve(path.dirname(lockManagerPath), "../..");
-	if (!isCompiledJavaScriptModule(lockManagerModuleUrl)) {
-		return {
-			args: [path.join(skillDirectory, "scripts", "start-node.mjs")],
-			command: executablePath,
-			cwd: skillDirectory,
-		};
-	}
-	return {
-		args: [
-			path.join(skillDirectory, "src", "entrypoints", "node-supervisor.js"),
-		],
-		command: executablePath,
-		cwd: skillDirectory,
-	};
-}

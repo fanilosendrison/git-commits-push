@@ -18,14 +18,17 @@ describe("skill-stats-log Core Unit Tests", () => {
 
 	let originalAntigravityAgent: string | undefined;
 	let originalAntigravityTrajectoryId: string | undefined;
+	let originalClaudeCode: string | undefined;
 	let originalCodexThreadId: string | undefined;
 
 	beforeEach(() => {
 		originalAntigravityAgent = process.env.ANTIGRAVITY_AGENT;
 		originalAntigravityTrajectoryId = process.env.ANTIGRAVITY_TRAJECTORY_ID;
+		originalClaudeCode = process.env.CLAUDE_CODE;
 		originalCodexThreadId = process.env.CODEX_THREAD_ID;
 		delete process.env.ANTIGRAVITY_AGENT;
 		delete process.env.ANTIGRAVITY_TRAJECTORY_ID;
+		delete process.env.CLAUDE_CODE;
 		delete process.env.CODEX_THREAD_ID;
 
 		statsDir = fs.mkdtempSync(path.join(os.tmpdir(), "skill-stats-log-test-"));
@@ -40,19 +43,23 @@ describe("skill-stats-log Core Unit Tests", () => {
 	afterEach(() => {
 		delete process.env.SECRET_SCANNER_STATS_DIR;
 		delete process.env.PI_SKILL_STATS_DIR;
+		delete process.env.ANTIGRAVITY_AGENT;
+		delete process.env.ANTIGRAVITY_TRAJECTORY_ID;
+		delete process.env.CLAUDE_CODE;
+		delete process.env.CODEX_THREAD_ID;
 		delete process.env.PI_SESSION_ID;
 		delete process.env.GCP_ORDER_ID;
 		delete process.env.GCP_ORDER_ORIGIN_SESSION_ID;
 		delete process.env.GCP_ORDER_ORIGIN_AGENT;
 		delete process.env.GCP_ORDER_CALLER_NAME;
-		delete process.env.GCP_ORDER_QUEUED_AT_EPOCH_MS;
-		delete process.env.GCP_ORDER_TRIGGERED_BY_RUN_ID;
-		delete process.env.GCP_ORDER_IS_QUEUED;
 		if (originalAntigravityAgent !== undefined) {
 			process.env.ANTIGRAVITY_AGENT = originalAntigravityAgent;
 		}
 		if (originalAntigravityTrajectoryId !== undefined) {
 			process.env.ANTIGRAVITY_TRAJECTORY_ID = originalAntigravityTrajectoryId;
+		}
+		if (originalClaudeCode !== undefined) {
+			process.env.CLAUDE_CODE = originalClaudeCode;
 		}
 		if (originalCodexThreadId !== undefined) {
 			process.env.CODEX_THREAD_ID = originalCodexThreadId;
@@ -110,7 +117,12 @@ describe("skill-stats-log Core Unit Tests", () => {
 		assert.strictEqual(getActiveSessionId(), "pi-session-123");
 	});
 
-	test("throws outside known agent environments", () => {
+	test("recognizes Claude and supports direct CLI telemetry", () => {
+		delete process.env.PI_SESSION_ID;
+		process.env.CLAUDE_CODE = "1";
+		assert.strictEqual(getAgentName(), "claude");
+		assert.strictEqual(getActiveSessionId(), undefined);
+
 		const statsLoggerUrl = pathToFileURL(
 			path.join(
 				import.meta.dirname,
@@ -120,6 +132,8 @@ describe("skill-stats-log Core Unit Tests", () => {
 		const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "production" };
 		delete env.ANTIGRAVITY_AGENT;
 		delete env.ANTIGRAVITY_TRAJECTORY_ID;
+		delete env.CLAUDE_CODE;
+		delete env.PI_AGENT;
 		delete env.PI_SESSION_ID;
 		delete env.CODEX_THREAD_ID;
 		delete env.PI_SKILL_STATS_MODE;
@@ -129,14 +143,14 @@ describe("skill-stats-log Core Unit Tests", () => {
 			[
 				"--input-type=module",
 				"-e",
-				"const mod = await import(process.argv[1]); try { mod.getAgentName(); process.exit(0); } catch (err) { process.stderr.write(err instanceof Error ? err.message : String(err)); process.exit(7); }",
+				"const mod = await import(process.argv[1]); process.stdout.write(mod.getAgentName());",
 				statsLoggerUrl,
 			],
 			{ env, encoding: "utf-8" },
 		);
 
-		assert.strictEqual(result.status, 7);
-		assert.ok(result.stderr.includes("Missing required environment variables"));
+		assert.strictEqual(result.status, 0);
+		assert.strictEqual(result.stdout, "cli");
 	});
 
 	test("logSecretPass writes passed event", () => {
@@ -184,14 +198,11 @@ describe("skill-stats-log Core Unit Tests", () => {
 		assert.strictEqual(findings[0]?.lineNumber, 12);
 	});
 
-	test("git-commits-push events include order context from environment", () => {
+	test("git-commits-push events include request context from environment", () => {
 		process.env.GCP_ORDER_ID = "order-session-2";
 		process.env.GCP_ORDER_ORIGIN_SESSION_ID = "session-2";
 		process.env.GCP_ORDER_ORIGIN_AGENT = "pi";
 		process.env.GCP_ORDER_CALLER_NAME = "Pi Agent";
-		process.env.GCP_ORDER_QUEUED_AT_EPOCH_MS = "123";
-		process.env.GCP_ORDER_TRIGGERED_BY_RUN_ID = "run-session-1";
-		process.env.GCP_ORDER_IS_QUEUED = "1";
 
 		log.logRunStart({
 			runId: "run-session-2-execution",
@@ -207,8 +218,6 @@ describe("skill-stats-log Core Unit Tests", () => {
 		assert.strictEqual(event.namespace, "git-commits-push");
 		assert.strictEqual(event.details.orderId, "order-session-2");
 		assert.strictEqual(event.details.orderOriginSessionId, "session-2");
-		assert.strictEqual(event.details.orderTriggeredByRunId, "run-session-1");
-		assert.strictEqual(event.details.isQueuedOrder, true);
 		assert.strictEqual(event.details.executorSessionId, "stats-test-session");
 	});
 
@@ -277,27 +286,21 @@ describe("skill-stats-log Core Unit Tests", () => {
 		assert.strictEqual(event.details.runId, "run-codex-subprocess");
 	});
 
-	test("logs order lifecycle events with explicit queue metadata", () => {
-		log.logOrderQueued({
-			orderId: "order-session-2",
-			requestedRunId: "run-session-2-requested",
-			originAgent: "pi",
+	test("logs request lifecycle and reconciliation events", () => {
+		log.logRequestStarted({
+			requestId: "order-session-2",
+			runId: "run-session-2-execution",
 			callerName: "Pi Agent",
+			originAgent: "pi",
 			originSessionId: "session-2",
-			queuedAtEpochMs: 123,
-			position: 1,
-			blockedByRunId: "run-session-1",
-			blockedByCallerName: "Pi Agent",
 		});
 
 		let event = readLatestEvent(gitStatsDir);
-		assert.strictEqual(event.eventType, "order_queued");
+		assert.strictEqual(event.eventType, "order_started");
 		assert.strictEqual(event.details.orderId, "order-session-2");
-		assert.strictEqual(event.details.requestedRunId, "run-session-2-requested");
 		assert.strictEqual(event.details.originSessionId, "session-2");
-		assert.strictEqual(event.details.blockedByRunId, "run-session-1");
 
-		log.logOrderFinished({
+		log.logRequestFinished({
 			runId: "run-session-2-execution",
 			outcome: "success",
 			successCount: 1,
@@ -310,5 +313,53 @@ describe("skill-stats-log Core Unit Tests", () => {
 		assert.strictEqual(event.eventType, "order_finished");
 		assert.strictEqual(event.details.runId, "run-session-2-execution");
 		assert.strictEqual(event.details.outcome, "success");
+
+		log.logReconciliationRequested({
+			generation: 18,
+			outcome: "coalesced",
+			callerName: "Pi Agent",
+			originAgent: "pi",
+		});
+		event = readLatestEvent(gitStatsDir);
+		assert.strictEqual(event.eventType, "reconciliation_requested");
+		assert.strictEqual(event.details.generation, 18);
+		assert.strictEqual(event.details.outcome, "coalesced");
+
+		log.logReconciliationCoalesced({
+			generation: 18,
+			ownerPid: 4242,
+			ownerCallerName: "Pi Agent",
+		});
+		event = readLatestEvent(gitStatsDir);
+		assert.strictEqual(event.eventType, "reconciliation_coalesced");
+		assert.strictEqual(event.details.ownerPid, 4242);
+
+		log.logReconciliationPassStarted({ generation: 18 });
+		event = readLatestEvent(gitStatsDir);
+		assert.strictEqual(event.eventType, "reconciliation_pass_started");
+		assert.strictEqual(event.details.generation, 18);
+
+		log.logReconciliationPassFinished({
+			generation: 18,
+			exitCode: 0,
+			success: true,
+			decision: "CONTINUE",
+		});
+		event = readLatestEvent(gitStatsDir);
+		assert.strictEqual(event.eventType, "reconciliation_pass_finished");
+		assert.strictEqual(event.details.decision, "CONTINUE");
+
+		log.logReconciliationRecovered({
+			generation: 20,
+			previousOwnerPid: 1111,
+		});
+		event = readLatestEvent(gitStatsDir);
+		assert.strictEqual(event.eventType, "reconciliation_recovered");
+		assert.strictEqual(event.details.previousOwnerPid, 1111);
+
+		log.logReconciliationIdle({ generation: 20 });
+		event = readLatestEvent(gitStatsDir);
+		assert.strictEqual(event.eventType, "reconciliation_idle");
+		assert.strictEqual(event.details.generation, 20);
 	});
 });

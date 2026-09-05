@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, test } from "node:test";
-import { ORDER_ENV_KEYS } from "../../src/modules/orders/types.ts";
+import { REQUEST_ENV_KEYS } from "../../src/modules/orders/types.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
 function findTestFiles(dir: string, fileList: string[] = []): string[] {
@@ -72,7 +72,7 @@ describe("I5 — Test Environment Safety", () => {
 			assert.strictEqual(isolatedEnvironment.NODE_ENV, "test");
 			assert.strictEqual(isolatedEnvironment.PI_SESSION_ID, undefined);
 			assert.strictEqual(isolatedEnvironment.PI_SKILL_STATS_MODE, undefined);
-			for (const name of Object.values(ORDER_ENV_KEYS)) {
+			for (const name of Object.values(REQUEST_ENV_KEYS)) {
 				assert.strictEqual(isolatedEnvironment[name], undefined);
 			}
 		} finally {

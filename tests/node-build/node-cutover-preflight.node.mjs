@@ -305,7 +305,14 @@ test("fails closed on active or abandoned locks and pending queue artifacts", as
 	});
 });
 
-test("CLI emits deterministic JSON and distinct ready and blocked exit codes", async () => {
+test("CLI is read-only and emits distinct ready and blocked exit codes", async (context) => {
+	const buildSentinel = path.join(
+		skillDirectory,
+		"dist",
+		"preflight-read-only.marker",
+	);
+	await writeFile(buildSentinel, "must survive preflight\n");
+	context.after(() => rm(buildSentinel, { force: true }));
 	await withFixture(async (fixture) => {
 		const turnlockRunRoot = path.dirname(fixture.runsDirectory);
 		const baseEnvironment = {
@@ -336,13 +343,20 @@ test("CLI emits deterministic JSON and distinct ready and blocked exit codes", a
 		assert.equal(blocked.status, 1, blocked.stderr);
 		assert.deepEqual(
 			JSON.parse(blocked.stdout).blockers.map(({ kind }) => kind),
-			["pending-order"],
+			["unreadable-order-state"],
 		);
 		assert.equal(
 			await import("node:fs").then(({ existsSync }) =>
 				existsSync(path.join(skillDirectory, "pwned")),
 			),
 			false,
+		);
+		assert.strictEqual(
+			await import("node:fs").then(({ existsSync }) =>
+				existsSync(buildSentinel),
+			),
+			true,
+			"read-only preflight must not rebuild or replace dist",
 		);
 	});
 });

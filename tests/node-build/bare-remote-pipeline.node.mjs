@@ -183,7 +183,6 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 
 		const pipelineEnvironment = {
 			...environment,
-			DISABLE_REAL_SPAWN: "1",
 			GIT_COMMITS_PUSH_ENFORCER_STATS_DIR: enforcerStatsDirectory,
 			MOCK_LLM_REQUEST_LOG: requestLogPath,
 			NODE_OPTIONS: `--import=${pathToFileURL(mockFetchPreloadPath).href}`,
@@ -307,7 +306,10 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 			"delegation",
 			"run_end",
 			"order_finished",
-			"queue_empty",
+			"reconciliation_requested",
+			"reconciliation_pass_started",
+			"reconciliation_pass_finished",
+			"reconciliation_idle",
 		]) {
 			assert.equal(eventTypes.includes(eventType), true, eventType);
 		}
@@ -329,10 +331,36 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 		assert.equal((await stat(settingsPath)).isFile(), true);
 		assert.equal(
 			(await readdir(orderStateDirectory)).some(
-				(name) => name.startsWith("order-") || name === "running.lock",
+				(name) => name === "running.lock" || name.startsWith("order-"),
 			),
 			false,
 		);
+		// The durable SQLite coordinator converged with exactly one generation:
+		// internal orchestrator/bridge/resume cycles never create generations.
+		const reconcilerDb = await import(
+			pathToFileURL(
+				path.join(
+					compiledSkillDirectory,
+					"src",
+					"modules",
+					"reconciliation",
+					"reconciler-db.js",
+				),
+			).href
+		);
+		const reconcilerDatabase = reconcilerDb.openReconcilerDb(
+			reconcilerDb.resolveReconcilerDbPath(orderStateDirectory),
+		);
+		try {
+			const reconcilerState =
+				reconcilerDb.readReconcilerState(reconcilerDatabase);
+			assert.equal(reconcilerState.requestedGeneration, 1);
+			assert.equal(reconcilerState.completedGeneration, 1);
+			assert.equal(reconcilerState.runningGeneration, null);
+			assert.equal(reconcilerState.ownerToken, null);
+		} finally {
+			reconcilerDatabase.close();
+		}
 		assert.equal(await readFile(sentinelLogPath, "utf8").catch(() => ""), "");
 	});
 });
