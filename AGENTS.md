@@ -1,326 +1,183 @@
-# git-commits-push Agent Guide
+---
+okf_version: "1.0"
+kind: "KnowledgeAsset"
+asset_type: "directive"
+name: "git-commits-push-agent-directives"
+version: "1.0.1"
+status: "Active"
+summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
+domain: "git-commits-push"
+severity: "strict"
+---
 
-This file is your local operating guide to work on the
-`git-commits-push` skill.
+# git-commits-push contributor directives
 
-## Path Rules
+## Mission
 
-- Edit this skill through `$HOME/.agents/skills/git-commits-push`.
-- Do not edit the physical `~/Developper/Projects/dotagents/...` path directly.
-- Keep `SKILL.md` as the user-facing activation contract.
-- Do not run `pnpm --silent run start` while developing unless the task explicitly
-  needs a full skill execution.
-- Prefer targeted tests, typecheck, and lint while iterating.
+`git-commits-push` discovers dirty repositories, validates them, asks an LLM for
+Conventional Commit plans, commits exact file groups, and pushes them. Turnlock
+owns one pass's durable phase workflow. The public launcher owns global
+reconciliation across concurrent invocations.
 
-## Quick Workflow
+## Runtime architecture
 
-When iterating:
+The production path is:
 
-1. Edit through this gateway path.
-2. Run `pnpm run typecheck && pnpm run lint`, then targeted tests.
-3. Run `pnpm run test` before finishing code changes.
-4. If committing, commit from the dotagents repo using `/git-commits-push`.
-
-## Important Invariants
-
-- Secret scanning is fail-closed.
-- Secret scanner `warning` events are non-blocking and must stay limited to
-  explicit non-production contexts.
-- Git commands must be non-interactive.
-- Parallel validation must not leak state across repositories.
-- Orchestrator stdout must stay Turnlock-protocol clean.
-- Test runs must not write production Turnlock, order, or telemetry state.
-
-## Runtime Contract
-
-`SKILL.md` requires host agents to run:
-
-```bash
-cd "$HOME/.agents/skills/git-commits-push" && pnpm --silent run start
+```text
+scripts/start-node.mjs
+  -> SQLite reconciliation admission and ownership
+  -> compiled node-supervisor
+  -> Turnlock orchestrator + LLM bridge
+  -> discovery, commit/push, and reporting phases
 ```
 
-Run it without an external timeout. The skill manages its own timeout and retry
-behavior.
+Responsibilities MUST remain separated:
 
-The pnpm public launch invokes `scripts/start-node.mjs`. The launcher compiles
-the shared runtime and the untracked NodeNext artifacts through
-`process.execPath`, then starts the compiled supervisor without an internal
-package-manager or shell pipeline. Node is the only internal runtime; compatibility
-with package managers in external target repositories is handled at validation boundaries.
+- `scripts/start-node.mjs` owns pre-build admission, lifecycle-wide signal
+  cancellation, legacy-state inspection, owner heartbeat, the pass loop, and
+  graceful release.
+- `src/modules/reconciliation/` is the sole authority for SQLite schema,
+  generation transitions, liveness recovery, and token fencing.
+- `src/entrypoints/node-supervisor.ts` owns its descendant process trees,
+  protocol routing, and bounded transport buffering; launcher cancellation is
+  forwarded through the supervisor tree.
+- `src/entrypoints/turnlock-orchestrator.ts` owns Turnlock phases and snapshots.
+- `src/entrypoints/turnlock-to-llm-bridge.ts` owns delegation handling and result
+  writes; provider dispatch belongs in `src/modules/llm/`.
+- `src/phases/` coordinates domain modules. Keep phase entrypoints below 400
+  lines by extracting cohesive policies into `src/modules/`.
 
-The orchestrator owns Turnlock state. The bridge owns LLM delegation execution.
-The supervisor owns isolated process groups, signal forwarding, backpressure,
-and stdout routing. Compiled resumes and dequeues use `process.execPath` with
-shell-free argument arrays. The read-only `check:node-cutover` gate classifies
-persisted runs and rejects all Turnlock or queue lock/order residue. Compiled
-security vectors cover scanner boundaries, telemetry redaction, hooks, Git
-modes, forged tokens, and output leaks. The bare-remote gate exercises this
-active launcher through a real retry, commit, and push pipeline. Real
-self-hosting run `01M16Z8A030MJZAHMZX554CJPM` committed and pushed changes in
-both dotagents and dotpi, and all four resulting Node/Bun CI runs passed. The
-direct-Git bootstrap exception is closed: all later commit and push operations
-must use the canonical public launch, except for Git subprocesses owned by the
-orchestrator itself.
+Shell entrypoints are compatibility shims only. New runtime behavior belongs in
+TypeScript or focused `.mjs` launcher modules.
 
-## Testing Expectations
+## Reconciliation contract
 
-Run these before finishing code changes:
+A public invocation means that global repository state may have changed. It is
+not a durable per-request job.
+
+Before any build, Git, child-process, or LLM work, every invocation MUST atomically
+increment `requested_generation` in `reconciler.sqlite`.
+
+- One live owner executes reconciliation passes.
+- Concurrent invocations coalesce into that owner and exit successfully.
+- Registration and pass finalization use short `BEGIN IMMEDIATE` transactions.
+- An owner runs another fresh pass when a newer generation was registered.
+- Ownership is fenced by random token, PID, and process-start identity.
+- A matching live process is never replaced because of heartbeat age or
+  boot-clock drift.
+- A live PID with temporarily unreadable process metadata retains ownership.
+- Corrupt, incompatible, or impossible state fails closed and is preserved.
+- The coordinator stores no per-request orders or historical event log.
+
+`ORDER_STATE_DIR` remains the compatibility override for the state directory.
+The normative state machine is documented in
+[`specs/reconciliation.md`](specs/reconciliation.md).
+
+Legacy `running.lock` and `order-*.json` or `order-*.flag` artifacts are migration
+inputs only. A live legacy worker blocks admission. Stale residue may be
+archived outside the legacy namespace only after a SQLite generation is durably
+registered and exact pre-admission file evidence is revalidated.
+
+## Git safety
+
+- Never interpolate discovered paths, branches, refs, or remotes into shell
+  command strings. Use argument arrays and `shell: false`.
+- Never put remote credentials or push URLs in argv, repository config,
+  telemetry, state snapshots, or unsanitized diagnostics.
+- Resolve exactly one effective push URL. Fingerprint both that URL and ambient
+  URL-rewrite configuration. Preflight, exact-SHA push, and postflight
+  verification MUST target the same resolved endpoint.
+- Process-scoped Git configuration MUST remain compatible with Git 2.17 and use
+  correctly quoted `GIT_CONFIG_PARAMETERS` rather than repository mutation.
+- Validate full Git object IDs before using persisted push snapshots.
+- Push-only recovery MUST prove the baseline is an ancestor of current `HEAD`
+  and must recompute the exact outgoing set before secret scanning or push.
+- Secret scanning and tests are mandatory gates unless configuration explicitly
+  disables tests. Any unrelated failure discovered during validation must be
+  fixed rather than ignored.
+
+## LLM safety
+
+- Validate Turnlock v2 manifests before reading job payloads.
+- Validate initial planning and repair responses with the production Zod schema
+  inside the bounded attempt loop.
+- Commit-message repair may change only requested messages; file ownership,
+  indexes, and plan cardinality remain invariant.
+- Primary validation repair is bounded to two attempts. At most one configured
+  fallback attempt follows. An invalid fallback terminates.
+- Never log provider tokens, Authorization headers, raw credential-bearing URLs,
+  prompts containing secrets, or unsanitized provider errors.
+
+## Identity and telemetry
+
+Harness detection has one authority:
+`src/modules/core/execution-identity.ts`. It supports Antigravity, Pi, Codex,
+Claude Code, tests, and direct CLI use. Request identity and telemetry MUST use
+that authority rather than duplicate environment precedence.
+
+Explicit `GCP_ORDER_*` variables override automatic request-origin detection.
+`GCP_ORDER_IS_QUEUED` is legacy telemetry metadata only and MUST NOT reactivate a
+queue execution path. Telemetry failures must never block reconciliation.
+
+## State and schema
+
+- Parse persisted Turnlock state through `src/config/state-schema.ts`.
+- Schema changes require production-schema tests and compatibility fixtures.
+- Persist push URL fingerprints, never push URLs.
+- Preserve committed SHA evidence across partial failures and retries.
+- Do not silently migrate incompatible Turnlock or reconciler schema versions.
+
+## Code quality
+
+- TypeScript is strict; do not introduce `any`.
+- Use exact optional-property semantics and explicit discriminated unions.
+- Prefer immutable state transitions.
+- Keep one source of truth for schemas, retry budgets, environment keys,
+  identity precedence, and event contracts.
+- Add JSDoc to exported APIs where intent or invariants are not obvious.
+- Keep production files below 400 lines; split by cohesive responsibility rather
+  than hiding logic in generic utility modules.
+- New files and Markdown must follow repository naming and OpenKnowledge rules.
+
+## Required validation
+
+Run from this directory:
 
 ```bash
-pnpm run typecheck:node
-pnpm run test:node:build
 pnpm run typecheck
+pnpm run typecheck:node
+pnpm run typecheck:node:stats
 pnpm run lint
-pnpm run test
+pnpm test
+pnpm run test:node:build
+pnpm run test:node:stats
 ```
 
-Before each designated self-hosted commit, run the local persisted-state gate:
+The TypeScript runner explicitly enumerates 55 test files in `tests/run-tests.mjs`.
+When adding or renaming a test, update that manifest and
+`tests/node-build/test-runner.node.mjs` together.
 
-```bash
-pnpm --silent run check:node-cutover
-```
+Concurrency and recovery changes MUST cover:
 
-Use targeted tests while iterating:
+- simultaneous cold-start registration;
+- coalescing during a running pass;
+- registration racing with pass completion;
+- owner death and recycled-PID recovery;
+- fenced heartbeat and release;
+- corrupt or incompatible database handling;
+- legacy queue residue classification;
+- compiled launcher and supervisor behavior.
 
-```bash
-node --test --test-concurrency=1 --test-timeout=60000 \
-  tests/unit/order-store.test.ts \
-  tests/unit/lock-manager.test.ts \
-  tests/unit/skill-stats-log.test.ts \
-  tests/acceptance/a4-queued-order-observability.test.ts \
-  tests/acceptance/a5-v2-full-pipeline.test.ts
-```
+Push changes MUST include real temporary Git repositories and bare remotes.
+Provider changes MUST retain at least one real smoke test when credentials are
+available, while deterministic unit tests use injected adapters.
 
-Tests that spawn the orchestrator must use `MockTurnlockEnvironment` and include
-`...env.env()` in `spawnSync` environment objects. The v2 full-pipeline test
-must exercise the real orchestrator, bridge, resume command, and Git publisher;
-it may mock only the external LLM HTTP boundary.
+## Documentation synchronization
 
-## Dependencies
+When architecture or runtime state changes, update together:
 
-Runtime and package dependencies:
-
-- Node `>=22.19.0` builds, tests, and runs both compiled entrypoints through the
-  active shell-free supervisor.
-- pnpm `11.24.0` owns dependency installation and package scripts.
-- TypeScript runs in ESM mode with explicit Node-compatible imports.
-- `turnlock` comes from the npm registry at exact `0.9.1`. Do not reintroduce a
-  local `file:` dependency unless actively testing unreleased Turnlock changes.
-- `tsconfig.json` resolves `turnlock` through normal package exports, not through
-  a local source path mapping.
-- `@fanilosendrison/llm-runtime` powers provider adapters and prompt building.
-- `zod` validates Turnlock state and LLM result schemas.
-- `src/modules/telemetry/stats-logger.ts` imports `createEventSink` from exact
-  `@fanilosendrison/event-sink@0.1.0`; no telemetry-tools source checkout is
-  required.
-
-Development dependencies:
-
-- `typescript` powers `pnpm run typecheck`.
-- `@biomejs/biome` powers `pnpm run lint`.
-- `@types/node` provides runtime types.
-
-External tools the skill may invoke while validating target repositories:
-
-- `git`;
-- package managers detected from target repos: `bun`, `pnpm`, `yarn`, or `npm`;
-- `pytest` for Python test discovery.
-
-## Folder Structure
-
-```text
-git-commits-push/
-├── AGENTS.md                  # Local instructions for future agents
-├── README.md                  # Human-facing architecture and usage docs
-├── SKILL.md                   # Activation contract for host agents
-├── docs/
-│   ├── node-cutover-preflight.md # Persisted-state cutover procedure
-│   └── order-rationale.md     # Design rationale for the order queue
-├── specs/
-│   └── order.md               # Technical contract for lock/order behavior
-├── src/
-│   ├── config/
-│   │   ├── settings.json      # Runtime defaults for provider, model, paths
-│   │   ├── settings.ts        # Settings loader and validation
-│   │   └── state-schema.ts    # Turnlock state and LLM result schemas
-│   ├── entrypoints/
-│   │   ├── turnlock-orchestrator.ts  # Turnlock app definition
-│   │   └── turnlock-to-llm-bridge.ts # LLM bridge and resume loop
-│   ├── modules/
-│   │   ├── core/              # Discovery, validation, retry, reporting logic
-│   │   ├── formatters/        # Conventional Commit formatting
-│   │   ├── git/               # Git commit splitting, push, and diff helpers
-│   │   ├── orders/            # Order ids, types, and durable JSON queue store
-│   │   └── telemetry/         # JSONL stats logging
-│   ├── phases/
-│   │   ├── step1-discovery-validation.ts # Discovery and first delegation
-│   │   └── step2-commit-push.ts          # Retries, commits, push, report
-│   ├── types.ts               # Shared domain types
-│   └── utils/
-│       ├── cli-bootstrap.ts   # Pre-Turnlock run and order bootstrap
-│       ├── git-utils.ts       # Shared Git helpers
-│       ├── lock-manager.ts    # Lock, heartbeat, queue, next-order spawn
-│       └── node-cutover-preflight.ts # Read-only persisted-state gate
-├── system-prompt.md           # Prompt injected into commit-planning jobs
-└── tests/
-    ├── acceptance/            # End-to-end Turnlock flows
-    ├── fixtures/              # Temporary repo and Turnlock env builders
-    ├── helpers/               # Shared test helpers
-    ├── invariants/            # Safety and protocol invariants
-    ├── property/              # Race, detached HEAD, and push properties
-    └── unit/                  # Module-level tests
-```
-
-## Core Concepts
-
-- `runId` identifies one Turnlock execution.
-- `orderId` identifies one user or agent request.
-- A queued request keeps its `orderId` but later executes in a fresh `runId`.
-- Retries are per repository and per retry kind.
-- Fallback model escalation only applies to exhausted `validation` retries.
-- Normal orchestrator stdout must remain valid Turnlock protocol.
-- Queue-registration stdout is allowed because queued processes exit before
-  entering Turnlock.
-
-## Turnlock v2 Protocol
-
-The skill targets **Turnlock v0.8.0+** with the **v2 delegation protocol**
-(`PROTOCOL_VERSION: 2`, `MANIFEST_VERSION: 2`, `STATE_SCHEMA_VERSION: 2`).
-
-### Delegation kinds (v2)
-
-Turnlock v0.8.0 reduced delegation kinds from three to two:
-
-| v0.3.x (legacy) | v0.8.0 (current) |
-|-----------------|-------------------|
-| `"skill"` | *(removed — merged into `"prompt"`)* |
-| `"agent"` | `"prompt"` |
-| `"agent-batch"` | `"batch"` |
-
-The skill exclusively uses `"batch"` delegations via `io.delegateBatch()`.
-
-### Bridge manifest validation
-
-The Turnlock-to-LLM bridge validates every incoming manifest against
-`turnlockV2BatchManifestSchema` (Zod). Manifests missing required v2 fields or
-carrying legacy `manifestVersion < 2` or `kind: "agent-batch"` are rejected
-before any LLM call is made. This is fail-closed by design.
-
-### Persisted v1 runs are intentionally fail-closed
-
-There is **no automatic migration** for pre-existing Turnlock v1 run directories
-(`state.json` with `schemaVersion: 1`). Any run persisted under v0.3.x will fail
-explicitly on resume under v0.8.0 at three independent checkpoints:
-
-1. `readState()` — rejects `schemaVersion !== 2`
-2. `handle-resume` — rejects `manifestVersion !== 2`
-3. Bridge Zod schema — rejects non-v2 manifests
-
-**Do not attempt in-place state migration.** If a v1 run is encountered:
-- Inspect the run directory under `~/.turnlock/runs/git-commits-push-tl/` to
-  assess what was already committed.
-- Delete the run directory and start a fresh run if the run is stale.
-- Never mutate `state.json`, `delegations/`, or `results/` inside a persisted
-  run — this can corrupt the audit trail or produce incorrect commits.
-
-## Order Queue
-
-The order queue exists to serialize local executions.
-
-- Active execution is represented by `running.lock`.
-- Queued executions are durable JSON files named
-  `order-<queuedAtEpochMs>-<orderId>.json`.
-- Queue state comes from `ORDER_STATE_DIR` when set, otherwise from
-  `.state/orders`.
-- The active process updates `running.lock` every 10 seconds.
-- A lock older than 40 seconds is stale.
-- A concurrent process writes an order JSON file, logs `order_queued`, prints
-  its position, and exits with status `0`.
-- The active process releases the lock, dequeues the oldest order, and logs
-  `order_dequeued`. Queued runs spawn the compiled Node supervisor through
-  `process.execPath`.
-- Spawned queued runs receive the unchanged `GCP_ORDER_*` environment variables.
-- Legacy `order-*.flag` files may exist; JSON files are canonical.
-
-## Retry And Fallback
-
-Retry kinds are:
-
-- `validation`;
-- `structural`;
-- `race`;
-- `git`;
-- `network`.
-
-Validation retries can escalate to the configured fallback model after their
-normal budget is exhausted. Fallback requires both `fallbackProvider` and
-`fallbackModel`.
-
-Do not treat fallback as a general retry strategy for every error kind.
-
-## Telemetry
-
-Git events are written to:
-
-```text
-~/neelopedia/stats/<agent>/git-commits-push/events.jsonl
-```
-
-Secret scanner events are written to:
-
-```text
-~/neelopedia/stats/<agent>/secret-scanner/events.jsonl
-```
-
-Secret scanner event types:
-
-- `passed`: no suspicious findings;
-- `warning`: tolerated finding in an explicit non-production context;
-- `block`: commit flow stopped because a production-looking secret was found.
-
-Important order events:
-
-- `order_started`;
-- `order_queued`;
-- `order_dequeued`;
-- `order_finished`;
-- `queue_empty`.
-
-Important run events:
-
-- `run_start`;
-- `delegation`;
-- `retry`;
-- `loop_detected`;
-- `repo_outcome`;
-- `run_end`.
-
-When `GCP_ORDER_*` variables are present, run events should be enriched with
-order context.
-
-## Turnlock Version Bump Procedure
-
-When upgrading the Turnlock dependency:
-
-1. Read the Turnlock changelog and diff the `src/` API surface.
-2. Update `package.json` and run `pnpm install`.
-3. Adapt `src/phases/` if the delegation API changed (kinds, method names).
-4. Regenerate `tests/helpers/test-helpers.ts` manifests to match the new
-   Turnlock version (canonical manifest shape, schemaVersion, kind).
-5. Update bridge unit fixtures (`tests/unit/turnlock-to-llm-bridge.test.ts`).
-6. Update acceptance test assertions that match protocol string literals.
-7. Run the full pipeline test as a smoke check:
-   ```bash
-   node --test --test-concurrency=1 --test-timeout=60000 tests/acceptance/a5-v2-full-pipeline.test.ts
-   ```
-8. Run the full suite and fix any remaining failures.
-9. Document the operational impact of persisted runs from the previous version
-   (see [Persisted v1 runs](#persisted-v1-runs-are-intentionally-fail-closed)).
-
-## Documentation Notes
-
-- Treat source and tests as canonical when docs drift.
-- Keep `README.md`, `specs/order.md`, and `docs/order-rationale.md` aligned
-  when changing order behavior.
-- Update this file when adding a new subsystem or invariant that future agents
-  must know.
+- `README.md` for users;
+- `AGENTS.md` for contributors;
+- `specs/reconciliation.md` for normative behavior;
+- `docs/reconciliation-migration.md` for compatibility and migration history;
+- `docs/node-cutover-preflight.md` for operational inspection and recovery.

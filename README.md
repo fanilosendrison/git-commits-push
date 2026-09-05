@@ -1,3 +1,15 @@
+---
+okf_version: "1.0"
+kind: "KnowledgeAsset"
+asset_type: "documentation"
+name: "git-commits-push-readme"
+version: "1.0.1"
+status: "Active"
+summary: "User guide for the SQLite-reconciled, Turnlock-driven git-commits-push skill."
+domain: "git-commits-push"
+severity: "guideline"
+---
+
 # git-commits-push
 
 **One command. All your dirty repos. Tests, Conventional Commits, file-level splitting, push. Done.**
@@ -92,10 +104,13 @@ staged something else), the repo is re-validated from scratch.
 the already-created commits are preserved. The skill reports which commits
 landed and which didn't, then retries the remainder.
 
-**Push.** After all commits for a repo succeed, `git push` runs. If the push
-fails with a network error, it's retried automatically. If it fails with a
-non-network error (e.g., rejected by the remote), the error is reported and the
-skill moves on to the next repo.
+**Push.** After all commits for a repo succeed, `git push` runs against the
+single effective push URL. Preflight, exact-SHA publication, and postflight
+verification all use that same endpoint. Credentials are never persisted or
+placed in process arguments, and push diagnostics are sanitized before they are
+reported. If the push fails with a network error, it's retried automatically. If
+it fails with a non-network error (for example, a remote rejection), the error is
+reported and the skill moves on to the next repo.
 
 ### Retry model
 
@@ -143,8 +158,9 @@ the cheap model can't produce valid Conventional Commits.
 - **Node.js** ≥ 22.19.0 and **pnpm** 11.24.0 for the skill itself.
 - **An LLM provider** configured with valid credentials. The skill uses
   `@fanilosendrison/llm-runtime` under the hood and supports any provider it knows.
-- **Git** and each package manager required by your target repositories (`bun`,
-  `pnpm`, `yarn`, `npm`, or `pytest`) available on `PATH` so their tests can run.
+- **Git** 2.17 or later and each package manager required by your target
+  repositories (`bun`, `pnpm`, `yarn`, `npm`, or `pytest`) available on `PATH`
+  so their tests can run.
 
 ---
 
@@ -237,20 +253,19 @@ Found 3 dirty repos:
 
 ---
 
-## Queueing — what if a run is already active?
+## Reconciliation — what if a run is already active?
 
-If you start `git-commits-push` while another session is already running, your
-request is automatically queued:
+Every invocation first increments a durable generation in `reconciler.sqlite`.
+If another launcher already owns reconciliation, the new invocation coalesces
+into that owner and exits successfully. The owner finishes its current pass,
+rescans the global set of repositories, and runs another pass when a newer
+generation was registered.
 
-```
-A git-commits-push session is already in progress.
-Queue position: 1. This terminal will exit now;
-the parent session will execute this order asynchronously.
-```
-
-You don't need to wait or retry. The active run will finish its work, then
-automatically pick up your request and run it to completion. Your terminal is
-free immediately.
+There is no per-request order queue. The durable contract is that every wakeup
+causes reconciliation after the latest observed change, while only one live
+owner may launch Turnlock at a time. Ownership combines a random fencing token,
+the launcher PID, and its process-start identity so PID reuse and clock drift do
+not let a concurrent invocation steal a live owner.
 
 ---
 
@@ -272,7 +287,7 @@ free immediately.
 |------|-------|
 | **Commit/push events** | `~/neelopedia/stats/<agent>/git-commits-push/events.jsonl` |
 | **Secret scan events** | `~/neelopedia/stats/<agent>/secret-scanner/events.jsonl` |
-| **Queue state** | `.state/orders/` inside the skill directory (or `ORDER_STATE_DIR` if set) |
+| **Reconciler state** | `.state/orders/reconciler.sqlite` inside the skill directory (or under `ORDER_STATE_DIR` if set) |
 
 The JSONL files contain structured records of every action: which repos were
 processed, what messages were committed, whether push succeeded, and any errors
@@ -317,16 +332,20 @@ for the exact trigger conditions.
 ## Architecture
 
 The skill is built on **Turnlock v0.8.0+** (v2 delegation protocol). Its public
-Node launcher compiles and starts a shell-free supervisor:
+Node launcher first registers a SQLite reconciliation generation, then one owner
+builds and starts a shell-free supervisor:
 
 ```
-start-node.mjs → node-supervisor.ts → orchestrator + LLM bridge
+start-node.mjs → SQLite reconciler → node-supervisor.ts → orchestrator + LLM bridge
 ```
 
-The orchestrator owns the finite-state machine and persists snapshots to disk.
-The bridge intercepts delegation blocks, runs LLM inference in parallel, writes
-results, and resumes the orchestrator. The supervisor owns process isolation,
-signal forwarding, backpressure, and protocol-safe stdout routing.
+The launcher owns admission, lifecycle-wide signal cancellation, coalescing,
+recovery, and the pass loop. The orchestrator owns one pass's finite-state
+machine and persists Turnlock snapshots.
+The bridge validates v2 batch manifests, runs LLM inference in parallel, validates
+mode-specific responses, writes results, and resumes the orchestrator. The
+supervisor owns process isolation, cancellation of its descendant tree,
+backpressure, and protocol-safe stdout routing.
 
 ### Compatibility with older Turnlock runs
 
@@ -339,7 +358,10 @@ run complete under the previous version or delete it and start fresh.
 
 ## For contributors
 
-The architecture, runtime contract, invariants, and test expectations are documented
-in [AGENTS.md](AGENTS.md). The queue algorithm design is explained in
-[docs/order-rationale.md](docs/order-rationale.md) with the technical specification
-in [specs/order.md](specs/order.md).
+The architecture, runtime contract, invariants, and test expectations are
+documented in [AGENTS.md](AGENTS.md). The normative concurrency contract is
+[specs/reconciliation.md](specs/reconciliation.md), the queue-to-SQLite change is
+recorded in
+[docs/reconciliation-migration.md](docs/reconciliation-migration.md), and the
+read-only state gate is documented in
+[docs/node-cutover-preflight.md](docs/node-cutover-preflight.md).
