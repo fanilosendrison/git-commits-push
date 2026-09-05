@@ -35,6 +35,18 @@ describe("readSettings", () => {
 		skipTests: false,
 	};
 
+	test("uses DeepSeek V4 Flash with DeepSeek V4 Pro fallback by default", () => {
+		const settings = readSettings(
+			path.resolve(import.meta.dirname, "../../src/config"),
+		);
+
+		assert.strictEqual(settings.provider, "deepseek");
+		assert.strictEqual(settings.model, "deepseek-v4-flash");
+		assert.strictEqual(settings.fallbackProvider, "deepseek");
+		assert.strictEqual(settings.fallbackModel, "deepseek-v4-pro");
+		assert.strictEqual(settings.agent, "git-commits-push");
+	});
+
 	test("preserves fallback and thinking settings", () => {
 		const dir = writeSettings({
 			...baseSettings,
