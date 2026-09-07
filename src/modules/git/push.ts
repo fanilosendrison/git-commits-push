@@ -15,17 +15,23 @@ const PERMANENT_PUSH_SIGNATURES: readonly string[] = [
 	"access denied",
 	"does not appear to be a git repository",
 	"not authorized",
-	"403",
-	"401",
 	"GH006",
 	"protected branch",
 	"protected branch hook declined",
 ];
 
+const PERMANENT_HTTP_STATUS_PATTERNS: readonly RegExp[] = [
+	/\bhttp(?:\/\d+(?:\.\d+)*)?\s+40[13]\b/i,
+	/\breturned error:\s*40[13]\b/i,
+	/\bstatus(?:\s+code)?(?:\s+is|\s*[:=]|\s+)\s*40[13]\b/i,
+];
+
 export function classifyTransient(message: string): boolean {
 	const normalizedMessage = message.toLowerCase();
-	return !PERMANENT_PUSH_SIGNATURES.some((signature) =>
-		normalizedMessage.includes(signature.toLowerCase()),
+	return !(
+		PERMANENT_PUSH_SIGNATURES.some((signature) =>
+			normalizedMessage.includes(signature.toLowerCase()),
+		) || PERMANENT_HTTP_STATUS_PATTERNS.some((pattern) => pattern.test(message))
 	);
 }
 

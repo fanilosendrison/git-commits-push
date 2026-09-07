@@ -75,7 +75,7 @@ describe("post-commit push recovery", () => {
 		const attemptLog = path.join(fixture.remotePath, "push-attempts");
 		fs.writeFileSync(
 			hookPath,
-			`#!/bin/sh\necho attempt >> ${JSON.stringify(attemptLog)}\necho 'temporary rejection' >&2\nexit 1\n`,
+			`#!/bin/sh\necho attempt >> ${JSON.stringify(attemptLog)}\necho 'temporary rejection request 1401' >&2\nexit 1\n`,
 		);
 		fs.chmodSync(hookPath, 0o755);
 		fixture.repository.writeAndStage(
@@ -177,6 +177,22 @@ describe("post-commit push recovery", () => {
 			classifyTransient(
 				"fatal: could not read Username for 'https://github.com': terminal prompts disabled",
 			),
+			false,
+		);
+	});
+
+	test("only contextual HTTP authentication statuses are permanent", () => {
+		assert.strictEqual(
+			classifyTransient("temporary rejection request 1401 for a401b"),
+			true,
+		);
+		assert.strictEqual(classifyTransient("HTTP/2 401 Unauthorized"), false);
+		assert.strictEqual(
+			classifyTransient("The requested URL returned error: 403"),
+			false,
+		);
+		assert.strictEqual(
+			classifyTransient("remote response status code is 401"),
 			false,
 		);
 	});
