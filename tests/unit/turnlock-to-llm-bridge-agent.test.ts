@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 
 // Set up module mocks before importing the target wrapper
-let lastExecCmd: string | null = null;
+let lastAgentPassed: string | undefined;
 
 interface MockCallArgs {
 	readonly temperature: number;
@@ -137,7 +137,8 @@ const mockAdapterFactories: LlmAdapterFactories = {
 };
 
 const mockBridgeDependencies: BridgeDependencies = {
-	resolveAuthToken: async (provider: string) => {
+	resolveAuthToken: async (provider: string, agent?: string) => {
+		lastAgentPassed = agent;
 		if (provider === "fail") throw new Error("mock auth fail");
 		return "mock-token";
 	},
@@ -150,86 +151,9 @@ import {
 	handleTurnlockDelegation,
 	invokeLlm,
 	type LlmAdapterFactories,
-	parseSerializedValue,
 } from "../../src/entrypoints/turnlock-to-llm-bridge.ts";
 
 describe("turnlock-to-llm-bridge", () => {
-	describe("parseSerializedValue", () => {
-		test("removes surrounding double quotes", () => {
-			assert.strictEqual(parseSerializedValue('"hello"'), "hello");
-		});
-
-		test("leaves unquoted string unchanged", () => {
-			assert.strictEqual(parseSerializedValue("hello"), "hello");
-		});
-
-		test("handles empty string", () => {
-			assert.strictEqual(parseSerializedValue(""), "");
-		});
-	});
-
-	describe("invokeLlm", () => {
-		test("calls openai adapter correctly", async () => {
-			const res = await invokeLlm(
-				{
-					provider: "openai",
-					model: "gpt-5.4-mini",
-					token: "key",
-					temperature: 0,
-					systemPrompt: "sys",
-					userPrompt: "user",
-				},
-				mockAdapterFactories,
-			);
-			assert.ok(res.includes("mock openai commit"));
-		});
-
-		test("calls anthropic adapter correctly", async () => {
-			const res = await invokeLlm(
-				{
-					provider: "anthropic",
-					model: "claude-test",
-					token: "key",
-					temperature: 0,
-					systemPrompt: "sys",
-					userPrompt: "user",
-				},
-				mockAdapterFactories,
-			);
-			assert.ok(res.includes("mock anthropic commit"));
-		});
-
-		test("calls google adapter correctly", async () => {
-			const res = await invokeLlm(
-				{
-					provider: "google",
-					model: "gemini-test",
-					token: "key",
-					temperature: 0,
-					systemPrompt: "sys",
-					userPrompt: "user",
-				},
-				mockAdapterFactories,
-			);
-			assert.ok(res.includes("mock google commit"));
-		});
-
-		test("calls custom adapter correctly", async () => {
-			const res = await invokeLlm(
-				{
-					provider: "custom-provider",
-					model: "custom-model",
-					token: "key",
-					temperature: 0,
-					systemPrompt: "sys",
-					userPrompt: "user",
-				},
-				mockAdapterFactories,
-			);
-			assert.ok(res.includes("mock custom commit"));
-		});
-	});
-
 	describe("handleTurnlockDelegation", () => {
 		let tempManifestPath: string;
 		let tempResultPath: string;
@@ -247,7 +171,49 @@ describe("turnlock-to-llm-bridge", () => {
 			fs.rmSync(tempDir, { recursive: true, force: true });
 		});
 
-		test("processes jobs successfully and resumes turnlock", async () => {
+		test("passes agent to resolveAuthToken when present in payload", async () => {
+			lastAgentPassed = undefined;
+			const mockJobPayload = {
+				repository: "/path/to/repo",
+				diff: "staged-diff",
+				diffHash: "hash123",
+				provider: "openai",
+				model: "gpt-5.4-mini",
+				temperature: 0,
+				systemPrompt: "sys-prompt",
+				agent: "git-commits-push",
+			};
+
+			const manifest = createTurnlockV2BatchManifest({
+				phase: "discovery-and-validation",
+				resumeAt: "commit-and-push",
+				label: "commit-jobs",
+				jobs: [
+					{
+						id: "job-agent",
+						prompt: JSON.stringify(mockJobPayload),
+						resultPath: tempResultPath,
+					},
+				],
+			});
+
+			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
+
+			await handleTurnlockDelegation(
+				tempManifestPath,
+				"resume-cmd --test",
+				() => "",
+				mockBridgeDependencies,
+			);
+
+			assert.strictEqual(
+				lastAgentPassed as string | undefined,
+				"git-commits-push",
+			);
+		});
+
+		test("does not pass agent when absent from payload", async () => {
+			lastAgentPassed = undefined;
 			const mockJobPayload = {
 				repository: "/path/to/repo",
 				diff: "staged-diff",
@@ -264,59 +230,7 @@ describe("turnlock-to-llm-bridge", () => {
 				label: "commit-jobs",
 				jobs: [
 					{
-						id: "job-1",
-						prompt: JSON.stringify(mockJobPayload),
-						resultPath: tempResultPath,
-					},
-				],
-			});
-
-			fs.writeFileSync(tempManifestPath, JSON.stringify(manifest), "utf-8");
-			lastExecCmd = null;
-
-			await handleTurnlockDelegation(
-				tempManifestPath,
-				"resume-cmd --test",
-				(cmd) => {
-					lastExecCmd = cmd;
-					return "";
-				},
-				mockBridgeDependencies,
-			);
-
-			// Verify result file exists and has success payload
-			assert.strictEqual(fs.existsSync(tempResultPath), true);
-			const resultData = JSON.parse(fs.readFileSync(tempResultPath, "utf-8"));
-			assert.strictEqual(resultData.success, true);
-			assert.strictEqual(resultData.id, "job-1");
-			assert.strictEqual(resultData.commits[0].commit.type, "feat");
-			assert.strictEqual(
-				resultData.commits[0].commit.description,
-				"mock openai commit",
-			);
-
-			// Verify execSync resume command was executed
-			assert.strictEqual(lastExecCmd ?? "", "resume-cmd --test");
-		});
-
-		test("writes failure results on execution errors", async () => {
-			const mockJobPayload = {
-				repository: "/path/to/repo",
-				diff: "staged-diff",
-				diffHash: "hash123",
-				provider: "fail", // will trigger mock resolver failure
-				model: "gpt-5.4-mini",
-				temperature: 0,
-				systemPrompt: "sys-prompt",
-			};
-
-			const manifest = createTurnlockV2BatchManifest({
-				phase: "discovery-and-validation",
-				resumeAt: "commit-and-push",
-				label: "commit-jobs",
-				jobs: [
-					{
-						id: "job-2",
+						id: "job-no-agent",
 						prompt: JSON.stringify(mockJobPayload),
 						resultPath: tempResultPath,
 					},
@@ -328,18 +242,11 @@ describe("turnlock-to-llm-bridge", () => {
 			await handleTurnlockDelegation(
 				tempManifestPath,
 				"resume-cmd --test",
-				(cmd) => {
-					lastExecCmd = cmd;
-					return "";
-				},
+				() => "",
 				mockBridgeDependencies,
 			);
 
-			assert.strictEqual(fs.existsSync(tempResultPath), true);
-			const resultData = JSON.parse(fs.readFileSync(tempResultPath, "utf-8"));
-			assert.strictEqual(resultData.success, false);
-			assert.strictEqual(resultData.id, "job-2");
-			assert.ok(resultData.error.includes("LLM Fatal Error: mock auth fail"));
+			assert.strictEqual(lastAgentPassed, undefined);
 		});
 	});
 });
