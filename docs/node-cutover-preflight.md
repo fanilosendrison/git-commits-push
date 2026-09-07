@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "1.0.2"
+version: "2.0.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -26,7 +26,7 @@ checks and do not require a separate preflight.
 
 ## Command
 
-From the skill directory:
+From the dedicated repository:
 
 ```bash
 pnpm run check:node-cutover
@@ -40,12 +40,13 @@ ORDER_STATE_DIR=/absolute/path/to/state pnpm run check:node-cutover
 
 The command accepts these inspection inputs:
 
-- `ORDER_STATE_DIR` selects the reconciliation state directory. The default is
-  `.state/orders/` under the skill directory.
+- `ORDER_STATE_DIR` selects an absolute reconciliation state directory. The
+  default is `$XDG_STATE_HOME/git-commits-push/orders/` when `XDG_STATE_HOME` is
+  non-empty, falling back to `~/.local/state/git-commits-push/orders/`.
 - `TURNLOCK_RUN_DIR_ROOT` selects the Turnlock run root. The inspected directory
   is its `git-commits-push-tl/` child; the default root is `~/.turnlock/runs/`.
-- `GCP_NODE_CUTOVER_CLOSURE_LEDGER` selects the explicit closure ledger. The
-  default is `.state/node-cutover-closures.json` under the skill directory.
+- `GCP_NODE_CUTOVER_CLOSURE_LEDGER` selects an absolute closure-ledger path. The
+  default is `node-cutover-closures.json` in the application state container.
 
 `ORDER_STATE_DIR` remains a compatibility name for the reconciliation state
 directory.
@@ -127,7 +128,10 @@ delete the historical run directory.
 6. For legacy artifacts, confirm that no legacy worker is active. A normal
    launcher invocation can migrate stale residue only after it has durably
    registered a SQLite generation.
-7. Run the preflight again and require exit `0` before re-enabling automated
+7. If the sibling `.migration-lock` directory remains after a crash or power
+   loss, prove that no migration or launcher process is active, then remove only
+   that empty directory with `rmdir`.
+8. Run the preflight again and require exit `0` before re-enabling automated
    invocations.
 
 Deleting coordinator state is a last resort. It is safe only after confirming

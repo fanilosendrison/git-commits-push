@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "1.0.2"
+version: "2.0.0"
 status: "Active"
 summary: "Normative contract for coalescing concurrent git-commits-push invocations into durable SQLite-backed reconciliation passes."
 domain: "git-commits-push"
@@ -25,7 +25,9 @@ The coordinator therefore stores generations and one owner, not queued orders.
 
 The authoritative coordinator is `reconciler.sqlite` in the reconciliation state
 directory. `ORDER_STATE_DIR` remains the compatibility override for that
-directory; the default is `.state/orders/` under the skill directory.
+absolute directory. The default is
+`$XDG_STATE_HOME/git-commits-push/orders/`, falling back to
+`~/.local/state/git-commits-push/orders/`.
 
 The SQLite database MUST:
 

@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "1.0.1"
+version: "2.0.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -18,6 +18,19 @@ severity: "strict"
 Conventional Commit plans, commits exact file groups, and pushes them. Turnlock
 owns one pass's durable phase workflow. The public launcher owns global
 reconciliation across concurrent invocations.
+
+## Repository boundary
+
+This repository owns the complete runtime, its private workspace packages,
+tests, documentation, build, and CI. The harness repository owns only the
+`SKILL.md` discovery manifest and its enforcement adapters. Do not move runtime
+code back into the manifest directory.
+
+`packages/node-runtime/` owns reusable process and asset infrastructure.
+`packages/trust/` is the canonical one-shot guardrail-permit protocol. It is not
+a security boundary against arbitrary code running as the same OS user.
+Harnesses consume a pinned packed artifact of the trust package; never duplicate
+its constants or validation rules in a harness repository.
 
 ## Runtime architecture
 
@@ -69,8 +82,11 @@ increment `requested_generation` in `reconciler.sqlite`.
 - Corrupt, incompatible, or impossible state fails closed and is preserved.
 - The coordinator stores no per-request orders or historical event log.
 
-`ORDER_STATE_DIR` remains the compatibility override for the state directory.
-The normative state machine is documented in
+`ORDER_STATE_DIR` remains the compatibility override for the state directory
+and must resolve to an absolute path. The default is
+`$XDG_STATE_HOME/git-commits-push/orders/`, falling back to
+`~/.local/state/git-commits-push/orders/`. The normative state machine is
+documented in
 [`specs/reconciliation.md`](specs/reconciliation.md).
 
 Legacy `running.lock` and `order-*.json` or `order-*.flag` artifacts are migration
@@ -153,7 +169,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 55 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 62 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 

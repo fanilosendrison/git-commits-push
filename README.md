@@ -3,14 +3,21 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "1.0.1"
+version: "2.0.0"
 status: "Active"
-summary: "User guide for the SQLite-reconciled, Turnlock-driven git-commits-push skill."
+summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
 severity: "guideline"
 ---
 
 # git-commits-push
+
+The runtime is maintained in this dedicated repository. Harnesses discover it
+through a separate `SKILL.md` manifest and invoke it with:
+
+```bash
+cd "$HOME/Developper/Projects/git-commits-push" && pnpm --silent run start
+```
 
 **One command. All your dirty repos. Tests, Conventional Commits, file-level splitting, push. Done.**
 
@@ -33,8 +40,9 @@ file by file, and pushes — so you don't have to think about any of it.
 
 ### 1. Discovery
 
-The skill walks every directory under `searchPaths` (defaults to your home
-folder) and identifies Git repositories that have uncommitted changes — staged,
+The skill walks every directory under `searchPaths` (the committed configuration
+uses `~/Developper`; an omitted or empty value falls back to
+`~/Developper/Projects`) and identifies Git repositories that have uncommitted changes — staged,
 unstaged, or both. Repos on a detached HEAD are skipped (there's no branch to
 push to).
 
@@ -214,7 +222,7 @@ Settings live in `src/config/settings.json`.
 
 | Key | What it does | Example |
 |-----|-------------|---------|
-| `searchPaths` | Directories to scan for repos (defaults to `HOME` if omitted) | `["~/Projects", "~/Work"]` |
+| `searchPaths` | Directories to scan for repos (falls back to `~/Developper/Projects` if omitted or empty) | `["~/Projects", "~/Work"]` |
 | `thinking` | Enable thinking/reasoning tokens on providers that support it | `true` |
 | `fallbackProvider` | Provider to escalate to when validation retries are exhausted | `"anthropic"` |
 | `fallbackModel` | Model for the fallback provider | `"claude-sonnet-4-20250514"` |
@@ -287,7 +295,7 @@ not let a concurrent invocation steal a live owner.
 |------|-------|
 | **Commit/push events** | `~/neelopedia/stats/<agent>/git-commits-push/events.jsonl` |
 | **Secret scan events** | `~/neelopedia/stats/<agent>/secret-scanner/events.jsonl` |
-| **Reconciler state** | `.state/orders/reconciler.sqlite` inside the skill directory (or under `ORDER_STATE_DIR` if set) |
+| **Reconciler state** | `$XDG_STATE_HOME/git-commits-push/orders/reconciler.sqlite`, falling back to `~/.local/state/git-commits-push/orders/reconciler.sqlite` |
 
 The JSONL files contain structured records of every action: which repos were
 processed, what messages were committed, whether push succeeded, and any errors
@@ -331,7 +339,7 @@ for the exact trigger conditions.
 
 ## Architecture
 
-The skill is built on **Turnlock v0.8.0+** (v2 delegation protocol). Its public
+The CLI is built on **Turnlock v0.8.0+** (v2 delegation protocol). Its public
 Node launcher first registers a SQLite reconciliation generation, then one owner
 builds and starts a shell-free supervisor:
 
