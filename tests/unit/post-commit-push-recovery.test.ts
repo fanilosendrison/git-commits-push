@@ -196,4 +196,13 @@ describe("post-commit push recovery", () => {
 			false,
 		);
 	});
+
+	test("GitHub workflow-scope rejections are permanent", () => {
+		assert.strictEqual(
+			classifyTransient(
+				"refusing to allow an OAuth App to update workflow without 'workflow' scope",
+			),
+			false,
+		);
+	});
 });

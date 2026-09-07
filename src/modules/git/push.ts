@@ -15,6 +15,7 @@ const PERMANENT_PUSH_SIGNATURES: readonly string[] = [
 	"access denied",
 	"does not appear to be a git repository",
 	"not authorized",
+	"without 'workflow' scope",
 	"GH006",
 	"protected branch",
 	"protected branch hook declined",
