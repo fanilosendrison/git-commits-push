@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check packages
+        run: pnpm run typecheck:packages
+
+      - name: Type-check application
+        run: pnpm run typecheck
+
+      - name: Type-check compiled runtime
+        run: pnpm run typecheck:node
+
+      - name: Type-check telemetry smoke test
+        run: pnpm run typecheck:node:stats
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Test source and packages
+        run: pnpm test
+
+      - name: Verify package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/package-artifacts"
+          mkdir -p "$package_dir"
+          pnpm --filter @git-commits-push/node-runtime pack --pack-destination "$package_dir"
+          pnpm --filter @git-commits-push/trust pack --pack-destination "$package_dir"
+          tar -tzf "$package_dir/git-commits-push-node-runtime-0.1.0.tgz" | grep -Fxq package/dist/process-contract.js
+          tar -tzf "$package_dir/git-commits-push-trust-0.1.0.tgz" | grep -Fxq package/dist/index.js
+
+      - name: Test compiled runtime
+        run: pnpm run test:node:build
+
+      - name: Test telemetry integration
+        run: pnpm run test:node:stats
