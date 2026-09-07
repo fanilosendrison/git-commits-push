@@ -62,19 +62,21 @@ async function runBuildStep(args, cwd, abortSignal) {
 	return result;
 }
 
-/** Build shared runtime and skill artifacts once for one reconciler owner. */
+/** Build private workspace packages and application artifacts for one owner. */
 export async function buildOnce({
-	nodeRuntimeDirectory,
+	packageDirectories,
 	scriptDirectory,
 	skillDirectory,
 	abortSignal,
 }) {
-	const runtimeBuild = await runBuildStep(
-		[typescriptCliPath, "-p", "tsconfig.build.json"],
-		nodeRuntimeDirectory,
-		abortSignal,
-	);
-	if (runtimeBuild.exitCode !== 0) return runtimeBuild;
+	for (const packageDirectory of packageDirectories) {
+		const packageBuild = await runBuildStep(
+			[typescriptCliPath, "-p", "tsconfig.build.json"],
+			packageDirectory,
+			abortSignal,
+		);
+		if (packageBuild.exitCode !== 0) return packageBuild;
+	}
 	return runBuildStep(
 		[path.join(scriptDirectory, "build-node.mjs")],
 		skillDirectory,

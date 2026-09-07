@@ -1,19 +1,17 @@
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+	resolveNodeCutoverClosureLedgerPath,
+	resolveReconcilerStateDirectory,
+} from "../src/modules/reconciliation/reconciler-paths.ts";
 import { inspectNodeCutoverState } from "../src/utils/node-cutover-preflight.ts";
 
-const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const skillDirectory = path.resolve(scriptDirectory, "..");
 const turnlockRunRoot =
 	process.env.TURNLOCK_RUN_DIR_ROOT ??
 	path.join(os.homedir(), ".turnlock", "runs");
 const runsDirectory = path.join(turnlockRunRoot, "git-commits-push-tl");
-const orderStateDirectory =
-	process.env.ORDER_STATE_DIR ?? path.join(skillDirectory, ".state", "orders");
-const closureLedgerPath =
-	process.env.GCP_NODE_CUTOVER_CLOSURE_LEDGER ??
-	path.join(skillDirectory, ".state", "node-cutover-closures.json");
+const orderStateDirectory = resolveReconcilerStateDirectory(process.env);
+const closureLedgerPath = resolveNodeCutoverClosureLedgerPath(process.env);
 
 try {
 	const report = inspectNodeCutoverState({

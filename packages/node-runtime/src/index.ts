@@ -11,10 +11,11 @@ export type {
 	ProcessResult,
 	ProcessTerminationReason,
 	RunProcessOptions,
-} from "./run-process.ts";
+} from "./process-contract.ts";
 export {
 	DEFAULT_MAX_CAPTURE_BYTES,
 	DEFAULT_TERMINATION_GRACE_MS,
 	ProcessExecutionError,
-	runProcess,
-} from "./run-process.ts";
+} from "./process-contract.ts";
+export { signalProcessTree, usesIsolatedProcessGroup } from "./process-tree.ts";
+export { runProcess } from "./run-process.ts";

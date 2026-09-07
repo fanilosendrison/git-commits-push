@@ -8,6 +8,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"test/copy-assets.test.ts",
 	"test/parse-yaml.test.ts",
 	"test/run-process.test.ts",
+	"test/run-process-termination.test.ts",
 	"test/test-runner.test.mjs",
 ]);
 

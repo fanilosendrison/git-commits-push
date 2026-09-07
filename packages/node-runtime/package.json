@@ -1,5 +1,5 @@
 {
-	"name": "@dotagents/node-runtime",
+	"name": "@git-commits-push/node-runtime",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -19,6 +19,7 @@
 	],
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
+		"prepack": "pnpm run build",
 		"test": "node test/run-tests.mjs",
 		"typecheck": "tsc -p tsconfig.json"
 	},

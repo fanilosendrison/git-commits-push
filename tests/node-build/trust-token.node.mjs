@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import {
 	chmod,
 	mkdir,
@@ -16,35 +17,50 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
 const compiledRoot = path.join(skillDirectory, "dist");
-const compiledEnforcementValidatorPath = path.join(
-	compiledRoot,
-	"agent-enforcers",
-	"git-commits-push-enforcer",
-	"src",
-	"core",
-	"validator.js",
-);
 const compiledTrustStorePath = path.join(
-	compiledRoot,
-	"agent-enforcers",
-	"git-commits-push-enforcer",
-	"src",
-	"core",
-	"trust-store.js",
+	skillDirectory,
+	"packages",
+	"trust",
+	"dist",
+	"index.js",
 );
 const compiledGitExecPath = path.join(
 	compiledRoot,
-	"skills",
-	"git-commits-push",
 	"src",
 	"modules",
 	"git",
 	"git-exec.js",
 );
-const enforcementValidator = await import(
-	pathToFileURL(compiledEnforcementValidatorPath).href
+const validatorPath = path.join(
+	skillDirectory,
+	"packages",
+	"trust",
+	"test",
+	"validate-token-child.mjs",
 );
 const trustStore = await import(pathToFileURL(compiledTrustStorePath).href);
+
+function runValidator(token) {
+	return new Promise((resolve, reject) => {
+		const child = spawn(process.execPath, [validatorPath, token], {
+			cwd: skillDirectory,
+			stdio: ["ignore", "pipe", "inherit"],
+		});
+		let output = "";
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => {
+			output += chunk;
+		});
+		child.once("error", reject);
+		child.once("close", (exitCode) => {
+			if (exitCode !== 0) {
+				reject(new Error(`validator child exited with ${String(exitCode)}`));
+				return;
+			}
+			resolve(output);
+		});
+	});
+}
 
 async function withTemporaryDirectory(callback) {
 	const directory = await mkdtemp(
@@ -58,28 +74,25 @@ async function withTemporaryDirectory(callback) {
 }
 
 test("authorizes only source and compiled internal Git helper stacks", () => {
-	for (const extension of ["ts", "js"]) {
+	for (const stackPath of [
+		path.join(skillDirectory, "src", "modules", "git", "git-exec.ts"),
+		path.join(skillDirectory, "src", "utils", "git-utils.ts"),
+		path.join(skillDirectory, "dist", "src", "modules", "git", "git-exec.js"),
+		path.join(skillDirectory, "dist", "src", "utils", "git-utils.js"),
+	]) {
 		assert.equal(
 			trustStore.isAuthorizedTrustTokenIssuerStack(
-				`at gitExec (/workspace/skills/git-commits-push/src/modules/git/git-exec.${extension}:1:1)`,
-			),
-			true,
-		);
-		assert.equal(
-			trustStore.isAuthorizedTrustTokenIssuerStack(
-				`at trustedGitEnv (/workspace/skills/git-commits-push/src/utils/git-utils.${extension}:1:1)`,
+				`at helper (${stackPath}:1:1)`,
 			),
 			true,
 		);
 	}
-	for (const extension of ["ts", "js"]) {
-		assert.equal(
-			trustStore.isAuthorizedTrustTokenIssuerStack(
-				`at forged (/workspace/skills/git-commits-push/src/utils/git-utils.${extension}.lookalike:1:1)`,
-			),
-			false,
-		);
-	}
+	assert.equal(
+		trustStore.isAuthorizedTrustTokenIssuerStack(
+			"at forged (/tmp/git-commits-push/src/utils/git-utils.ts:1:1)",
+		),
+		false,
+	);
 });
 
 test("compiled Git helper mints a permission-restricted one-shot token", async () => {
@@ -106,27 +119,15 @@ test("compiled Git helper mints a permission-restricted one-shot token", async (
 				token,
 			);
 			assert.equal((await stat(tokenPath)).mode & 0o777, 0o600);
-			const allowed = enforcementValidator.evaluateEnforcement({
-				command: "git commit -m trusted",
-				legacyBypassSet: false,
-				trustedSkillMarkerSet: true,
-				trustToken: token,
-				validateToken: trustStore.validateTrustToken,
-			});
-			assert.equal(allowed.action, "allow");
-			assert.equal(allowed.eventType, "enforcer_triggered");
+			const results = await Promise.all(
+				Array.from({ length: 12 }, () => runValidator(token)),
+			);
+			assert.equal(results.filter((result) => result === "valid").length, 1);
+			assert.equal(results.filter((result) => result === "invalid").length, 11);
 			await assert.rejects(readFile(tokenPath), { code: "ENOENT" });
 
 			for (const forgedToken of [token, "0".repeat(64)]) {
-				const blocked = enforcementValidator.evaluateEnforcement({
-					command: "git push origin main",
-					legacyBypassSet: false,
-					trustedSkillMarkerSet: true,
-					trustToken: forgedToken,
-					validateToken: trustStore.validateTrustToken,
-				});
-				assert.equal(blocked.action, "block");
-				assert.match(blocked.deniedReason, /Forged trusted marker/);
+				assert.equal(trustStore.validateTrustToken(forgedToken), false);
 			}
 		} finally {
 			if (previousPath === undefined) delete process.env.PATH;

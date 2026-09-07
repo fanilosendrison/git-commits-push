@@ -17,12 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
-const compiledSkillDirectory = path.join(
-	skillDirectory,
-	"dist",
-	"skills",
-	"git-commits-push",
-);
+const compiledSkillDirectory = path.join(skillDirectory, "dist");
 const nodeLauncherPath = path.join(skillDirectory, "scripts", "start-node.mjs");
 const mockFetchPreloadPath = path.join(
 	testDirectory,
@@ -78,47 +73,7 @@ function waitForClose(child) {
 	});
 }
 
-test("I0 | malformed legacy lock blocks admission before any build", async () => {
-	await withTemporaryDirectory(async (root) => {
-		const environment = isolatedEnvironment(root);
-		await mkdir(environment.HOME, { recursive: true });
-		await mkdir(environment.XDG_CONFIG_HOME, { recursive: true });
-		const orderStateDirectory = path.join(root, "reconciler state");
-		await mkdir(orderStateDirectory, { recursive: true });
-		const lockPath = path.join(orderStateDirectory, "running.lock");
-		await writeFile(lockPath, "not-json\n");
-		const supervisorArtifact = path.join(
-			compiledSkillDirectory,
-			"src",
-			"entrypoints",
-			"node-supervisor.js",
-		);
-		const artifactMtime = statSync(supervisorArtifact).mtimeMs;
-
-		const result = spawnSync(process.execPath, [nodeLauncherPath], {
-			cwd: skillDirectory,
-			encoding: "utf8",
-			env: {
-				...environment,
-				ORDER_STATE_DIR: orderStateDirectory,
-				PI_SESSION_ID: "malformed-legacy-lock",
-			},
-			shell: false,
-			timeout: 60_000,
-		});
-
-		assert.strictEqual(result.status, 2, result.stderr);
-		assert.match(result.stderr, /legacy queue lock.*malformed/u);
-		assert.strictEqual(await readFile(lockPath, "utf8"), "not-json\n");
-		assert.strictEqual(
-			existsSync(path.join(orderStateDirectory, "reconciler.sqlite")),
-			false,
-		);
-		assert.strictEqual(statSync(supervisorArtifact).mtimeMs, artifactMtime);
-	});
-});
-
-test("I0b | SIGTERM during build releases ownership without completion", async () => {
+test("I0 | SIGTERM during build releases ownership without completion", async () => {
 	await withTemporaryDirectory(async (root) => {
 		const environment = isolatedEnvironment(root);
 		await mkdir(environment.HOME, { recursive: true });

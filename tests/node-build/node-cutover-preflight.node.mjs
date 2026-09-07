@@ -11,8 +11,6 @@ const skillDirectory = path.resolve(testDirectory, "../..");
 const compiledPreflightPath = path.join(
 	skillDirectory,
 	"dist",
-	"skills",
-	"git-commits-push",
 	"src",
 	"utils",
 	"node-cutover-preflight.js",

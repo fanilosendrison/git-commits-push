@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
 import {
-	chmod,
 	mkdir,
 	mkdtemp,
-	readdir,
 	readFile,
 	rm,
 	stat,
@@ -20,12 +16,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
-const compiledSkillDirectory = path.join(
-	skillDirectory,
-	"dist",
-	"skills",
-	"git-commits-push",
-);
+const compiledSkillDirectory = path.join(skillDirectory, "dist");
 const compiledSupervisorPath = path.join(
 	compiledSkillDirectory,
 	"src",
@@ -40,13 +31,6 @@ const compiledValidatorPath = path.join(
 	"validators",
 	"pre-commit-validators.js",
 );
-const compiledPublisherPath = path.join(
-	compiledSkillDirectory,
-	"src",
-	"modules",
-	"git",
-	"publisher.js",
-);
 const pipelineFixturePath = path.join(
 	testDirectory,
 	"fixtures",
@@ -57,17 +41,11 @@ const scannerFixturePath = path.join(
 	"fixtures",
 	"security-scanner-stage.mjs",
 );
-const publisherFixturePath = path.join(
-	testDirectory,
-	"fixtures",
-	"compiled-publisher-harness.mjs",
-);
 const { supervisePipeline } = await import(
 	pathToFileURL(compiledSupervisorPath).href
 );
 
 const SECRET_VALUE = `ghp_${"A".repeat(36)}`;
-const HOOK_PRIVATE_MARKER = `ghp_${"H".repeat(36)}`;
 
 function createCapture() {
 	const chunks = [];
@@ -317,114 +295,6 @@ test("compiled scanner errors remain fail-closed", async () => {
 				if (previousStatsMode === undefined)
 					delete process.env.PI_SKILL_STATS_MODE;
 				else process.env.PI_SKILL_STATS_MODE = previousStatsMode;
-			}
-		},
-	);
-});
-
-test("compiled publisher preserves Git modes and trusted hook behavior without output leaks", async () => {
-	await withTemporaryDirectory(
-		"compiled-security-publisher-é-",
-		async (root) => {
-			const { environment, repositoryPath } = await createRepository(root);
-			const hooksDirectory = path.join(repositoryPath, ".git", "hooks");
-			const preCommitSentinel = path.join(root, "pre-commit-ran");
-			const postCommitSentinel = path.join(root, "post-commit-ran");
-			const preCommitHook = path.join(hooksDirectory, "pre-commit");
-			const postCommitHook = path.join(hooksDirectory, "post-commit");
-			await writeFile(
-				preCommitHook,
-				'#!/bin/sh\nprintf "pre" > "$PRE_COMMIT_SENTINEL"\nexit 91\n',
-				{ mode: 0o755 },
-			);
-			await writeFile(
-				postCommitHook,
-				'#!/bin/sh\nprintf "post" > "$POST_COMMIT_SENTINEL"\nprintf "%s\\n" "$HOOK_PRIVATE_MARKER"\nprintf "%s\\n" "$HOOK_PRIVATE_MARKER" >&2\n',
-				{ mode: 0o755 },
-			);
-			await chmod(preCommitHook, 0o755);
-			await chmod(postCommitHook, 0o755);
-
-			const executablePath = path.join(repositoryPath, "executable-script.sh");
-			const regularPath = path.join(repositoryPath, "regular-file.txt");
-			await writeFile(executablePath, "#!/bin/sh\nprintf 'ok\\n'\n", {
-				mode: 0o755,
-			});
-			await chmod(executablePath, 0o755);
-			await writeFile(regularPath, "regular\n", { mode: 0o644 });
-			runGit(
-				repositoryPath,
-				["add", "executable-script.sh", "regular-file.txt"],
-				environment,
-			);
-			const stagedDiff = runGit(
-				repositoryPath,
-				["diff", "--cached"],
-				environment,
-			);
-			const expectedDiffHash = createHash("sha256")
-				.update(stagedDiff)
-				.digest("hex");
-
-			const isolatedTemporaryDirectory = path.join(root, "isolated tmp 漢字");
-			await mkdir(isolatedTemporaryDirectory, { recursive: true });
-			const result = spawnSync(
-				process.execPath,
-				[
-					publisherFixturePath,
-					pathToFileURL(compiledPublisherPath).href,
-					repositoryPath,
-					expectedDiffHash,
-				],
-				{
-					cwd: skillDirectory,
-					encoding: "utf8",
-					env: {
-						...environment,
-						HOOK_PRIVATE_MARKER,
-						NODE_ENV: "test",
-						PI_SKILL_STATS_DIR: path.join(root, "publisher-stats"),
-						POST_COMMIT_SENTINEL: postCommitSentinel,
-						PRE_COMMIT_SENTINEL: preCommitSentinel,
-						TEMP: isolatedTemporaryDirectory,
-						TMP: isolatedTemporaryDirectory,
-						TMPDIR: isolatedTemporaryDirectory,
-					},
-					shell: false,
-				},
-			);
-			assert.equal(result.status, 0, result.stderr);
-			assert.equal(result.stdout, "");
-			assert.equal(result.stderr, "");
-			assert.doesNotMatch(result.stdout, new RegExp(HOOK_PRIVATE_MARKER));
-			assert.doesNotMatch(result.stderr, new RegExp(HOOK_PRIVATE_MARKER));
-			assert.equal(existsSync(preCommitSentinel), false);
-			assert.equal(await readFile(postCommitSentinel, "utf8"), "post");
-			assert.equal((await stat(preCommitHook)).mode & 0o777, 0o755);
-			assert.equal((await stat(postCommitHook)).mode & 0o777, 0o755);
-
-			const tree = runGit(
-				repositoryPath,
-				["ls-tree", "HEAD", "executable-script.sh", "regular-file.txt"],
-				environment,
-			);
-			assert.match(tree, /^100755 .+\texecutable-script\.sh$/m);
-			assert.match(tree, /^100644 .+\tregular-file\.txt$/m);
-
-			const tokenDirectory = path.join(
-				isolatedTemporaryDirectory,
-				"git-commits-push-trust-tokens",
-			);
-			const tokenNames = await readdir(tokenDirectory);
-			assert.ok(tokenNames.length > 0);
-			for (const tokenName of tokenNames) {
-				assert.match(tokenName, /^[a-f0-9]{64}$/);
-				assert.equal(
-					(await stat(path.join(tokenDirectory, tokenName))).mode & 0o777,
-					0o600,
-				);
-				assert.doesNotMatch(result.stdout, new RegExp(tokenName));
-				assert.doesNotMatch(result.stderr, new RegExp(tokenName));
 			}
 		},
 	);

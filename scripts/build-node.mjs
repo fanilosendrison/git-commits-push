@@ -2,10 +2,7 @@ import { rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-	copyAssets,
-	runProcess,
-} from "../../../packages/node-runtime/dist/index.js";
+import { copyAssets, runProcess } from "@git-commits-push/node-runtime";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(scriptDirectory, "..");
@@ -38,11 +35,11 @@ await copyAssets({
 	assets: [
 		{
 			sourcePath: "src/config/settings.json",
-			destinationPath: "skills/git-commits-push/src/config/settings.json",
+			destinationPath: "src/config/settings.json",
 		},
 		{
 			sourcePath: "system-prompt.md",
-			destinationPath: "skills/git-commits-push/system-prompt.md",
+			destinationPath: "system-prompt.md",
 		},
 	],
 	destinationDirectory: outputDirectory,

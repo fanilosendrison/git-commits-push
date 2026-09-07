@@ -19,20 +19,34 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertLegacyApplicationStateMigrated } from "./legacy-state-cutover.mjs";
 import { buildOnce } from "./start-node-internals/build-once.mjs";
 import { createLauncherCancellation } from "./start-node-internals/launcher-cancellation.mjs";
+import {
+	failClosed,
+	writeCoalescedMessage,
+	writeLiveLegacyWorkerMessage,
+	writeMalformedLegacyLockMessage,
+} from "./start-node-internals/launcher-messages.mjs";
 import { runSupervisorPass } from "./start-node-internals/supervisor-pass.mjs";
+import {
+	acquireStateCutoverLock,
+	releaseStateCutoverLock,
+} from "./state-cutover-lock.mjs";
 
 const HEARTBEAT_INTERVAL_MS = 10_000;
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(scriptDirectory, "..");
-const repositoryDirectory = path.resolve(skillDirectory, "../..");
 const nodeRuntimeDirectory = path.join(
-	repositoryDirectory,
+	skillDirectory,
 	"packages",
 	"node-runtime",
 );
+const packageDirectories = [
+	nodeRuntimeDirectory,
+	path.join(skillDirectory, "packages", "trust"),
+];
 // ── Reconciliation coordination (source modules — must run BEFORE build) ────
 const reconcilerDb = await import(
 	pathToFileURL(
@@ -95,43 +109,36 @@ function logTelemetry(method, params) {
 	}
 }
 
-function writeCoalescedMessage(generation) {
-	process.stdout.write(
-		`Reconciliation requested (generation ${generation}).\n` +
-			"Another git-commits-push worker is active.\n" +
-			"This terminal can exit; the active worker will perform another global rescan before becoming idle.\n",
-	);
-}
-
-function writeLiveLegacyWorkerMessage() {
-	process.stderr.write(
-		"git-commits-push: a legacy queue worker (running.lock) appears active.\n" +
-			"Refusing to start a competing reconciler. Wait for the legacy worker to finish, then run again;\n" +
-			"or remove the lock manually after confirming that no legacy worker is running.\n",
-	);
-}
-
-function writeMalformedLegacyLockMessage() {
-	process.stderr.write(
-		"git-commits-push: legacy queue lock (running.lock) is malformed or unreadable.\n" +
-			"Refusing reconciliation because legacy worker liveness cannot be established.\n" +
-			"Preserve and inspect the lock before removing it manually.\n",
-	);
-}
-
-function failClosed(message) {
-	process.stderr.write(`git-commits-push: ${message}\n`);
-	process.exitCode = 2;
-}
-
 function errorMessage(error) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-// ── 1. Legacy queue inspection (before any SQLite write) ───────────────────
+// ── 1. Legacy state and queue inspection (before any SQLite write) ─────────
+let stateCutoverLockPath = null;
+function releaseStateCutoverLockBeforeExit() {
+	if (stateCutoverLockPath === null) return;
+	releaseStateCutoverLock(stateCutoverLockPath);
+	stateCutoverLockPath = null;
+}
+if (process.env.ORDER_STATE_DIR === undefined) {
+	try {
+		stateCutoverLockPath = acquireStateCutoverLock(
+			reconcilerDb.resolveApplicationStateDirectory(process.env),
+		);
+		process.once("exit", releaseStateCutoverLockBeforeExit);
+	} catch (error) {
+		failClosed(errorMessage(error));
+		process.exit(2);
+	}
+}
+try {
+	assertLegacyApplicationStateMigrated();
+} catch (error) {
+	failClosed(errorMessage(error));
+	process.exit(2);
+}
 const stateDirectory = reconcilerDb.resolveReconcilerStateDirectory(
 	process.env,
-	skillDirectory,
 );
 let legacyInspection;
 try {
@@ -198,6 +205,8 @@ try {
 	db.close();
 	process.exit(2);
 }
+releaseStateCutoverLockBeforeExit();
+process.removeListener("exit", releaseStateCutoverLockBeforeExit);
 
 ownerActive = registration.kind === "OWNER";
 await new Promise((resolve) => setImmediate(resolve));
@@ -323,7 +332,7 @@ function terminateAfterCancellation() {
 
 // ── 5. Build ONCE (only the owner may touch dist) ──────────────────────────
 const build = await buildOnce({
-	nodeRuntimeDirectory,
+	packageDirectories,
 	scriptDirectory,
 	skillDirectory,
 	abortSignal: cancellation.signal,

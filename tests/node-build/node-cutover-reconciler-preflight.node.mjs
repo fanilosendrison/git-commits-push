@@ -8,13 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
-const compiledRoot = path.join(
-	skillDirectory,
-	"dist",
-	"skills",
-	"git-commits-push",
-	"src",
-);
+const compiledRoot = path.join(skillDirectory, "dist", "src");
 const { inspectNodeCutoverState } = await import(
 	pathToFileURL(path.join(compiledRoot, "utils", "node-cutover-preflight.js"))
 		.href

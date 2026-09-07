@@ -1,0 +1,11 @@
+packages:
+  - .
+  - packages/*
+
+engineStrict: true
+autoInstallPeers: false
+
+minimumReleaseAgeExclude:
+  - '@fanilosendrison/event-sink@0.1.0'
+  - '@fanilosendrison/llm-runtime@0.1.3'
+  - 'turnlock@0.9.1'

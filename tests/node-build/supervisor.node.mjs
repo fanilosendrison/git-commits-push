@@ -13,8 +13,6 @@ const skillDirectory = path.resolve(testDirectory, "../..");
 const compiledSupervisorPath = path.join(
 	skillDirectory,
 	"dist",
-	"skills",
-	"git-commits-push",
 	"src",
 	"entrypoints",
 	"node-supervisor.js",

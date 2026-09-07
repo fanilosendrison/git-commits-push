@@ -24,6 +24,7 @@ test("uses a closed test-file set that mechanically excludes upstream", () => {
 		"test/copy-assets.test.ts",
 		"test/parse-yaml.test.ts",
 		"test/run-process.test.ts",
+		"test/run-process-termination.test.ts",
 		"test/test-runner.test.mjs",
 	]);
 	assert.equal(FIXED_TEST_TIMEOUT_MILLISECONDS, 30_000);

@@ -1,8 +1,8 @@
 /**
- * src/settings.ts — Reads and validates settings.json from the skill directory.
+ * Reads and validates settings.json from the runtime config directory.
  *
- * settings.json is not versioned — it lives alongside the skill binary.
- * The skill directory is derived from import.meta.url at runtime.
+ * The config directory is derived from import.meta.url at runtime unless the
+ * explicit TURNLOCK_SKILL_SETTINGS_PATH compatibility override is present.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

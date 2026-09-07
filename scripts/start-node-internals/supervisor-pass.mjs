@@ -16,12 +16,7 @@ export async function runSupervisorPass({
 	passthroughArguments,
 	abortSignal,
 }) {
-	const compiledSkillDirectory = path.join(
-		skillDirectory,
-		"dist",
-		"skills",
-		"git-commits-push",
-	);
+	const compiledSkillDirectory = path.join(skillDirectory, "dist");
 	const supervisorPath = path.join(
 		compiledSkillDirectory,
 		"src",

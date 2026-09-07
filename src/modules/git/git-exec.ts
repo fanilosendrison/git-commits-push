@@ -6,7 +6,7 @@ import {
 	TRUSTED_MARKER_ENV,
 	TRUSTED_MARKER_VALUE,
 	TRUSTED_TOKEN_ENV,
-} from "../../../../../agent-enforcers/git-commits-push-enforcer/src/core/trust-store.ts";
+} from "@git-commits-push/trust";
 
 function testOnlyGravityTelemetryEnv(): Record<string, string> {
 	if (

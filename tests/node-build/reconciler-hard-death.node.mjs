@@ -16,12 +16,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
-const compiledSkillDirectory = path.join(
-	skillDirectory,
-	"dist",
-	"skills",
-	"git-commits-push",
-);
+const compiledSkillDirectory = path.join(skillDirectory, "dist");
 const nodeLauncherPath = path.join(skillDirectory, "scripts", "start-node.mjs");
 const mockFetchPreloadPath = path.join(
 	testDirectory,

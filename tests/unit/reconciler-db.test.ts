@@ -13,7 +13,10 @@ import {
 	ReconcilerInvariantError,
 	ReconcilerOpenError,
 	readReconcilerState,
+	resolveApplicationStateDirectory,
+	resolveNodeCutoverClosureLedgerPath,
 	resolveReconcilerDbPath,
+	resolveReconcilerStateDirectory,
 } from "../../src/modules/reconciliation/reconciler-db.ts";
 
 describe("reconciler-db", () => {
@@ -27,6 +30,57 @@ describe("reconciler-db", () => {
 
 	afterEach(() => {
 		fs.rmSync(stateDir, { recursive: true, force: true });
+	});
+
+	test("resolves state outside the repository with absolute overrides", () => {
+		const homeDirectory = path.join(stateDir, "home");
+		assert.strictEqual(
+			resolveApplicationStateDirectory({}, homeDirectory),
+			path.join(homeDirectory, ".local", "state", "git-commits-push"),
+		);
+		assert.strictEqual(
+			resolveReconcilerStateDirectory({}, homeDirectory),
+			path.join(homeDirectory, ".local", "state", "git-commits-push", "orders"),
+		);
+		assert.strictEqual(
+			resolveApplicationStateDirectory({ XDG_STATE_HOME: "" }, homeDirectory),
+			path.join(homeDirectory, ".local", "state", "git-commits-push"),
+		);
+		assert.strictEqual(
+			resolveNodeCutoverClosureLedgerPath(
+				{ XDG_STATE_HOME: path.join(homeDirectory, "state") },
+				homeDirectory,
+			),
+			path.join(
+				homeDirectory,
+				"state",
+				"git-commits-push",
+				"node-cutover-closures.json",
+			),
+		);
+		assert.strictEqual(
+			resolveReconcilerStateDirectory(
+				{ ORDER_STATE_DIR: "~/custom-orders" },
+				homeDirectory,
+			),
+			path.join(homeDirectory, "custom-orders"),
+		);
+		assert.throws(
+			() =>
+				resolveReconcilerStateDirectory(
+					{ ORDER_STATE_DIR: "relative/orders" },
+					homeDirectory,
+				),
+			/ORDER_STATE_DIR must resolve to an absolute path/,
+		);
+		assert.throws(
+			() =>
+				resolveApplicationStateDirectory(
+					{ XDG_STATE_HOME: "relative/state" },
+					homeDirectory,
+				),
+			/XDG_STATE_HOME must resolve to an absolute path/,
+		);
 	});
 
 	test("U1 | fresh database creates exactly one idle state row", () => {

@@ -8,7 +8,7 @@ import type { Readable, Writable } from "node:stream";
 import {
 	signalProcessTree,
 	usesIsolatedProcessGroup,
-} from "../../../../packages/node-runtime/src/process-tree.ts";
+} from "@git-commits-push/node-runtime";
 import { isDirectExecution } from "../utils/direct-execution.ts";
 
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;

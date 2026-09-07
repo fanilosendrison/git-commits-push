@@ -8,11 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
 const distDirectory = path.join(skillDirectory, "dist");
-const compiledSkillDirectory = path.join(
-	distDirectory,
-	"skills",
-	"git-commits-push",
-);
+const compiledSkillDirectory = distDirectory;
 const entrypointDirectory = path.join(
 	compiledSkillDirectory,
 	"src",
@@ -40,32 +36,15 @@ test("emits the compiled supervisor and both pipeline entrypoints", async () => 
 	}
 });
 
-test("emits the compiled enforcement validator and declaration maps", async () => {
-	const enforcementDirectory = path.join(
-		distDirectory,
-		"agent-enforcers",
-		"git-commits-push-enforcer",
-		"src",
-		"core",
-	);
-	for (const extension of ["js", "js.map", "d.ts", "d.ts.map"]) {
-		const artifactPath = path.join(
-			enforcementDirectory,
-			`validator.${extension}`,
-		);
-		assert.equal((await stat(artifactPath)).isFile(), true, artifactPath);
-	}
-});
-
 test("copies runtime assets byte-for-byte with deterministic modes", async () => {
 	const assets = [
 		{
 			source: "src/config/settings.json",
-			destination: "skills/git-commits-push/src/config/settings.json",
+			destination: "src/config/settings.json",
 		},
 		{
 			source: "system-prompt.md",
-			destination: "skills/git-commits-push/system-prompt.md",
+			destination: "system-prompt.md",
 		},
 	];
 
@@ -90,7 +69,7 @@ test("rewrites relative TypeScript imports and removes Bun-only module globals",
 
 	for (const entrypointName of entrypointNames) {
 		const source = await readArtifact(
-			`skills/git-commits-push/src/entrypoints/${entrypointName}.js`,
+			`src/entrypoints/${entrypointName}.js`,
 		).then((content) => content.toString("utf8"));
 		for (const forbiddenPattern of forbiddenPatterns) {
 			assert.doesNotMatch(source, forbiddenPattern);
