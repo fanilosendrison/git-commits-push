@@ -1,21 +1,29 @@
 {
 	"name": "git-commits-push",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "Turnlock-orchestrated CLI that discovers dirty repositories, validates them, commits, and pushes.",
 	"type": "module",
 	"private": true,
+	"bin": {
+		"git-commits-push": "bin/git-commits-push.mjs"
+	},
+	"files": [
+		"bin",
+		"dist"
+	],
 	"scripts": {
 		"build:packages": "pnpm --filter './packages/*' run build",
 		"build:node": "pnpm run build:packages && node scripts/build-node.mjs",
 		"check:node-cutover": "node scripts/check-node-cutover-state.mjs",
-		"lint": "biome check src/ tests/ scripts/ packages/*/src packages/*/test",
+		"install:standalone": "pnpm run build:node && node scripts/install-standalone.mjs",
+		"lint": "biome check src/ tests/ scripts/ bin/ packages/*/src packages/*/test",
 		"migrate:state": "node scripts/migrate-state.mjs",
 		"start": "node scripts/start-node.mjs",
 		"test": "pnpm run test:packages && pnpm run test:source",
 		"test:packages": "pnpm --filter './packages/*' run test",
 		"test:source": "node tests/run-tests.mjs",
 		"test:run": "PI_SKILL_STATS_MODE=test node src/entrypoints/turnlock-orchestrator.ts",
-		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=300000 --test-reporter=tap tests/node-build/artifacts.node.mjs tests/node-build/bare-remote-pipeline.node.mjs tests/node-build/compiled-security.node.mjs tests/node-build/compiled-publisher-security.node.mjs tests/node-build/launcher-admission.node.mjs tests/node-build/launcher-heartbeat-fencing.node.mjs tests/node-build/launcher-state-cutover.node.mjs tests/node-build/node-cutover-preflight.node.mjs tests/node-build/node-cutover-reconciler-preflight.node.mjs tests/node-build/reconciler-e2e.node.mjs tests/node-build/reconciler-failure-recovery.node.mjs tests/node-build/reconciler-hard-death.node.mjs tests/node-build/runtime-launch.node.mjs tests/node-build/state-migration.node.mjs tests/node-build/supervisor.node.mjs tests/node-build/test-runner.node.mjs tests/node-build/trust-token.node.mjs",
+		"test:node:build": "pnpm run build:node && node --test --test-concurrency=1 --test-timeout=300000 --test-reporter=tap tests/node-build/artifacts.node.mjs tests/node-build/bare-remote-pipeline.node.mjs tests/node-build/compiled-security.node.mjs tests/node-build/compiled-publisher-security.node.mjs tests/node-build/launcher-admission.node.mjs tests/node-build/launcher-heartbeat-fencing.node.mjs tests/node-build/launcher-state-cutover.node.mjs tests/node-build/node-cutover-preflight.node.mjs tests/node-build/node-cutover-reconciler-preflight.node.mjs tests/node-build/reconciler-e2e.node.mjs tests/node-build/reconciler-failure-recovery.node.mjs tests/node-build/reconciler-hard-death.node.mjs tests/node-build/runtime-launch.node.mjs tests/node-build/state-migration.node.mjs tests/node-build/standalone-installation.node.mjs tests/node-build/supervisor.node.mjs tests/node-build/test-runner.node.mjs tests/node-build/trust-token.node.mjs",
 		"test:node:stats": "node --preserve-symlinks --preserve-symlinks-main --test --test-concurrency=1 tests/node-smoke/stats-logger-event-sink.node.ts",
 		"typecheck": "pnpm run build:packages && tsc --noEmit",
 		"typecheck:node": "pnpm run build:packages && tsc -p tsconfig.node.json",
