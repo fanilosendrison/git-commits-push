@@ -371,8 +371,10 @@ for the exact trigger conditions.
 
 ## Architecture
 
-The CLI is built on **Turnlock v0.8.0+** (v2 delegation protocol). Its stable
-public link resolves through the atomically selected immutable release. The
+The CLI is integrated against an immutable Turnlock 0.11.0 source revision
+while that version awaits publication. New requests use delegation manifest v3
+with the logical target `worker("git-commit-generator")`. The stable public link
+resolves through the atomically selected immutable application release. The
 compiled Node launcher registers a SQLite reconciliation generation before one
 owner starts the shell-free supervisor:
 
@@ -391,19 +393,30 @@ the same compiled public launcher. The launcher owns admission, lifecycle-wide
 signal cancellation, coalescing,
 recovery, and the pass loop. The orchestrator owns one pass's finite-state
 machine and persists Turnlock snapshots.
-The bridge validates v2 batch manifests, runs LLM inference in parallel, validates
-mode-specific responses, writes results, and resumes the orchestrator. The
+The bridge writes v3 requests and authorizes only
+`worker("git-commit-generator")` before resolving that capability to direct LLM
+inference. During the bounded transition it can also read v2 manifests whose
+historical `worker` is exactly `git-commit-generator`, and v3 retry manifests
+whose only compatibility marker is `legacy-v2`. Other targets and markers fail
+closed before any job is read. The bridge then validates mode-specific
+responses, writes results, and resumes the orchestrator. The
 supervisor owns process isolation, cancellation of its descendant tree,
 backpressure, and protocol-safe stdout routing.
 
 ### Compatibility with older Turnlock runs
 
-Runs persisted by Turnlock v0.3.x (`schemaVersion: 1`, `kind: "agent-batch"`)
-**will not resume** under v0.8.0. This is intentional fail-closed behavior —
-the skill rejects legacy state rather than risking data corruption from an
-in-place migration. If you encounter this after upgrading, inspect the run
-directory under `~/.turnlock/runs/git-commits-push-tl/` and either let the old
-run complete under the previous version or delete it and start fresh.
+Turnlock 0.11.0 migrates supported state schema v2/v3 runs into schema v4.
+A pending manifest-v2 delegation is re-emittable only when its historical
+worker is present; this consumer further authorizes only
+`git-commit-generator`. The bridge retains bounded v2 read compatibility so
+existing authorized work can complete while all new output is v3. Ambiguous v2
+manifests, legacy `agent-batch` manifests, host targets, and other workers fail
+closed before physical execution.
+
+The immutable Git revision in `package.json` must be replaced by the published
+npm `turnlock@0.11.0` only after the same Turnlock commit is release-CI green.
+Historical installed git-commits-push releases remain immutable for runs whose
+resume command points to them.
 
 ## For contributors
 

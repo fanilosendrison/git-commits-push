@@ -127,7 +127,7 @@ registered and exact pre-admission file evidence is revalidated.
 
 ## LLM safety
 
-- Validate Turnlock v2 manifests before reading job payloads.
+- Validate and authorize Turnlock delegation manifests before reading job payloads. New v3 manifests must target exactly `worker("git-commit-generator")`; bounded v2 compatibility accepts only that historical worker. Unknown targets and compatibility markers fail closed.
 - Validate initial planning and repair responses with the production Zod schema
   inside the bounded attempt loop.
 - Commit-message repair may change only requested messages; file ownership,
