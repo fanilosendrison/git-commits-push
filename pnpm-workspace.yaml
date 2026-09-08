@@ -4,6 +4,7 @@ packages:
 
 engineStrict: true
 autoInstallPeers: false
+injectWorkspacePackages: true
 
 minimumReleaseAgeExclude:
   - '@fanilosendrison/event-sink@0.1.0'
