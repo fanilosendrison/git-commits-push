@@ -15,6 +15,7 @@ const entrypointDirectory = path.join(
 	"entrypoints",
 );
 const entrypointNames = [
+	"git-commits-push",
 	"node-supervisor",
 	"turnlock-orchestrator",
 	"turnlock-to-llm-bridge",
@@ -34,6 +35,19 @@ test("emits the compiled supervisor and both pipeline entrypoints", async () => 
 			assert.equal((await stat(artifactPath)).isFile(), true, artifactPath);
 		}
 	}
+});
+
+test("emits the public executable with a version gate", async () => {
+	const executablePath = path.join(
+		skillDirectory,
+		"bin",
+		"git-commits-push.mjs",
+	);
+	const executable = await readFile(executablePath, "utf8");
+	assert.match(executable, /^#!\/usr\/bin\/env node\n/);
+	assert.match(executable, /22\.19\.0/);
+	assert.match(executable, /dist\/src\/entrypoints\/git-commits-push\.js/);
+	assert.equal((await stat(executablePath)).mode & 0o111, 0o111);
 });
 
 test("copies runtime assets byte-for-byte with deterministic modes", async () => {

@@ -63,6 +63,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/secret-scanner.test.ts",
 	"unit/settings.test.ts",
 	"unit/skill-stats-log.test.ts",
+	"unit/standalone-installer.test.ts",
 	"unit/test-runner-cascade.test.ts",
 	"unit/turnlock-to-llm-bridge-agent.test.ts",
 	"unit/turnlock-to-llm-bridge-feedback.test.ts",

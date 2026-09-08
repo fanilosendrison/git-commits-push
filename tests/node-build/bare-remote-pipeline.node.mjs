@@ -14,11 +14,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolvePathExecutable } from "./fixtures/path-executable.mjs";
+import { resolvePnpmOfflineEnvironment } from "./fixtures/pnpm-offline-environment.mjs";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
-const compiledSkillDirectory = path.join(skillDirectory, "dist");
-const nodeLauncherPath = path.join(skillDirectory, "scripts", "start-node.mjs");
+const compiledInstallerUrl = pathToFileURL(
+	path.join(
+		skillDirectory,
+		"dist",
+		"src",
+		"modules",
+		"installation",
+		"standalone-installer.js",
+	),
+).href;
 const mockFetchPreloadPath = path.join(
 	testDirectory,
 	"fixtures",
@@ -87,9 +97,26 @@ function nonProtocolBytes(stdout) {
 
 test("compiled supervisor commits and pushes through a local bare remote", async () => {
 	await withTemporaryDirectory(async (root) => {
-		const environment = isolatedEnvironment(root);
+		const pnpmCliPath =
+			process.env.npm_execpath ?? (await resolvePathExecutable("pnpm"));
+		const environment = {
+			...resolvePnpmOfflineEnvironment(pnpmCliPath, skillDirectory),
+			...isolatedEnvironment(root),
+			XDG_DATA_HOME: path.join(root, "installed application data"),
+		};
 		await mkdir(environment.HOME, { recursive: true });
 		await mkdir(environment.XDG_CONFIG_HOME, { recursive: true });
+		const { installStandalone } = await import(compiledInstallerUrl);
+		const installation = await installStandalone({
+			environment,
+			homeDirectory: environment.HOME,
+			pnpmCliPath,
+			sourceDirectory: skillDirectory,
+		});
+		const compiledSkillDirectory = path.join(
+			installation.releaseDirectory,
+			"dist",
+		);
 
 		const searchRoot = path.join(root, "search root 漢字");
 		const repositoryPath = path.join(searchRoot, "repository with spaces é");
@@ -179,6 +206,7 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 		const pipelineEnvironment = {
 			...environment,
 			GIT_COMMITS_PUSH_ENFORCER_STATS_DIR: enforcerStatsDirectory,
+			XDG_DATA_HOME: "",
 			MOCK_LLM_REQUEST_LOG: requestLogPath,
 			NODE_OPTIONS: `--import=${pathToFileURL(mockFetchPreloadPath).href}`,
 			OPENAI_API_KEY: SYNTHETIC_API_KEY,
@@ -201,11 +229,17 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 			/pipeline\.ts/,
 		);
 		const packageManifest = JSON.parse(
-			await readFile(path.join(skillDirectory, "package.json"), "utf8"),
+			await readFile(
+				path.join(installation.releaseDirectory, "package.json"),
+				"utf8",
+			),
 		);
-		assert.equal(packageManifest.scripts?.start, "node scripts/start-node.mjs");
-		const pipeline = spawnSync(process.execPath, [nodeLauncherPath], {
-			cwd: skillDirectory,
+		assert.equal(
+			packageManifest.bin?.["git-commits-push"],
+			"bin/git-commits-push.mjs",
+		);
+		const pipeline = spawnSync(installation.paths.publicExecutablePath, [], {
+			cwd: root,
 			encoding: "utf8",
 			env: pipelineEnvironment,
 			maxBuffer: 50 * 1024 * 1024,

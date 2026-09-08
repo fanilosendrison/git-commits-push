@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { assertLegacyApplicationStateMigrated } from "../../scripts/legacy-state-cutover.mjs";
 import { migrateApplicationState } from "../../scripts/state-migration.mjs";
+import { assertLegacyApplicationStateMigrated } from "../../src/modules/reconciliation/legacy-state-cutover.ts";
 import { openReconcilerDb } from "../../src/modules/reconciliation/reconciler-db.ts";
 
 async function withTemporaryDirectory(callback) {
@@ -69,7 +69,7 @@ test("launcher guard rejects unmigrated default state", async () => {
 					environment: {},
 					homeDirectory,
 				}),
-			/run `pnpm run migrate:state`/,
+			/run the state migration from the dedicated git-commits-push repository/,
 		);
 		assert.doesNotThrow(() =>
 			assertLegacyApplicationStateMigrated({
