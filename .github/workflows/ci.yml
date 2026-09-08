@@ -57,8 +57,12 @@ jobs:
           mkdir -p "$package_dir"
           pnpm --filter @git-commits-push/node-runtime pack --pack-destination "$package_dir"
           pnpm --filter @git-commits-push/trust pack --pack-destination "$package_dir"
-          tar -tzf "$package_dir/git-commits-push-node-runtime-0.1.0.tgz" | grep -Fxq package/dist/process-contract.js
-          tar -tzf "$package_dir/git-commits-push-trust-0.1.0.tgz" | grep -Fxq package/dist/index.js
+          node_runtime_version="$(node -p "require('./packages/node-runtime/package.json').version")"
+          trust_version="$(node -p "require('./packages/trust/package.json').version")"
+          tar -tzf "$package_dir/git-commits-push-node-runtime-$node_runtime_version.tgz" > "$package_dir/node-runtime.contents"
+          tar -tzf "$package_dir/git-commits-push-trust-$trust_version.tgz" > "$package_dir/trust.contents"
+          grep -Fxq package/dist/process-contract.js "$package_dir/node-runtime.contents"
+          grep -Fxq package/dist/index.js "$package_dir/trust.contents"
 
       - name: Test compiled runtime
         run: pnpm run test:node:build
