@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "2.0.0"
+version: "2.1.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -12,12 +12,15 @@ severity: "guideline"
 
 # git-commits-push
 
-The runtime is maintained in this dedicated repository. Harnesses discover it
-through a separate `SKILL.md` manifest and invoke it with:
+The runtime is maintained and installed from this dedicated repository.
+Harnesses discover it through a separate `SKILL.md` manifest and invoke only the
+stable user-local executable:
 
 ```bash
-cd "$HOME/Developper/Projects/git-commits-push" && pnpm --silent run start
+"$HOME/.local/bin/git-commits-push"
 ```
+
+The production command does not depend on this checkout or invoke `pnpm`.
 
 **One command. All your dirty repos. Tests, Conventional Commits, file-level splitting, push. Done.**
 
@@ -26,6 +29,31 @@ scans for secrets, asks an LLM to write clean Conventional Commit messages, comm
 file by file, and pushes — so you don't have to think about any of it.
 
 ---
+
+## Installation
+
+From this repository, install or upgrade the production CLI with:
+
+```bash
+pnpm run install:standalone
+```
+
+Installation builds the workspace and deploys a self-contained Node application
+to
+`$XDG_DATA_HOME/git-commits-push/releases/<version>-<sha256>/`, falling back to
+`~/.local/share/git-commits-push/releases/<version>-<sha256>/`. It then
+atomically switches the `current` symlink and preserves the stable public link
+at `~/.local/bin/git-commits-push`.
+
+Add `~/.local/bin` to `PATH` for interactive use, or invoke the absolute path as
+the harness does. Releases are immutable and are not automatically deleted:
+active Turnlock runs can retain an absolute entrypoint from an older release and
+resume after a later installation. Re-running the installer with identical
+content reuses the verified release.
+
+`pnpm` is an installation and contributor dependency only. The installed CLI
+requires Node.js, Git, and the package managers needed to test discovered
+repositories; it neither compiles nor consults the source checkout at runtime.
 
 ## When to use this
 
@@ -163,8 +191,9 @@ the cheap model can't produce valid Conventional Commits.
 
 ## What you need
 
-- **Node.js** ≥ 22.19.0 and **pnpm** 11.24.0 for the skill itself.
-- **An LLM provider** configured with valid credentials. The skill uses
+- **Node.js** ≥ 22.19.0 and **Git** ≥ 2.17 for the installed CLI.
+- **pnpm** 11.24.0 only when building, installing, or contributing from source.
+- **An LLM provider** configured with valid credentials. The CLI uses
   `@fanilosendrison/llm-runtime` under the hood and supports any provider it knows.
 - **Git** 2.17 or later and each package manager required by your target
   repositories (`bun`, `pnpm`, `yarn`, `npm`, or `pytest`) available on `PATH`
@@ -205,7 +234,10 @@ Example `~/.agents/agent-credentials.json`:
 
 ## Configuration
 
-Settings live in `src/config/settings.json`.
+The source settings live in `src/config/settings.json` and are copied into each
+immutable release during installation. Change that source file and reinstall to
+activate a new default configuration. Tests and controlled integrations can set
+`TURNLOCK_SKILL_SETTINGS_PATH` to an absolute external settings file.
 
 ### Required
 
@@ -339,15 +371,24 @@ for the exact trigger conditions.
 
 ## Architecture
 
-The CLI is built on **Turnlock v0.8.0+** (v2 delegation protocol). Its public
-Node launcher first registers a SQLite reconciliation generation, then one owner
-builds and starts a shell-free supervisor:
+The CLI is built on **Turnlock v0.8.0+** (v2 delegation protocol). Its stable
+public link resolves through the atomically selected immutable release. The
+compiled Node launcher registers a SQLite reconciliation generation before one
+owner starts the shell-free supervisor:
 
-```
-start-node.mjs → SQLite reconciler → node-supervisor.ts → orchestrator + LLM bridge
+```text
+~/.local/bin/git-commits-push
+  → current/bin/git-commits-push.mjs
+  → compiled public launcher
+  → SQLite reconciler
+  → node-supervisor
+  → orchestrator + LLM bridge
 ```
 
-The launcher owns admission, lifecycle-wide signal cancellation, coalescing,
+The installed launcher never builds at runtime. The source-only
+`scripts/start-node.mjs` entrypoint builds once for development and then invokes
+the same compiled public launcher. The launcher owns admission, lifecycle-wide
+signal cancellation, coalescing,
 recovery, and the pass loop. The orchestrator owns one pass's finite-state
 machine and persists Turnlock snapshots.
 The bridge validates v2 batch manifests, runs LLM inference in parallel, validates

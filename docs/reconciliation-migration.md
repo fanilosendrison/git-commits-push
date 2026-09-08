@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "2.0.0"
+version: "2.1.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -55,11 +55,25 @@ No compatibility field re-enables queue semantics.
 - Legacy residue is exactly revalidated and archived outside the legacy
   namespace only after a SQLite wakeup is durable.
 
-## Standalone repository cutover
+## Standalone repository and executable cutover
 
-The runtime state is independent of the source checkout. The one-time migration
-moves the complete legacy `.state/` container, including `orders/` and the
-closure ledger, into the XDG state location.
+Runtime code and state are independent of the source checkout. Install the
+production executable from the dedicated repository before enabling harness
+invocations:
+
+```bash
+pnpm run install:standalone
+```
+
+The installer deploys an immutable content-addressed release below non-empty
+`XDG_DATA_HOME`, falling back to `~/.local/share`, atomically switches only the
+application's `current` symlink, and exposes the stable harness entrypoint at
+`~/.local/bin/git-commits-push`. Production invocations do not run `pnpm` or
+compile source. Older releases remain available so persisted Turnlock runs can
+resume against the exact entrypoints recorded when they began.
+
+The one-time state migration moves the complete legacy `.state/` container,
+including `orders/` and the closure ledger, into the XDG state location.
 
 The public launcher fails closed while the legacy state container still exists,
 so default-state migration cannot be skipped accidentally. The launcher and
@@ -88,7 +102,10 @@ launcher process is active.
 3. Run `pnpm run migrate:state` once when legacy state exists.
 4. Run `pnpm run check:node-cutover` and resolve every blocker.
 5. Run the compiled reconciliation, recovery, migration, and hard-death suites.
-6. Enable public invocations only after the preflight exits `0`.
+6. Run `pnpm run install:standalone` and verify the stable executable resolves to
+   a content-addressed release.
+7. Enable public invocations only after the preflight exits `0` by invoking
+   `"$HOME/.local/bin/git-commits-push"`.
 
 See [`node-cutover-preflight.md`](node-cutover-preflight.md) for incident and
 manual-recovery procedures.

@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "2.0.0"
+version: "2.1.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -26,11 +26,15 @@ checks and do not require a separate preflight.
 
 ## Command
 
-From the dedicated repository:
+From the dedicated source repository:
 
 ```bash
 pnpm run check:node-cutover
 ```
+
+This is operator tooling and intentionally remains source-only. The installed
+`~/.local/bin/git-commits-push` executable exposes only the production
+reconciliation workflow and never invokes `pnpm`.
 
 To inspect the same non-default directory used by the launcher:
 
@@ -131,8 +135,9 @@ delete the historical run directory.
 7. If the sibling `.migration-lock` directory remains after a crash or power
    loss, prove that no migration or launcher process is active, then remove only
    that empty directory with `rmdir`.
-8. Run the preflight again and require exit `0` before re-enabling automated
-   invocations.
+8. Run the preflight again and require exit `0` before reinstalling or
+   re-enabling automated invocations through
+   `"$HOME/.local/bin/git-commits-push"`.
 
 Deleting coordinator state is a last resort. It is safe only after confirming
 that no launcher or supervisor is active and accepting that the next invocation

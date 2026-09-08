@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "2.0.0"
+version: "2.1.0"
 status: "Active"
 summary: "Normative contract for coalescing concurrent git-commits-push invocations into durable SQLite-backed reconciliation passes."
 domain: "git-commits-push"
@@ -20,6 +20,9 @@ recovery, and compatibility contracts of `git-commits-push`.
 A public invocation means: **the set of dirty repositories may have changed;
 reconcile the current global state**. It is not a durable per-request work item.
 The coordinator therefore stores generations and one owner, not queued orders.
+The harness invokes `"$HOME/.local/bin/git-commits-push"`; that stable link MUST
+resolve through the atomically selected immutable XDG release and MUST NOT rely
+on a source checkout, package manager, or runtime build.
 
 ## Runtime state
 
@@ -51,8 +54,9 @@ ownership from a live process.
 ## Admission
 
 Every public launcher invocation admitted without incompatible state or
-repeated ownership churn MUST register a reconciliation request before building
-artifacts, discovering repositories, mutating Git state, or invoking an LLM.
+repeated ownership churn MUST register a reconciliation request before
+discovering repositories, mutating Git state, starting a supervisor, or invoking
+an LLM. The production launcher MUST NOT build artifacts.
 
 Registration MUST execute in a short `BEGIN IMMEDIATE` transaction and increment
 `requested_generation` exactly once.
@@ -69,8 +73,7 @@ Registration MUST execute in a short `BEGIN IMMEDIATE` transaction and increment
   registration MUST fail closed by retaining the observed owner.
 
 A stale heartbeat alone MUST NOT permit stealing ownership from a live process.
-No Git, build, child-process, or LLM work may occur inside a coordinator
-transaction.
+No Git, child-process, or LLM work may occur inside a coordinator transaction.
 
 ## Reconciliation passes
 
@@ -79,8 +82,8 @@ pass.
 
 For each owned generation, the launcher MUST:
 
-1. build the shared runtime and skill artifacts once for the owner lifecycle;
-2. launch a fresh compiled supervisor pass;
+1. retain the immutable release from which the owner started;
+2. launch a fresh compiled supervisor pass from that release;
 3. keep a token-fenced heartbeat while that pass runs;
 4. atomically finalize the pass and decide whether to continue or stop.
 
@@ -104,9 +107,8 @@ and owner PID. A mismatched owner MUST fail closed rather than update another
 owner's state.
 
 The launcher MUST install `SIGINT` and `SIGTERM` handling immediately after
-owner admission, cancel the build or supervisor process tree, release ownership
-when possible, close SQLite, and preserve unfinished work as a pending
-generation. A failed token-fenced heartbeat MUST cancel active work and MUST NOT
+owner admission, cancel the supervisor process tree, release ownership when
+possible, close SQLite, and preserve unfinished work as a pending generation. A failed token-fenced heartbeat MUST cancel active work and MUST NOT
 permit pass finalization.
 
 ## Legacy file-queue compatibility

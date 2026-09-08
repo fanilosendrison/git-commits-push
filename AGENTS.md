@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "2.0.0"
+version: "2.1.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -37,7 +37,9 @@ its constants or validation rules in a harness repository.
 The production path is:
 
 ```text
-scripts/start-node.mjs
+~/.local/bin/git-commits-push
+  -> XDG current release/bin/git-commits-push.mjs
+  -> compiled git-commits-push entrypoint
   -> SQLite reconciliation admission and ownership
   -> compiled node-supervisor
   -> Turnlock orchestrator + LLM bridge
@@ -46,9 +48,19 @@ scripts/start-node.mjs
 
 Responsibilities MUST remain separated:
 
-- `scripts/start-node.mjs` owns pre-build admission, lifecycle-wide signal
-  cancellation, legacy-state inspection, owner heartbeat, the pass loop, and
-  graceful release.
+- `bin/git-commits-push.mjs` performs only the Node version gate and imports the
+  compiled entrypoint relative to its immutable release.
+- `src/entrypoints/git-commits-push.ts` and
+  `src/modules/reconciliation/public-launcher.ts` own lifecycle-wide signal
+  cancellation, legacy-state inspection, owner heartbeat, reconciliation pass
+  scheduling, and graceful release.
+- `scripts/start-node.mjs` is a source-only development launcher. It builds once
+  and delegates to the same compiled production entrypoint; production must not
+  invoke it.
+- `src/modules/installation/` owns content-addressed deployment, release-tree
+  validation, installer locking, and atomic `current` activation. Installed
+  releases are immutable and MUST NOT be automatically garbage-collected while
+  historical Turnlock runs may reference their absolute entrypoints.
 - `src/modules/reconciliation/` is the sole authority for SQLite schema,
   generation transitions, liveness recovery, and token fencing.
 - `src/entrypoints/node-supervisor.ts` owns its descendant process trees,
@@ -60,16 +72,17 @@ Responsibilities MUST remain separated:
 - `src/phases/` coordinates domain modules. Keep phase entrypoints below 400
   lines by extracting cohesive policies into `src/modules/`.
 
-Shell entrypoints are compatibility shims only. New runtime behavior belongs in
-TypeScript or focused `.mjs` launcher modules.
+JavaScript entrypoints are narrow bootstrap or compatibility shims only. New
+runtime behavior belongs in TypeScript modules.
 
 ## Reconciliation contract
 
 A public invocation means that global repository state may have changed. It is
 not a durable per-request job.
 
-Before any build, Git, child-process, or LLM work, every invocation MUST atomically
-increment `requested_generation` in `reconciler.sqlite`.
+Before any Git, supervisor, or LLM work, every production invocation MUST
+atomically increment `requested_generation` in `reconciler.sqlite`. Production
+invocations MUST NOT build or resolve modules from the source checkout.
 
 - One live owner executes reconciliation passes.
 - Concurrent invocations coalesce into that owner and exit successfully.
@@ -135,6 +148,27 @@ Explicit `GCP_ORDER_*` variables override automatic request-origin detection.
 `GCP_ORDER_IS_QUEUED` is legacy telemetry metadata only and MUST NOT reactivate a
 queue execution path. Telemetry failures must never block reconciliation.
 
+## Installation and release safety
+
+- The harness command is exactly `"$HOME/.local/bin/git-commits-push"`; do not
+  reintroduce checkout discovery, `cd`, `pnpm`, or runtime build steps.
+- Install application data below non-empty absolute `XDG_DATA_HOME`, falling back
+  to `~/.local/share`; an empty `XDG_DATA_HOME` is equivalent to absence.
+- Activate only the relative `current` symlink atomically. The public executable
+  symlink is stable and may be created only when absent or already equal to the
+  managed target.
+- Release names bind semantic version and a deterministic tree digest. Reject
+  escaping or broken symlinks, special files, hostile destination entries, and
+  mismatched existing release content.
+- Installation locking uses a lifecycle-held SQLite exclusive transaction plus
+  a private owner record fenced by nonce, PID, and process-start identity. OS
+  lock release makes crashes recoverable, and simultaneous stale recovery may
+  admit only one installer. Once that lock is held, remove only physical
+  `.staging-<32 hex>` directories and owner-candidate files proven stale by
+  exclusive ownership.
+- `pnpm` is allowed during source installation only. The installed release must
+  run with Node and Git when the source checkout and `pnpm` are unavailable.
+
 ## State and schema
 
 - Parse persisted Turnlock state through `src/config/state-schema.ts`.
@@ -169,7 +203,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 62 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 63 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 
