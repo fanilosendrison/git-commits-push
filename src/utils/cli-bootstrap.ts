@@ -1,7 +1,7 @@
 /**
  * src/utils/cli-bootstrap.ts — Pre-Turnlock bootstrap for direct orchestrator runs.
  *
- * The global reconciler (scripts/start-node.mjs) owns admission, heartbeat and
+ * The public launcher's reconciliation module owns admission, heartbeat and
  * pass scheduling. This bootstrap only guarantees that every orchestrator
  * execution has a fresh Turnlock run id and a request identity for telemetry.
  */

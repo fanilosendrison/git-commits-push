@@ -4,8 +4,8 @@ import path from "node:path";
 
 /** Resolve the retired skill-local application state container. */
 export function resolveLegacyApplicationStateDirectory(
-	homeDirectory = os.homedir(),
-) {
+	homeDirectory: string = os.homedir(),
+): string {
 	return path.join(
 		homeDirectory,
 		".agents",
@@ -15,17 +15,18 @@ export function resolveLegacyApplicationStateDirectory(
 	);
 }
 
-/**
- * Fail closed until default state has been explicitly migrated out of the
- * retired skill runtime. ORDER_STATE_DIR is an explicit location override and
- * therefore does not participate in the default-state migration contract.
- */
-export function assertLegacyApplicationStateMigrated({
-	environment = process.env,
-	homeDirectory = os.homedir(),
-} = {}) {
+/** Fail closed until default state has left the retired skill directory. */
+export function assertLegacyApplicationStateMigrated(
+	options: {
+		readonly environment?: NodeJS.ProcessEnv;
+		readonly homeDirectory?: string;
+	} = {},
+): void {
+	const environment = options.environment ?? process.env;
 	if (environment.ORDER_STATE_DIR !== undefined) return;
-	const legacyStateRoot = resolveLegacyApplicationStateDirectory(homeDirectory);
+	const legacyStateRoot = resolveLegacyApplicationStateDirectory(
+		options.homeDirectory,
+	);
 	if (!existsSync(legacyStateRoot)) return;
 
 	let stateKind = "filesystem entry";
@@ -38,6 +39,6 @@ export function assertLegacyApplicationStateMigrated({
 		stateKind = "unreadable filesystem entry";
 	}
 	throw new Error(
-		`legacy application state ${stateKind} still exists at ${legacyStateRoot}; run \`pnpm run migrate:state\` from the dedicated git-commits-push repository before launch`,
+		`legacy application state ${stateKind} still exists at ${legacyStateRoot}; run the state migration from the dedicated git-commits-push repository before launch`,
 	);
 }

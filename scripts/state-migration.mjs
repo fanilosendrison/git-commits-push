@@ -9,7 +9,7 @@ import { inspectReconciliationPreflightState } from "../src/modules/reconciliati
 import {
 	acquireStateCutoverLock,
 	releaseStateCutoverLock,
-} from "./state-cutover-lock.mjs";
+} from "../src/modules/reconciliation/state-cutover-lock.ts";
 
 const SQLITE_TRANSIENT_SUFFIXES = ["-journal", "-shm", "-wal"];
 

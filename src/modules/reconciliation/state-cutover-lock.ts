@@ -4,7 +4,9 @@ import path from "node:path";
 export const STATE_CUTOVER_LOCK_SUFFIX = ".migration-lock";
 
 /** Resolve the lock shared by default-state migration and launcher admission. */
-export function resolveStateCutoverLockPath(applicationStateDirectory) {
+export function resolveStateCutoverLockPath(
+	applicationStateDirectory: string,
+): string {
 	if (!path.isAbsolute(applicationStateDirectory)) {
 		throw new Error("Application state directory must be an absolute path.");
 	}
@@ -12,7 +14,9 @@ export function resolveStateCutoverLockPath(applicationStateDirectory) {
 }
 
 /** Acquire the fail-closed, process-external state cutover lock. */
-export function acquireStateCutoverLock(applicationStateDirectory) {
+export function acquireStateCutoverLock(
+	applicationStateDirectory: string,
+): string {
 	const lockPath = resolveStateCutoverLockPath(applicationStateDirectory);
 	mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
 	try {
@@ -26,7 +30,7 @@ export function acquireStateCutoverLock(applicationStateDirectory) {
 }
 
 /** Release a previously acquired state cutover lock without masking outcomes. */
-export function releaseStateCutoverLock(lockPath) {
+export function releaseStateCutoverLock(lockPath: string): void {
 	try {
 		rmdirSync(lockPath);
 	} catch {
