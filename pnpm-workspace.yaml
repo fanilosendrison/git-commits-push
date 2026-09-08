@@ -6,7 +6,9 @@ engineStrict: true
 autoInstallPeers: false
 injectWorkspacePackages: true
 
+allowBuilds:
+  'turnlock@https://codeload.github.com/fanilosendrison/turnlock/tar.gz/a519ee6a31fb243921d0b2f6c2379d8f0c919801': true
+
 minimumReleaseAgeExclude:
   - '@fanilosendrison/event-sink@0.1.0'
   - '@fanilosendrison/llm-runtime@0.1.3'
-  - 'turnlock@0.9.1'

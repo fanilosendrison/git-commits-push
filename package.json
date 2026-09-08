@@ -1,6 +1,6 @@
 {
 	"name": "git-commits-push",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"description": "Turnlock-orchestrated CLI that discovers dirty repositories, validates them, commits, and pushes.",
 	"type": "module",
 	"private": true,
@@ -31,11 +31,11 @@
 		"typecheck:packages": "pnpm --filter './packages/*' run typecheck"
 	},
 	"dependencies": {
-		"@git-commits-push/node-runtime": "workspace:*",
-		"@git-commits-push/trust": "workspace:*",
 		"@fanilosendrison/event-sink": "0.1.0",
 		"@fanilosendrison/llm-runtime": "^0.1.3",
-		"turnlock": "0.9.1",
+		"@git-commits-push/node-runtime": "workspace:*",
+		"@git-commits-push/trust": "workspace:*",
+		"turnlock": "github:fanilosendrison/turnlock#a519ee6a31fb243921d0b2f6c2379d8f0c919801",
 		"ulid": "^2.4.0",
 		"zod": "^3.25.76"
 	},

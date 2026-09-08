@@ -22,8 +22,8 @@ importers:
         specifier: workspace:*
         version: link:packages/trust
       turnlock:
-        specifier: 0.9.1
-        version: 0.9.1
+        specifier: github:fanilosendrison/turnlock#a519ee6a31fb243921d0b2f6c2379d8f0c919801
+        version: https://codeload.github.com/fanilosendrison/turnlock/tar.gz/a519ee6a31fb243921d0b2f6c2379d8f0c919801
       ulid:
         specifier: ^2.4.0
         version: 2.4.0
@@ -149,9 +149,10 @@ packages:
     resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
     hasBin: true
 
-  turnlock@0.9.1:
-    resolution: {integrity: sha512-43mu7LUgf0cvV5tBfP1dEVxwblWxkKcrgMUrJlNP+wg6yXKC+NgalNSdqr4m6OmTGxy65J7WEh8JFUg+RBd9KQ==}
-    engines: {node: '>=22'}
+  turnlock@https://codeload.github.com/fanilosendrison/turnlock/tar.gz/a519ee6a31fb243921d0b2f6c2379d8f0c919801:
+    resolution: {gitHosted: true, integrity: sha512-t1Jpj0D3ZjCXnto65ZOdPyyMhZJLgenTCqF+7Ui6ocMAw2t/036Rv/dhhJzZ42dFNaeh6zqL/mPRpRWFLH3qcw==, tarball: https://codeload.github.com/fanilosendrison/turnlock/tar.gz/a519ee6a31fb243921d0b2f6c2379d8f0c919801}
+    version: 0.11.0
+    engines: {node: '>=22.19.0', pnpm: '>=11.24.0'}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -226,7 +227,7 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
-  turnlock@0.9.1:
+  turnlock@https://codeload.github.com/fanilosendrison/turnlock/tar.gz/a519ee6a31fb243921d0b2f6c2379d8f0c919801:
     dependencies:
       ulid: 2.4.0
       zod: 3.25.76
