@@ -297,7 +297,7 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 		const state = JSON.parse(
 			await readFile(path.join(runDirectory, "state.json"), "utf8"),
 		);
-		assert.equal(state.schemaVersion, 2);
+		assert.equal(state.schemaVersion, 4);
 		assert.equal("pendingDelegation" in state, false);
 		const turnlockEvents = await readJsonLines(
 			path.join(runDirectory, "events.ndjson"),

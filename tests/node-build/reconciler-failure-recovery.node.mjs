@@ -31,6 +31,7 @@ function isolatedEnvironment(root) {
 		GIT_CONFIG_NOSYSTEM: "1",
 		GIT_TERMINAL_PROMPT: "0",
 		HOME: path.join(root, "isolated home"),
+		TURNLOCK_TEST: "0",
 		XDG_CONFIG_HOME: path.join(root, "isolated config"),
 	};
 }
@@ -159,7 +160,11 @@ test("E2E | failed reconciliation is not acknowledged and recovers later", async
 			shell: false,
 			timeout: 240_000,
 		});
-		assert.notStrictEqual(failedRun.status, 0);
+		assert.notStrictEqual(
+			failedRun.status,
+			0,
+			`validation run unexpectedly succeeded: stdout=${failedRun.stdout} stderr=${failedRun.stderr}`,
+		);
 
 		const afterFailure = reconcilerDb.openReconcilerDb(dbPath);
 		try {

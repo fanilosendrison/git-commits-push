@@ -67,7 +67,7 @@ const mockFetch = async (
 				planIndex: 0,
 				commit: {
 					type: "feat",
-					description: "complete v2 pipeline",
+					description: "complete v3 pipeline",
 					isBreaking: false,
 				},
 			},

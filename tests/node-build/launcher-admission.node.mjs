@@ -120,7 +120,13 @@ test("I0 | SIGTERM during build releases ownership without completion", async ()
 					)
 					.get()?.ownerToken;
 			} catch (error) {
-				if (!String(error).includes("database is locked")) throw error;
+				const message = String(error);
+				if (
+					!message.includes("database is locked") &&
+					!message.includes("no such table: reconciler_state")
+				) {
+					throw error;
+				}
 			} finally {
 				probe.close();
 			}

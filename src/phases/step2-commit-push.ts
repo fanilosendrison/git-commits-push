@@ -320,7 +320,7 @@ export async function runCommitAndPushPhase(
 		return io.delegateBatch(
 			{
 				kind: "batch",
-				worker: "git-commit-generator",
+				target: { kind: "worker", name: "git-commit-generator" },
 				label: `commit-jobs-retry-${Date.now()}`, // unique per retry
 				jobs: jobsSnapshot,
 				timeout: { perDelegationMs: 600_000 },

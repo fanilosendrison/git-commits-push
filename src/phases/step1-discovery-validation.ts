@@ -256,7 +256,7 @@ export async function runDiscoveryAndValidationPhase(
 	return io.delegateBatch(
 		{
 			kind: "batch",
-			worker: "git-commit-generator",
+			target: { kind: "worker", name: "git-commit-generator" },
 			label: "commit-jobs",
 			jobs,
 			timeout: { perDelegationMs: 600_000 },

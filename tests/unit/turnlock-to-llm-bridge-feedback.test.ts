@@ -209,7 +209,7 @@ describe("turnlock-to-llm-bridge", () => {
 				(error: unknown) =>
 					error instanceof Error &&
 					error.message.includes(
-						"Turnlock delegation manifest is not a valid v2 batch manifest",
+						"Turnlock delegation manifest is not an authorized v2/v3 batch manifest",
 					),
 			);
 

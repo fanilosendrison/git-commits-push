@@ -72,8 +72,8 @@ describe("A1 — End-to-End Initial Run", () => {
 		assert.strictEqual(matches?.length, 1); // one opening marker
 	});
 
-	test("A1-03 | delegation uses the Turnlock v2 batch protocol", () => {
-		assert.ok(stdout.includes("version: 2"));
+	test("A1-03 | delegation uses the Turnlock v3 batch protocol", () => {
+		assert.ok(stdout.includes("version: 3"));
 		assert.ok(stdout.includes("kind: batch"));
 	});
 
@@ -107,7 +107,7 @@ describe("A1 — End-to-End Initial Run", () => {
 			currentPhase: string;
 			pendingDelegation?: { kind: string; jobIds?: string[] };
 		};
-		assert.strictEqual(state.schemaVersion, 2);
+		assert.strictEqual(state.schemaVersion, 4);
 		assert.strictEqual(state.currentPhase, "discovery-and-validation");
 		assert.strictEqual(state.pendingDelegation?.kind, "batch");
 		assert.ok((state.pendingDelegation?.jobIds?.length ?? 0) > 0);
@@ -140,16 +140,21 @@ describe("A1 — End-to-End Initial Run", () => {
 			phase: string;
 			resumeAt: string;
 			kind: string;
+			target?: { kind: string; name?: string };
 			worker?: string;
 			maxAttempts: number;
 			jobs: { id: string; prompt: string; resultPath: string }[];
 		};
-		assert.strictEqual(m.manifestVersion, 2);
+		assert.strictEqual(m.manifestVersion, 3);
 		assert.strictEqual(m.orchestratorName, "git-commits-push-tl");
 		assert.strictEqual(m.phase, "discovery-and-validation");
 		assert.strictEqual(m.resumeAt, "commit-and-push");
 		assert.strictEqual(m.kind, "batch");
-		assert.strictEqual(m.worker, "git-commit-generator");
+		assert.deepStrictEqual(m.target, {
+			kind: "worker",
+			name: "git-commit-generator",
+		});
+		assert.strictEqual("worker" in m, false);
 		assert.strictEqual(m.maxAttempts, 1);
 		assert.ok(m.jobs.length > 0);
 

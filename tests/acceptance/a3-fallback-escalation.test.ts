@@ -21,6 +21,7 @@ const SKILL_ENTRYPOINT = path.resolve(
 interface RetryManifest {
 	manifestVersion: number;
 	kind: string;
+	target?: { kind: string; name?: string };
 	worker?: string;
 	jobs: Array<{ id: string; prompt: string; resultPath: string }>;
 }
@@ -192,9 +193,13 @@ describe("A3 — Fallback model escalation", () => {
 		assert.ok(result.stdout.includes("action: DELEGATE"));
 
 		const manifest = readRetryManifest(env.runDir, runId);
-		assert.strictEqual(manifest.manifestVersion, 2);
+		assert.strictEqual(manifest.manifestVersion, 3);
 		assert.strictEqual(manifest.kind, "batch");
-		assert.strictEqual(manifest.worker, "git-commit-generator");
+		assert.deepStrictEqual(manifest.target, {
+			kind: "worker",
+			name: "git-commit-generator",
+		});
+		assert.strictEqual("worker" in manifest, false);
 		assert.strictEqual(manifest.jobs.length, 1);
 		const job = manifest.jobs[0];
 		assert.notStrictEqual(job, undefined);

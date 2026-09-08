@@ -16,7 +16,7 @@ import {
 	invokeLlm,
 	type LlmAdapterFactories,
 } from "../modules/llm/llm-invoker.ts";
-import { parseTurnlockV2BatchManifest } from "../modules/turnlock/batch-manifest.ts";
+import { parseTurnlockBatchManifest } from "../modules/turnlock/batch-manifest.ts";
 import { writeCommitJobResult } from "../modules/turnlock/job-result-store.ts";
 import { isDirectExecution } from "../utils/direct-execution.ts";
 import {
@@ -186,7 +186,7 @@ export async function handleTurnlockDelegation(
 	}
 
 	const manifestContent = fs.readFileSync(manifestPath, "utf-8");
-	const manifest = parseTurnlockV2BatchManifest(manifestContent);
+	const manifest = parseTurnlockBatchManifest(manifestContent);
 
 	logBridgeMessage(
 		`\n[Turnlock→LLM] Received batch delegation for '${manifest.label}' with ${manifest.jobs.length} jobs.`,
