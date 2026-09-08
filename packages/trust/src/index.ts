@@ -5,12 +5,13 @@ import {
 	lstatSync,
 	mkdirSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const TRUSTED_MARKER_ENV = "GIT_COMMITS_PUSH_ENFORCER_SOURCE";
@@ -43,28 +44,98 @@ const workspaceRuntimeRoot =
 	basename(workspacePackagesDirectory) === "packages"
 		? dirname(workspacePackagesDirectory)
 		: null;
-const expectedRuntimeRoot =
-	workspaceRuntimeRoot ??
-	join(homedir(), "Developper", "Projects", "git-commits-push");
-const authorizedIssuerWorkingDirectories = new Set([
-	expectedRuntimeRoot,
-	join(expectedRuntimeRoot, "dist"),
-]);
-const authorizedIssuerPaths = workspaceRuntimeRoot
-	? [
-			join(workspaceRuntimeRoot, "src", "modules", "git", "git-exec.ts"),
-			join(workspaceRuntimeRoot, "src", "utils", "git-utils.ts"),
-			join(
-				workspaceRuntimeRoot,
-				"dist",
-				"src",
-				"modules",
-				"git",
-				"git-exec.js",
-			),
-			join(workspaceRuntimeRoot, "dist", "src", "utils", "git-utils.js"),
-		]
-	: [];
+const STABLE_SEMVER_PATTERN_SOURCE = String.raw`(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)`;
+const RELEASE_DIRECTORY_PATTERN = new RegExp(
+	`^${STABLE_SEMVER_PATTERN_SOURCE}-[a-f0-9]{64}$`,
+);
+
+function resolveSourceRuntimeRoot(homeDirectory: string): string {
+	return (
+		workspaceRuntimeRoot ??
+		join(homeDirectory, "Developper", "Projects", "git-commits-push")
+	);
+}
+
+function canonicalizeExistingPath(candidate: string): string {
+	try {
+		return realpathSync(candidate).normalize("NFC");
+	} catch {
+		return normalize(candidate).normalize("NFC");
+	}
+}
+
+function installedReleaseRootForPath(candidate: string): string | null {
+	let current = canonicalizeExistingPath(candidate);
+	while (dirname(current) !== current) {
+		if (
+			RELEASE_DIRECTORY_PATTERN.test(basename(current)) &&
+			basename(dirname(current)) === "releases" &&
+			basename(dirname(dirname(current))) === "git-commits-push"
+		) {
+			return current;
+		}
+		current = dirname(current);
+	}
+	return null;
+}
+
+function isInstalledReleaseWorkingDirectory(candidate: string): boolean {
+	const normalizedCandidate = canonicalizeExistingPath(candidate);
+	if (basename(normalizedCandidate) !== "dist") return false;
+	const releaseRoot = dirname(normalizedCandidate);
+	return installedReleaseRootForPath(releaseRoot) === releaseRoot;
+}
+
+/** Recognize source and structurally valid immutable release working directories. */
+export function isAuthorizedTrustTokenIssuerWorkingDirectory(
+	candidate: string,
+	homeDirectory: string = homedir(),
+): boolean {
+	if (!isAbsolute(candidate)) return false;
+	const normalizedCandidate = canonicalizeExistingPath(candidate);
+	const sourceRuntimeRoot = canonicalizeExistingPath(
+		resolveSourceRuntimeRoot(homeDirectory),
+	);
+	return (
+		normalizedCandidate === sourceRuntimeRoot ||
+		normalizedCandidate === join(sourceRuntimeRoot, "dist") ||
+		isInstalledReleaseWorkingDirectory(normalizedCandidate)
+	);
+}
+
+function trustModuleCanMintFrom(workingDirectory: string): boolean {
+	const normalizedWorkingDirectory = canonicalizeExistingPath(workingDirectory);
+	if (workspaceRuntimeRoot !== null) {
+		const sourceRoot = canonicalizeExistingPath(workspaceRuntimeRoot);
+		return (
+			normalizedWorkingDirectory === sourceRoot ||
+			normalizedWorkingDirectory === join(sourceRoot, "dist")
+		);
+	}
+	const moduleReleaseRoot = installedReleaseRootForPath(trustPackageDirectory);
+	return (
+		moduleReleaseRoot !== null &&
+		normalizedWorkingDirectory === join(moduleReleaseRoot, "dist")
+	);
+}
+
+function authorizedIssuerPathsForWorkingDirectory(
+	workingDirectory: string,
+): readonly string[] {
+	const sourceRuntimeRoot = resolveSourceRuntimeRoot(homedir());
+	if (workingDirectory === sourceRuntimeRoot) {
+		return [
+			join(sourceRuntimeRoot, "src", "modules", "git", "git-exec.ts"),
+			join(sourceRuntimeRoot, "src", "utils", "git-utils.ts"),
+			join(sourceRuntimeRoot, "dist", "src", "modules", "git", "git-exec.js"),
+			join(sourceRuntimeRoot, "dist", "src", "utils", "git-utils.js"),
+		];
+	}
+	return [
+		join(workingDirectory, "src", "modules", "git", "git-exec.js"),
+		join(workingDirectory, "src", "utils", "git-utils.js"),
+	];
+}
 
 interface TrustTokenRecord {
 	readonly version: 1;
@@ -96,13 +167,32 @@ function hasStackPathBoundary(stack: string, issuerPath: string): boolean {
 	return false;
 }
 
+function normalizeStackPaths(stack: string): string | null {
+	try {
+		return decodeURI(stack).replaceAll("\\", "/").normalize("NFC");
+	} catch {
+		return null;
+	}
+}
+
 export function isAuthorizedTrustTokenIssuerStack(
 	stack: string | undefined,
+	workingDirectory: string = process.cwd(),
 ): boolean {
-	if (!stack || authorizedIssuerPaths.length === 0) return false;
-	const normalizedStack = stack.replaceAll("\\", "/");
-	return authorizedIssuerPaths.some((issuerPath) =>
-		hasStackPathBoundary(normalizedStack, issuerPath.replaceAll("\\", "/")),
+	if (
+		!stack ||
+		!isAuthorizedTrustTokenIssuerWorkingDirectory(workingDirectory)
+	) {
+		return false;
+	}
+	const normalizedStack = normalizeStackPaths(stack);
+	if (normalizedStack === null) return false;
+	return authorizedIssuerPathsForWorkingDirectory(workingDirectory).some(
+		(issuerPath) =>
+			hasStackPathBoundary(
+				normalizedStack,
+				issuerPath.replaceAll("\\", "/").normalize("NFC"),
+			),
 	);
 }
 
@@ -112,9 +202,9 @@ function createTrustTokenRecord(stack: string): TrustTokenRecord {
 			"Trust tokens can only be created by git-commits-push internal git helpers.",
 		);
 	}
-	if (!authorizedIssuerWorkingDirectories.has(process.cwd())) {
+	if (!trustModuleCanMintFrom(process.cwd())) {
 		throw new Error(
-			`Trust tokens require an authorized git-commits-push cwd under ${expectedRuntimeRoot}`,
+			"Trust tokens require the executing git-commits-push runtime directory.",
 		);
 	}
 	const createdAt = Date.now();
@@ -235,8 +325,8 @@ function isValidRecord(record: unknown): record is TrustTokenRecord {
 		typeof candidate.expiresAt !== "number" ||
 		typeof candidate.issuerPid !== "number" ||
 		typeof candidate.issuerPpid !== "number" ||
-		candidate.issuerCwd === undefined ||
-		!authorizedIssuerWorkingDirectories.has(candidate.issuerCwd) ||
+		typeof candidate.issuerCwd !== "string" ||
+		!isAuthorizedTrustTokenIssuerWorkingDirectory(candidate.issuerCwd) ||
 		typeof candidate.issuerStackHash !== "string"
 	) {
 		return false;
