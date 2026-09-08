@@ -6,6 +6,7 @@ import { describe, test } from "node:test";
 import {
 	createTrustToken,
 	isAuthorizedTrustTokenIssuerStack,
+	isAuthorizedTrustTokenIssuerWorkingDirectory,
 	TRUST_TOKEN_STORE_DIRECTORY,
 	validateTrustToken,
 } from "../dist/index.js";
@@ -53,16 +54,68 @@ describe("trust token protocol", () => {
 			path.join(runtimeRoot, "dist", "src", "utils", "git-utils.js"),
 		]) {
 			assert.equal(
-				isAuthorizedTrustTokenIssuerStack(`at helper (${stackPath}:1:1)`),
+				isAuthorizedTrustTokenIssuerStack(
+					`at helper (${stackPath}:1:1)`,
+					runtimeRoot,
+				),
 				true,
 			);
 		}
 		assert.equal(
 			isAuthorizedTrustTokenIssuerStack(
+				`at helper (${path.join(runtimeRoot, "src", "utils", "git-utils.ts").replace("git-commits-push", "git-commits%2Dpush")}:1:1)`,
+				runtimeRoot,
+			),
+			true,
+		);
+		assert.equal(
+			isAuthorizedTrustTokenIssuerStack(
 				"at forged (/tmp/git-commits-push/src/utils/git-utils.ts:1:1)",
+				runtimeRoot,
 			),
 			false,
 		);
+	});
+
+	test("recognizes content-addressed releases independently of runtime XDG variables", () => {
+		const homeDirectory = path.join(path.sep, "tmp", "isolated-home");
+		const dataHome = path.join(path.sep, "custom", "application-data");
+		const releaseRoot = path.join(
+			dataHome,
+			"git-commits-push",
+			"releases",
+			`0.4.0-${"a".repeat(64)}`,
+		);
+		assert.equal(
+			isAuthorizedTrustTokenIssuerWorkingDirectory(
+				path.join(releaseRoot, "dist"),
+				homeDirectory,
+			),
+			true,
+		);
+		for (const rejected of [
+			releaseRoot,
+			path.join(dataHome, "git-commits-push", "current", "dist"),
+			path.join(
+				dataHome,
+				"git-commits-push",
+				"releases",
+				"0.4.0-not-a-digest",
+				"dist",
+			),
+			path.join(
+				dataHome,
+				"git-commits-push",
+				"releases",
+				`01.2.3-${"b".repeat(64)}`,
+				"dist",
+			),
+		]) {
+			assert.equal(
+				isAuthorizedTrustTokenIssuerWorkingDirectory(rejected, homeDirectory),
+				false,
+			);
+		}
 	});
 
 	test("rejects a record whose claimed issuer is not a live ancestor", async () => {
