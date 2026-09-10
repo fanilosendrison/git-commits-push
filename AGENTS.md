@@ -118,6 +118,11 @@ registered and exact pre-admission file evidence is revalidated.
   verification MUST target the same resolved endpoint.
 - Process-scoped Git configuration MUST remain compatible with Git 2.17 and use
   correctly quoted `GIT_CONFIG_PARAMETERS` rather than repository mutation.
+- On Darwin kernel 17 and older, resolve and validate Apple toolchain Git through
+  `xcrun` before starting reconciliation; all descendant Git commands must inherit
+  that selection. Newer Darwin and non-Darwin systems use Git from `PATH`.
+- Internal Git subprocesses use the stable C locale so diagnostic classification
+  never depends on the invoking user's language.
 - Validate full Git object IDs before using persisted push snapshots.
 - Push-only recovery MUST prove the baseline is an ancestor of current `HEAD`
   and must recompute the exact outgoing set before secret scanning or push.

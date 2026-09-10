@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
+import { activateGitExecutableForProcess } from "../modules/git/git-executable.ts";
 import { runPublicLauncher } from "../modules/reconciliation/public-launcher.ts";
 import { isDirectExecution } from "../utils/direct-execution.ts";
 
@@ -7,13 +8,18 @@ import { isDirectExecution } from "../utils/direct-execution.ts";
 export async function runStandaloneCli(
 	passthroughArguments: readonly string[] = process.argv.slice(2),
 ): Promise<number> {
-	const compiledApplicationDirectory = realpathSync(
-		path.resolve(import.meta.dirname, "../.."),
-	);
-	return runPublicLauncher({
-		compiledApplicationDirectory,
-		passthroughArguments,
-	});
+	const gitActivation = activateGitExecutableForProcess();
+	try {
+		const compiledApplicationDirectory = realpathSync(
+			path.resolve(import.meta.dirname, "../.."),
+		);
+		return await runPublicLauncher({
+			compiledApplicationDirectory,
+			passthroughArguments,
+		});
+	} finally {
+		gitActivation.restore();
+	}
 }
 
 if (isDirectExecution(import.meta.url)) {

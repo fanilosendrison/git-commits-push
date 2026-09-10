@@ -199,6 +199,12 @@ the cheap model can't produce valid Conventional Commits.
   repositories (`bun`, `pnpm`, `yarn`, `npm`, or `pytest`) available on `PATH`
   so their tests can run.
 
+On macOS High Sierra (Darwin 17), the installed CLI resolves and validates the
+Apple toolchain Git through `xcrun` before any repository operation. This avoids
+a known TLS linker collision in third-party Git/libcurl builds on that platform.
+Other operating systems and newer macOS releases continue to use Git from
+`PATH`.
+
 ---
 
 ## API keys

@@ -56,6 +56,7 @@ function buildGitEnv(
 		...process.env,
 		...testOnlyGravityTelemetryEnv(),
 		GIT_TERMINAL_PROMPT: "0",
+		LC_ALL: "C",
 		[TRUSTED_MARKER_ENV]: TRUSTED_MARKER_VALUE,
 		[TRUSTED_TOKEN_ENV]: createTrustToken(),
 	};
