@@ -214,30 +214,34 @@ export async function runOwnedReconciliation(
 		return { cancelled: true, exitCode: 2 };
 	}
 
+	let generation = options.initialGeneration;
 	if (options.prepareRuntime !== undefined) {
-		const preparation = await options.prepareRuntime(
-			options.cancellation.signal,
-		);
-		if (options.cancellation.signal.aborted) {
-			return { cancelled: true, exitCode: 2 };
-		}
-		if (preparation.exitCode !== 0) {
+		while (true) {
+			const preparation = await options.prepareRuntime(
+				options.cancellation.signal,
+			);
+			if (options.cancellation.signal.aborted) {
+				return { cancelled: true, exitCode: 2 };
+			}
+			if (preparation.exitCode === 0) break;
 			const finish = finishReconciliationPass(options.db, {
-				generation: options.initialGeneration,
+				generation,
 				nowEpochMs: Date.now(),
 				pid: process.pid,
 				success: false,
 				token: options.ownerToken,
 			});
+			if (finish.decision === "CONTINUE") {
+				generation = finish.generation;
+				continue;
+			}
 			return {
 				cancelled: false,
-				exitCode:
-					finish.decision === "CONTINUE" ? 1 : (preparation.exitCode ?? 1),
+				exitCode: preparation.exitCode ?? 1,
 			};
 		}
 	}
 
-	let generation = options.initialGeneration;
 	while (true) {
 		logTelemetry((log) => log.logReconciliationPassStarted({ generation }));
 		const pass = await runOnePass(options, generation);
