@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "2.1.0"
+version: "3.0.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -41,6 +41,7 @@ The production path is:
   -> XDG current release/bin/git-commits-push.mjs
   -> compiled git-commits-push entrypoint
   -> SQLite reconciliation admission and ownership
+  -> paused execution controller + durable execution registration
   -> compiled node-supervisor
   -> Turnlock orchestrator + LLM bridge
   -> discovery, commit/push, and reporting phases
@@ -62,10 +63,13 @@ Responsibilities MUST remain separated:
   releases are immutable and MUST NOT be automatically garbage-collected while
   historical Turnlock runs may reference their absolute entrypoints.
 - `src/modules/reconciliation/` is the sole authority for SQLite schema,
-  generation transitions, liveness recovery, and token fencing.
-- `src/entrypoints/node-supervisor.ts` owns its descendant process trees,
-  protocol routing, and bounded transport buffering; launcher cancellation is
-  forwarded through the supervisor tree.
+  generation transitions, active-execution recovery, and token fencing.
+- `src/entrypoints/execution-controller.ts` is the inert-until-START POSIX
+  session/process-group leader. It owns parent-disconnect response and the
+  externally fenceable boundary for one pass.
+- `src/entrypoints/node-supervisor.ts` owns producer/consumer protocol routing,
+  direct-stage shutdown, and bounded transport buffering. Its stages inherit
+  the controller's process group rather than creating independent groups.
 - `src/entrypoints/turnlock-orchestrator.ts` owns Turnlock phases and snapshots.
 - `src/entrypoints/turnlock-to-llm-bridge.ts` owns delegation handling and result
   writes; provider dispatch belongs in `src/modules/llm/`.
@@ -89,10 +93,18 @@ invocations MUST NOT build or resolve modules from the source checkout.
 - Registration and pass finalization use short `BEGIN IMMEDIATE` transactions.
 - An owner runs another fresh pass when a newer generation was registered.
 - Ownership is fenced by random token, PID, and process-start identity.
+- Active execution is separately fenced by execution token, generation,
+  controller PID, process-start identity, and POSIX process-group identity.
+- Recovery ownership never authorizes fresh Git execution until the previous
+  execution boundary is proven dead and its record is token-cleared.
 - A matching live process is never replaced because of heartbeat age or
   boot-clock drift.
 - A live PID with temporarily unreadable process metadata retains ownership.
 - Corrupt, incompatible, or impossible state fails closed and is preserved.
+- A supervisor is spawned only through the paused READY/register/authorize/START
+  protocol; no child can become Git-capable before durable registration.
+- Pass completion and owner release are forbidden while active execution is
+  recorded.
 - The coordinator stores no per-request orders or historical event log.
 
 `ORDER_STATE_DIR` remains the compatibility override for the state directory
@@ -172,7 +184,12 @@ queue execution path. Telemetry failures must never block reconciliation.
 ## State and schema
 
 - Parse persisted Turnlock state through `src/config/state-schema.ts`.
+- Reconciler schema v3 stores one bounded owner and one bounded active-execution
+  descriptor in the singleton row; it stores no execution history.
 - Schema changes require production-schema tests and compatibility fixtures.
+- Schema v2 MUST fail closed in production. Its explicit offline migration is
+  allowed only for an idle, converged row after the operator proves that no old
+  launcher, supervisor, or descendant remains alive.
 - Persist push URL fingerprints, never push URLs.
 - Preserve committed SHA evidence across partial failures and retries.
 - Do not silently migrate incompatible Turnlock or reconciler schema versions.
@@ -203,7 +220,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 63 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 69 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 
@@ -214,13 +231,27 @@ Concurrency and recovery changes MUST cover:
 - registration racing with pass completion;
 - owner death and recycled-PID recovery;
 - fenced heartbeat and release;
+- active-execution registration, START authorization, and token clearing;
+- launcher and supervisor hard-death recovery without execution overlap;
+- PID/process-group identity mismatch and fail-closed recovery;
 - corrupt or incompatible database handling;
 - legacy queue residue classification;
-- compiled launcher and supervisor behavior.
+- compiled launcher, execution-controller, and supervisor behavior.
 
 Push changes MUST include real temporary Git repositories and bare remotes.
 Provider changes MUST retain at least one real smoke test when credentials are
 available, while deterministic unit tests use injected adapters.
+
+## Supported execution-boundary contract
+
+Linux and macOS use one detached execution controller as the SID/PGID leader;
+all repository-controlled descendants inherit that process group. Recovery may
+signal the group only while the controller's process-start identity and PGID
+match. A missing or reused leader with a still-live group is ambiguous and MUST
+fail closed. Windows and untested POSIX platforms MUST refuse Git-capable
+execution until a Job Object or equivalent tested containment boundary exists.
+Repository-controlled code MUST NOT call `setsid()` or detach from the execution
+boundary.
 
 ## Documentation synchronization
 

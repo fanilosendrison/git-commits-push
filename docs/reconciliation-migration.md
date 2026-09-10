@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "2.1.0"
+version: "3.0.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -20,8 +20,9 @@ file-queue worker. It now records reconciliation generations in
 rescans global repository state after later wakeups.
 
 Turnlock remains responsible for one pass's durable workflow. The launcher is
-responsible for cross-invocation admission, ownership, recovery, and deciding
-whether another pass is required.
+responsible for cross-invocation admission, scheduling ownership, recovery, and
+deciding whether another pass is required. Schema v3 separately records the
+concrete execution controller and process group capable of Git side effects.
 
 ## Compatibility surface
 
@@ -46,14 +47,41 @@ No compatibility field re-enables queue semantics.
   opened while validation or rollback is still possible.
 - SQLite `BEGIN IMMEDIATE` transactions serialize registration and completion.
 - Ownership is fenced with a random token, PID, and process-start identity.
+- Active execution is separately fenced by execution token, generation,
+  controller PID, process-start identity, and POSIX PGID.
+- A paused controller cannot start the pipeline until READY identity is durably
+  registered and START authorization is committed.
 - Live owners are not stolen because of heartbeat age or boot-clock drift.
-- Dead owners and recycled PIDs are recoverable on the next invocation.
+- Dead owners are recoverable without clearing their execution descriptor.
+- Recovery terminates and proves the old process group absent before clearing it
+  or starting fresh work.
+- Recycled or unreadable controller identities are never signalled; ambiguous
+  state fails closed.
 - Unreadable metadata for a live PID retains ownership and fails closed.
-- Signal handling covers build and supervisor execution without marking an
-  interrupted generation complete.
+- Signal handling covers build and the complete execution group without marking
+  an interrupted generation complete.
+- Supervisor exit is not completion proof; finish and release are blocked until
+  the active execution is proven dead and token-cleared.
 - Corrupt and unsupported databases block mutation and are preserved.
 - Legacy residue is exactly revalidated and archived outside the legacy
   namespace only after a SQLite wakeup is durable.
+
+## Reconciler schema-v2 cutover
+
+Schema v2 has no durable active-execution identity. Schema v3 therefore rejects
+it rather than treating missing execution columns as proof of idle state.
+
+After stopping every launcher and proving that no supervisor or descendant
+process remains alive, an operator may migrate only an idle, fully converged v2
+singleton:
+
+```bash
+pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
+```
+
+The command rejects missing confirmation, active or pending state, malformed
+rows, and uncheckpointed SQLite sidecars. It adds nullable execution columns and
+bumps `PRAGMA user_version` in one transaction. It creates no history table.
 
 ## Standalone repository and executable cutover
 
@@ -100,11 +128,13 @@ launcher process is active.
    `node:sqlite`.
 2. Stop every legacy and current launcher before migrating state.
 3. Run `pnpm run migrate:state` once when legacy state exists.
-4. Run `pnpm run check:node-cutover` and resolve every blocker.
-5. Run the compiled reconciliation, recovery, migration, and hard-death suites.
-6. Run `pnpm run install:standalone` and verify the stable executable resolves to
+4. If an idle schema-v2 database exists, prove all historical execution trees
+   dead and run the explicit reconciler migration.
+5. Run `pnpm run check:node-cutover` and resolve every blocker.
+6. Run the compiled reconciliation, recovery, migration, and hard-death suites.
+7. Run `pnpm run install:standalone` and verify the stable executable resolves to
    a content-addressed release.
-7. Enable public invocations only after the preflight exits `0` by invoking
+8. Enable public invocations only after the preflight exits `0` by invoking
    `"$HOME/.local/bin/git-commits-push"`.
 
 See [`node-cutover-preflight.md`](node-cutover-preflight.md) for incident and
@@ -113,7 +143,9 @@ manual-recovery procedures.
 ## Rollback boundary
 
 Do not start an old file-queue worker while a SQLite owner is active. A rollback
-requires stopping all launchers and supervisors, preserving
-`reconciler.sqlite`, and proving that no reconciliation generation is pending.
+requires stopping all launchers, execution controllers, supervisors, and
+pipeline descendants; preserving `reconciler.sqlite`; proving that no active
+execution descriptor remains unresolved; and proving that no reconciliation
+generation is pending.
 The preferred recovery is to fix or restore the SQLite runtime and trigger a new
 global rescan rather than recreate per-request order files.

@@ -3,9 +3,9 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "2.1.0"
+version: "3.0.0"
 status: "Active"
-summary: "Normative contract for coalescing concurrent git-commits-push invocations into durable SQLite-backed reconciliation passes."
+summary: "Normative contract for SQLite reconciliation ownership and durable single-live Git execution."
 domain: "git-commits-push"
 severity: "strict"
 ---
@@ -14,144 +14,294 @@ severity: "strict"
 
 ## Scope
 
-This document defines the public invocation, durable coordination, ownership,
-recovery, and compatibility contracts of `git-commits-push`.
+This document defines public invocation, durable coordination, active execution,
+recovery, and compatibility for `git-commits-push`.
 
 A public invocation means: **the set of dirty repositories may have changed;
 reconcile the current global state**. It is not a durable per-request work item.
-The coordinator therefore stores generations and one owner, not queued orders.
-The harness invokes `"$HOME/.local/bin/git-commits-push"`; that stable link MUST
-resolve through the atomically selected immutable XDG release and MUST NOT rely
-on a source checkout, package manager, or runtime build.
+The coordinator stores generations, one reconciliation owner, and at most one
+active execution descriptor. It stores no request or execution history.
 
-## Runtime state
+The stable harness command resolves through the selected immutable XDG release:
 
-The authoritative coordinator is `reconciler.sqlite` in the reconciliation state
-directory. `ORDER_STATE_DIR` remains the compatibility override for that
-absolute directory. The default is
-`$XDG_STATE_HOME/git-commits-push/orders/`, falling back to
+```bash
+"$HOME/.local/bin/git-commits-push"
+```
+
+Production MUST NOT depend on a source checkout, package manager, or runtime
+build.
+
+## Normative invariant
+
+### SINGLE_LIVE_GIT_EXECUTION
+
+At most one distinct `git-commits-push` execution boundary capable of Git side
+effects may be alive. Recovery ownership never authorizes fresh Git execution
+until every previous execution boundary is proven terminated or safely adopted.
+This implementation uses termination and a fresh global rescan; it does not
+adopt old execution.
+
+Owner death is not evidence of execution death. Heartbeat age, expected signal
+handling, elapsed time, and supervisor exit are not execution-death proof.
+
+## Durable singleton state
+
+The authority is `reconciler.sqlite` in the reconciliation state directory.
+`ORDER_STATE_DIR` remains the absolute-path compatibility override. The default
+is `$XDG_STATE_HOME/git-commits-push/orders/`, falling back to
 `~/.local/state/git-commits-push/orders/`.
 
-The SQLite database MUST:
+The database MUST:
 
-- use schema version `2` through `PRAGMA user_version`;
+- use schema version `3` through `PRAGMA user_version`;
 - contain exactly one `reconciler_state` row with `singleton_id = 1`;
 - preserve `requested_generation >= completed_generation`;
-- set and clear running generation, owner token, PID, process-start identity,
-  boot epoch, caller, origin, and heartbeat together;
-- keep `owner_session_id` null while idle and either null or non-empty while an
-  owner is active;
-- fail closed on corruption, an incompatible schema, or an impossible state;
-- never persist a per-request order history.
+- set and clear owner metadata with `running_generation`;
+- set and clear the complete active-execution descriptor together;
+- fail closed on corruption, an incompatible schema, or impossible state;
+- contain no per-request, execution, or event history.
 
-Caller, origin, and optional session ID are observability metadata. Correctness
-depends on the random owner token, process ID, process-start identity, running
-generation, and SQLite transaction boundaries. Boot epoch remains diagnostic
-metadata; wall-clock drift MUST NOT invalidate a matching live process identity.
-The heartbeat records progress but MUST NOT be the sole evidence used to steal
-ownership from a live process.
+### Reconciliation owner
+
+The owner schedules rescans and owns coordinator transitions. Its durable fields
+are the running generation, random owner token, PID, process-start identity,
+boot epoch, caller, origin, optional session ID, and heartbeat.
+
+Correctness depends on owner token, PID, process-start identity, running
+generation, and SQLite transaction boundaries. Boot epoch and heartbeat are
+observability metadata. A stale heartbeat never authorizes replacement of a
+matching live owner.
+
+### Active Git execution
+
+The active-execution descriptor identifies the concrete side-effect boundary:
+
+- random execution token;
+- execution generation;
+- controller PID;
+- controller process-start identity;
+- process-group ID;
+- boundary kind;
+- registering owner token;
+- execution state: `REGISTERED` or `START_AUTHORIZED`.
+
+When idle, every execution field is null. When populated:
+
+1. every execution field is valid and non-null;
+2. `completed_generation < execution_generation <= running_generation`;
+3. PID and PGID identify the same controller group leader;
+4. a current-generation execution belongs to the current owner;
+5. an older execution generation with its former owner token is an explicit
+   recovery state;
+6. no second execution may register;
+7. unresolved execution state blocks fresh execution;
+8. owner replacement preserves the execution descriptor.
 
 ## Admission
 
-Every public launcher invocation admitted without incompatible state or
-repeated ownership churn MUST register a reconciliation request before
-discovering repositories, mutating Git state, starting a supervisor, or invoking
-an LLM. The production launcher MUST NOT build artifacts.
+Every public invocation MUST register before repository discovery, Git mutation,
+supervisor execution, or LLM invocation. Registration uses a short
+`BEGIN IMMEDIATE` transaction and increments `requested_generation` exactly once.
 
-Registration MUST execute in a short `BEGIN IMMEDIATE` transaction and increment
-`requested_generation` exactly once.
+- A matching live owner causes successful coalescing.
+- No live owner causes atomic owner acquisition for the new generation.
+- A dead or identity-mismatched owner is replaced atomically.
+- A live PID with unreadable process metadata retains ownership and blocks
+  replacement.
+- Replacing an owner never clears or reinterprets active execution.
 
-- If the recorded PID is alive and its process-start identity matches,
-  registration MUST coalesce into that owner and exit successfully without
-  running a pass.
-- If there is no live owner, registration MUST acquire ownership for the new
-  generation.
-- If ownership metadata identifies a dead process or a reused PID with a
-  different process-start identity, registration MUST replace it atomically and
-  report recovery.
-- If the PID is alive but its process-start metadata cannot be read,
-  registration MUST fail closed by retaining the observed owner.
+No Git, child-process, or LLM work occurs inside a coordinator transaction.
 
-A stale heartbeat alone MUST NOT permit stealing ownership from a live process.
-No Git, child-process, or LLM work may occur inside a coordinator transaction.
+## Execution startup gate
 
-## Reconciliation passes
+One pass starts through this protocol:
 
-The launcher owns the whole reconciliation chain. Turnlock owns execution of one
-pass.
+```text
+OWNER_ACQUIRED
+  -> execution token created
+  -> execution controller spawned inert
+  -> PREPARE sent over dedicated IPC
+  -> READY(pid, process identity, PGID, token) verified
+  -> execution descriptor committed as REGISTERED
+  -> START_AUTHORIZED committed
+  -> START(token) sent over IPC
+  -> node-supervisor may be spawned
+```
 
-For each owned generation, the launcher MUST:
+The controller MUST NOT spawn the supervisor before valid `START`. IPC closure
+before `START` terminates the inert controller. IPC closure after `START` begins
+boundary termination immediately. Parent-disconnect cleanup is defense in depth;
+recovery still resolves the durable descriptor before new work.
 
-1. retain the immutable release from which the owner started;
-2. launch a fresh compiled supervisor pass from that release;
-3. keep a token-fenced heartbeat while that pass runs;
-4. atomically finalize the pass and decide whether to continue or stop.
+`START_AUTHORIZED` is durable because delivery and child scheduling cannot be
+made atomic with SQLite. Recovery treats it as possibly started even when the
+controller never received `START`.
 
-Pass finalization and concurrent registration MUST serialize in SQLite.
-Consequently, a racing invocation is either included in the current owner's next
-pass or becomes a new owner after release; it MUST NOT be lost.
+## Process topology
 
-If `requested_generation` advanced during a pass, the owner MUST retain its token
-and execute one fresh pass for the latest requested generation. Intermediate
-generations may be coalesced because each pass rescans global repository state.
+On supported POSIX platforms the topology is:
 
-A successful final pass advances `completed_generation`. A failed pass does not
-claim its generation as completed. On interruption, graceful release MUST clear
-ownership without advancing completion, so a later invocation can recover and
-rescan.
+```text
+launcher [SQLite owner]
+  -> execution-controller [SID/PGID leader]
+       -> node-supervisor [inherits controller group]
+            -> Turnlock orchestrator [inherits group]
+            -> LLM bridge [inherits group]
+                 -> resume, Git, and test children [inherit group]
+```
 
-## Ownership fencing and shutdown
+The controller remains the exact identity anchor when `node-supervisor` dies.
+Repository-controlled stages MUST NOT create independent sessions or process
+groups. APIs that signal isolated process-group leaders remain distinct from APIs
+that signal direct inherited children.
 
-Heartbeat, pass completion, and ownership release MUST match both the owner token
-and owner PID. A mismatched owner MUST fail closed rather than update another
-owner's state.
+## Recovery protocol
 
-The launcher MUST install `SIGINT` and `SIGTERM` handling immediately after
-owner admission, cancel the supervisor process tree, release ownership when
-possible, close SQLite, and preserve unfinished work as a pending generation. A failed token-fenced heartbeat MUST cancel active work and MUST NOT
-permit pass finalization.
+After dead-owner takeover, the sole elected recovery owner MUST inspect the
+preserved active execution before runtime preparation or a new pass.
 
-## Legacy file-queue compatibility
+### No active execution
 
-The legacy `running.lock`, `order-*.json`, and `order-*.flag` protocol is not an
-active execution path.
+Recovery may proceed with a fresh global rescan.
 
-During compatibility admission:
+### Exact live controller
 
-- a live legacy lock MUST block the SQLite reconciler;
-- stale or malformed lock residue and legacy order artifacts MUST be classified
-  before any cleanup;
-- cleanup MUST occur only after the SQLite request has been durably registered;
-- cleanup MUST revalidate device, inode, size, modification time, and content
-  digest, then atomically archive only exact observed files outside the legacy
-  namespace;
-- any legacy artifact added, replaced, or modified across admission MUST abort
-  the new owner and remain available for inspection;
-- ambiguous or unreadable state MUST fail closed and remain available for manual
-  inspection.
+Recovery MUST:
 
-The legacy `GCP_ORDER_IS_QUEUED` value is retained only as telemetry compatibility
-metadata. It does not select a queue mode.
+1. re-read and verify controller PID, process-start identity, and PGID;
+2. send graceful termination to the exact execution group;
+3. wait for the existing termination grace period;
+4. escalate to hard termination only while exact leader identity still matches;
+5. prove the complete process group absent;
+6. token-clear the durable execution descriptor using current owner authority;
+7. only then start a fresh pass.
 
-## Request identity and telemetry
+### Dead boundary
 
-Each invocation MUST resolve one origin identity for Antigravity, Pi, Codex,
-Claude Code, tests, or direct CLI use. Explicit `GCP_ORDER_*` values override
-automatic harness detection. Codex uses `CODEX_THREAD_ID` as its session ID;
-Claude Code does not invent a session ID when none is available.
+If the controller and recorded process group are absent, recovery may token-clear
+the descriptor and proceed. Absence proves the old group cannot later
+reconstitute.
 
-Telemetry failures MUST NOT block reconciliation. Events SHOULD distinguish
-owner acquisition, coalescing, recovery, pass start, pass completion, and idle
-release.
+### Ambiguous identity
+
+A reused or unreadable controller PID, a mismatched PGID, or a dead controller
+with a still-live recorded group is ambiguous. Recovery MUST NOT signal, clear,
+or start new work. The descriptor remains durable for operator inspection.
+
+A numeric PGID is not a durable kernel handle. Recovery therefore never signals
+a group based only on its number after controller identity is lost.
+
+## Pass completion and failure
+
+Supervisor exit is a result, not boundary-death proof. Success, failure,
+cancellation, and abnormal supervisor exit use this ordering:
+
+```text
+pipeline result known
+  -> controller terminates remaining group members
+  -> controller exits
+  -> launcher proves PGID absent
+  -> execution descriptor token-cleared
+  -> generation finalized
+  -> next generation or idle
+```
+
+`finishReconciliationPass()` and ownership release MUST fail while execution is
+recorded. A successful pass advances completion only after execution clearing.
+A failed pass does not claim its generation complete. A newer requested
+generation retains the owner and starts one fresh pass after the old boundary is
+dead. Intermediate generations remain coalescible.
+
+## Fencing
+
+Owner heartbeat, finish, release, execution registration, START authorization,
+and execution clearing require current owner authority. Execution authorization
+and clearing additionally require the exact execution token. An obsolete owner
+or execution token cannot mutate a replacement execution or generation.
+
+## Shutdown and fatal errors
+
+`SIGINT` and `SIGTERM` cancel the active boundary, wait for proven group death,
+clear execution, release ownership without advancing incomplete work, close
+SQLite, and preserve signal termination.
+
+Heartbeat fencing and SQLite failures cancel active work. If termination or
+clearing cannot be proven, owner and execution evidence remains durable and the
+launcher fails closed.
+
+Uncaught exceptions and unhandled rejections MUST NOT advertise idle state. A
+fatal launcher may release only when no execution is recorded; otherwise it
+exits with owner and execution evidence intact so recovery can resolve them.
+`SIGKILL` relies on the same durable recovery protocol.
+
+## Platform contract
+
+Linux and macOS support the POSIX session/process-group boundary. Windows and
+untested POSIX platforms MUST refuse Git-capable execution before controller
+spawn until a tested Job Object or equivalent kernel boundary exists.
+
+The guarantee covers repository-controlled descendants and cooperative external
+commands that inherit the execution group. A command that deliberately calls
+`setsid()` or otherwise escapes the group is outside the supported execution
+contract. Repository-controlled runtime code MUST never do so.
+
+## Schema-v2 migration
+
+Schema v2 contains no active-execution identity and MUST NOT be interpreted as
+idle by schema v3. Production opening fails closed.
+
+An operator may migrate only an idle, converged v2 singleton after externally
+proving that no launcher, supervisor, or descendant remains alive:
+
+```bash
+pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
+```
+
+The migration rejects active owners, running generations, pending generations,
+SQLite sidecars, malformed state, and absent confirmation. It adds nullable
+execution columns in one transaction, preserves the singleton, and creates no
+history.
+
+## Preflight
+
+Read-only preflight distinguishes:
+
+- idle state;
+- pending reconciliation;
+- live owner;
+- stale or unverifiable owner;
+- active execution under a live owner;
+- unresolved orphan execution;
+- corrupt, incompatible, or uncheckpointed state.
+
+Any owner, pending generation, or execution descriptor is a blocker. A dead owner
+alone never proves Git execution absent.
+
+## Legacy compatibility
+
+`running.lock`, `order-*.json`, and `order-*.flag` are migration inputs only. A
+live legacy lock blocks admission. Stale residue is archived outside the legacy
+namespace only after SQLite registration and exact file-evidence revalidation.
+`GCP_ORDER_IS_QUEUED` remains telemetry metadata and never enables queue mode.
+
+## Telemetry
+
+Telemetry is best effort and never correctness authority. Lifecycle events may
+include execution preparation, registration, start, orphan detection,
+termination, and clearing. Coordinator state and telemetry contain no provider
+credentials, prompts, diffs, or remote URLs.
 
 ## Safety invariants
 
-- Public admission occurs before every side effect.
-- At most one live reconciler owns execution.
-- Every invocation durably advances `requested_generation`.
-- No invocation racing with pass completion is lost.
-- Live owners are not stolen because of heartbeat age.
-- Corrupt, incompatible, or uncheckpointed state is preserved and blocks Git
-  mutation.
-- Ownership is token-fenced across heartbeat, completion, and release.
-- The coordinator stores no credentials, prompts, diffs, or Git remote URLs.
+- `EXEC-INV-1`: at most one side-effect-capable execution boundary exists.
+- `EXEC-INV-2`: no execution becomes Git-capable before durable registration.
+- `EXEC-INV-3`: owner death does not imply execution death.
+- `EXEC-INV-4`: recovery never overlaps unresolved old execution.
+- `EXEC-INV-5`: owner and execution mutations are token-fenced.
+- `EXEC-INV-6`: completion follows full boundary termination.
+- `EXEC-INV-7`: supervisor hard death cannot orphan an overlapping pipeline.
+- `EXEC-INV-8`: launcher hard death cannot authorize overlap.
+- `EXEC-INV-9`: PID reuse cannot authorize unrelated signaling.
+- `EXEC-INV-10`: recovery remains singleton under contention.
+- `EXEC-INV-11`: supervisor disappearance never implies completion.
+- `EXEC-INV-12`: SQLite remains one bounded singleton with no history.
