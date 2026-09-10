@@ -6,14 +6,18 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import {
+	authorizeActiveExecutionStart,
+	clearActiveExecution,
 	currentBootEpochMs,
 	finishReconciliationPass,
 	heartbeatReconciler,
 	readProcessStartIdentity,
+	registerActiveExecution,
 	registerReconciliationRequest,
 } from "../../src/modules/reconciliation/reconciler.ts";
 import {
 	openReconcilerDb,
+	POSIX_EXECUTION_BOUNDARY_KIND,
 	readReconcilerState,
 	resolveReconcilerDbPath,
 } from "../../src/modules/reconciliation/reconciler-db.ts";
@@ -52,6 +56,33 @@ describe("reconciler bounded state and heartbeat", () => {
 			const registration = register(token);
 			assert.strictEqual(registration.kind, "OWNER");
 			if (registration.kind !== "OWNER") return;
+			const executionToken = `execution-${cycle}`;
+			registerActiveExecution(db, {
+				executionBoundaryKind: POSIX_EXECUTION_BOUNDARY_KIND,
+				executionGroupId: process.pid,
+				executionPid: process.pid,
+				executionProcessIdentity: "bounded-test-execution",
+				executionToken,
+				generation: registration.generation,
+				ownerPid: process.pid,
+				ownerToken: token,
+			});
+			assert.strictEqual(
+				authorizeActiveExecutionStart(db, {
+					executionToken,
+					ownerPid: process.pid,
+					ownerToken: token,
+				}),
+				true,
+			);
+			assert.strictEqual(
+				clearActiveExecution(db, {
+					executionToken,
+					ownerPid: process.pid,
+					ownerToken: token,
+				}),
+				true,
+			);
 			const finish = finishReconciliationPass(db, {
 				generation: registration.generation,
 				nowEpochMs: Date.now(),

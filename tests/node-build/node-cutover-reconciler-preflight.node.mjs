@@ -57,7 +57,7 @@ test("an idle SQLite reconciler database is not a blocker", async () => {
 	});
 });
 
-test("an active reconciler owner blocks cutover", async () => {
+test("a stale recorded reconciler owner blocks cutover distinctly", async () => {
 	await withFixture(async (fixture) => {
 		const dbPath = reconcilerDb.resolveReconcilerDbPath(
 			fixture.orderStateDirectory,
@@ -76,7 +76,7 @@ test("an active reconciler owner blocks cutover", async () => {
 		assert.equal(report.ready, false);
 		assert.deepEqual(
 			report.blockers.map(({ kind }) => kind),
-			["active-reconciler"],
+			["stale-reconciler"],
 		);
 	});
 });

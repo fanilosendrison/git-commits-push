@@ -98,6 +98,7 @@ describe("reconciler-db", () => {
 			assert.strictEqual(state.ownerOriginAgent, null);
 			assert.strictEqual(state.ownerSessionId, null);
 			assert.strictEqual(state.heartbeatAtEpochMs, null);
+			assert.strictEqual(state.activeExecution, null);
 			assert.strictEqual(countReconcilerStateRows(db), 1);
 			assert.deepStrictEqual(listReconcilerTables(db), ["reconciler_state"]);
 		} finally {
