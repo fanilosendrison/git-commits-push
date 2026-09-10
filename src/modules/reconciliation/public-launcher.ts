@@ -18,9 +18,12 @@ import {
 } from "./legacy-queue-state.ts";
 import { assertLegacyApplicationStateMigrated } from "./legacy-state-cutover.ts";
 import {
+	type RuntimePreparationResult,
+	runOwnedReconciliation,
+} from "./owned-reconciliation-loop.ts";
+import {
 	currentBootEpochMs,
 	establishCurrentProcessIdentity,
-	finishReconciliationPass,
 	heartbeatReconciler,
 	registerReconciliationRequest,
 	releaseReconciliationOwnership,
@@ -40,10 +43,7 @@ import {
 
 const HEARTBEAT_INTERVAL_MS = 10_000;
 
-export interface RuntimePreparationResult {
-	readonly exitCode: number | null;
-	readonly signal?: NodeJS.Signals | null;
-}
+export type { RuntimePreparationResult } from "./owned-reconciliation-loop.ts";
 
 export interface RunPublicLauncherOptions {
 	readonly compiledApplicationDirectory: string;
@@ -219,19 +219,24 @@ export async function runPublicLauncher(
 
 	let heartbeat: NodeJS.Timeout | null = null;
 	let uncaughtExceptionHandler: ((error: Error) => void) | null = null;
+	let unhandledRejectionHandler: ((reason: unknown) => void) | null = null;
 	const closeOwnerResources = (): void => {
 		ownerActive = false;
 		if (heartbeat !== null) clearInterval(heartbeat);
 		if (uncaughtExceptionHandler !== null) {
 			process.removeListener("uncaughtException", uncaughtExceptionHandler);
 		}
+		if (unhandledRejectionHandler !== null) {
+			process.removeListener("unhandledRejection", unhandledRejectionHandler);
+		}
 		cancellation.removeSignalHandlers();
 		db.close();
 	};
-	uncaughtExceptionHandler = (error: Error): void => {
+	const crashWithoutFalseIdle = (reason: unknown): void => {
 		process.stderr.write(
-			`git-commits-push launcher crashed: ${errorMessage(error)}\n`,
+			`git-commits-push launcher crashed: ${errorMessage(reason)}\n`,
 		);
+		// Release succeeds only when no active execution is durably recorded.
 		releaseOwnershipBestEffort();
 		try {
 			db.close();
@@ -240,7 +245,10 @@ export async function runPublicLauncher(
 		}
 		process.exit(1);
 	};
+	uncaughtExceptionHandler = crashWithoutFalseIdle;
+	unhandledRejectionHandler = crashWithoutFalseIdle;
 	process.on("uncaughtException", uncaughtExceptionHandler);
+	process.on("unhandledRejection", unhandledRejectionHandler);
 
 	try {
 		deleteLegacyQueueArtifacts(stateDirectory, legacyInspection);
@@ -294,65 +302,28 @@ export async function runPublicLauncher(
 		return 2;
 	};
 
-	if (options.prepareRuntime !== undefined) {
-		const preparation = await options.prepareRuntime(cancellation.signal);
-		if (cancellation.signal.aborted) return terminateAfterCancellation();
-		if (preparation.exitCode !== 0) {
-			const finish = finishReconciliationPass(db, {
-				generation: registration.generation,
-				nowEpochMs: Date.now(),
-				pid: process.pid,
-				success: false,
-				token: ownerToken,
-			});
-			if (finish.decision === "CONTINUE") releaseOwnershipBestEffort();
-			closeOwnerResources();
-			return preparation.exitCode ?? 1;
-		}
-	}
-
-	const { runSupervisorPass } = await import("./supervisor-pass.ts");
-	let generation = registration.generation;
-	let finalExitCode = 0;
-	while (true) {
-		logTelemetry((log) => log.logReconciliationPassStarted({ generation }));
-		const pass = await runSupervisorPass({
-			abortSignal: cancellation.signal,
+	try {
+		const result = await runOwnedReconciliation({
+			cancellation,
 			compiledApplicationDirectory: options.compiledApplicationDirectory,
+			db,
+			initialGeneration: registration.generation,
+			ownerToken,
 			passthroughArguments: options.passthroughArguments ?? [],
+			...(options.prepareRuntime === undefined
+				? {}
+				: { prepareRuntime: options.prepareRuntime }),
 		});
-		if (cancellation.signal.aborted) return terminateAfterCancellation();
-		const success =
-			pass.spawnError === null && pass.signal === null && pass.exitCode === 0;
-		const finish = finishReconciliationPass(db, {
-			generation,
-			nowEpochMs: Date.now(),
-			pid: process.pid,
-			success,
-			token: ownerToken,
-		});
-		logTelemetry((log) =>
-			log.logReconciliationPassFinished({
-				decision: finish.decision,
-				exitCode: pass.exitCode ?? 1,
-				generation,
-				success,
-			}),
+		if (result.cancelled) return terminateAfterCancellation();
+		closeOwnerResources();
+		return result.exitCode;
+	} catch (error) {
+		releaseOwnershipBestEffort();
+		closeOwnerResources();
+		failClosed(
+			cancellation.ownershipFailure ??
+				`reconciliation execution failed: ${errorMessage(error)}`,
 		);
-		if (finish.decision === "CONTINUE") {
-			generation = finish.generation;
-			continue;
-		}
-		if (finish.decision === "STOP_SUCCESS") {
-			logTelemetry((log) =>
-				log.logReconciliationIdle({
-					generation: finish.completedGeneration,
-				}),
-			);
-		}
-		finalExitCode = success ? 0 : (pass.exitCode ?? 1);
-		break;
+		return 2;
 	}
-	closeOwnerResources();
-	return finalExitCode;
 }

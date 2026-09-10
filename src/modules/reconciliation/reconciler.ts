@@ -1,25 +1,30 @@
-/**
- * Durable SQLite reconciliation state transitions.
- *
- * SQLite transactions contain only database reads and writes. Process liveness
- * is sampled before admission and the observed owner identity is rechecked
- * inside the write transaction before the decision is committed.
- */
-import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
+/** Durable SQLite reconciliation ownership and generation transitions. */
 import type { DatabaseSync } from "node:sqlite";
+import {
+	isProcessAlive,
+	readProcessStartIdentity,
+} from "./process-identity.ts";
+import { ReconcilerFencedError } from "./reconciler-errors.ts";
 import {
 	type ReconcilerStateRecord,
 	readReconcilerState,
-} from "./reconciler-db.ts";
+} from "./reconciler-state.ts";
+import { runReconcilerTransaction } from "./reconciler-transaction.ts";
 
-export class ReconcilerFencedError extends Error {
-	constructor(message: string, options?: ErrorOptions) {
-		super(message, options);
-		this.name = "ReconcilerFencedError";
-	}
-}
+export {
+	authorizeActiveExecutionStart,
+	clearActiveExecution,
+	type FenceActiveExecutionOptions,
+	type RegisterActiveExecutionOptions,
+	registerActiveExecution,
+} from "./active-execution-state.ts";
+export {
+	currentBootEpochMs,
+	establishCurrentProcessIdentity,
+	isProcessAlive,
+	readProcessStartIdentity,
+} from "./process-identity.ts";
+export { ReconcilerFencedError } from "./reconciler-errors.ts";
 
 export interface RegisterReconciliationOptions {
 	readonly token: string;
@@ -39,6 +44,7 @@ export type RegisterReconciliationResult =
 			readonly completedGeneration: number;
 			readonly recovered: boolean;
 			readonly previousOwnerPid: number | null;
+			readonly requiresExecutionRecovery: boolean;
 	  }
 	| {
 			readonly kind: "COALESCED";
@@ -82,58 +88,6 @@ export interface ReleaseOwnershipOptions {
 	readonly pid: number;
 }
 
-/** ESRCH means absent; EPERM proves that the process exists. */
-export function isProcessAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
-	}
-}
-
-/** Boot epoch is retained as diagnostic metadata, not as liveness authority. */
-export function currentBootEpochMs(): number {
-	return Date.now() - Math.floor(os.uptime() * 1000);
-}
-
-/** Read a process-birth identity without invoking a shell. */
-export function readProcessStartIdentity(pid: number): string | null {
-	if (!Number.isSafeInteger(pid) || pid <= 0) return null;
-	try {
-		if (process.platform === "linux") {
-			const bootId = fs
-				.readFileSync("/proc/sys/kernel/random/boot_id", "utf8")
-				.trim();
-			const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8").trim();
-			const fieldsAfterCommand = stat
-				.slice(stat.lastIndexOf(")") + 2)
-				.split(" ");
-			const startTicks = fieldsAfterCommand[19];
-			return bootId && startTicks ? `linux-proc:${bootId}:${startTicks}` : null;
-		}
-		const processRecord = execFileSync(
-			"ps",
-			["-p", String(pid), "-o", "lstart=", "-o", "command="],
-			{
-				encoding: "utf8",
-				env: { ...process.env, LC_ALL: "C" },
-				stdio: ["ignore", "pipe", "ignore"],
-			},
-		).trim();
-		return processRecord ? `ps-process:${processRecord}` : null;
-	} catch {
-		return null;
-	}
-}
-
-/** Add a unique, non-secret launch marker before reading this process identity. */
-export function establishCurrentProcessIdentity(nonce: string): string | null {
-	if (!nonce.trim()) return null;
-	process.title = `git-commits-push-${nonce}`;
-	return readProcessStartIdentity(process.pid);
-}
-
 function ownerIsAlive(state: ReconcilerStateRecord): boolean {
 	if (
 		state.ownerToken === null ||
@@ -145,7 +99,6 @@ function ownerIsAlive(state: ReconcilerStateRecord): boolean {
 	}
 	if (!isProcessAlive(state.ownerPid)) return false;
 	const currentIdentity = readProcessStartIdentity(state.ownerPid);
-	// Failure to read metadata must not authorize stealing a live PID.
 	return (
 		currentIdentity === null || currentIdentity === state.ownerProcessIdentity
 	);
@@ -181,6 +134,23 @@ function assertRegistrationOptions(
 
 class ReconciliationOwnerChanged extends Error {}
 
+function executionMatchesObservation(
+	current: ReconcilerStateRecord["activeExecution"],
+	observed: ReconcilerStateRecord["activeExecution"],
+): boolean {
+	if (current === null || observed === null) return current === observed;
+	return (
+		current.token === observed.token &&
+		current.generation === observed.generation &&
+		current.pid === observed.pid &&
+		current.processIdentity === observed.processIdentity &&
+		current.groupId === observed.groupId &&
+		current.boundaryKind === observed.boundaryKind &&
+		current.ownerToken === observed.ownerToken &&
+		current.state === observed.state
+	);
+}
+
 function ownerMatchesObservation(
 	current: ReconcilerStateRecord,
 	observed: ReconcilerStateRecord,
@@ -189,24 +159,12 @@ function ownerMatchesObservation(
 		current.ownerToken === observed.ownerToken &&
 		current.ownerPid === observed.ownerPid &&
 		current.ownerProcessIdentity === observed.ownerProcessIdentity &&
-		current.runningGeneration === observed.runningGeneration
+		current.runningGeneration === observed.runningGeneration &&
+		executionMatchesObservation(
+			current.activeExecution,
+			observed.activeExecution,
+		)
 	);
-}
-
-function runTransaction<T>(db: DatabaseSync, operation: () => T): T {
-	db.exec("BEGIN IMMEDIATE");
-	try {
-		const value = operation();
-		db.exec("COMMIT");
-		return value;
-	} catch (error) {
-		try {
-			db.exec("ROLLBACK");
-		} catch {
-			// Preserve the original failure when rollback is no longer possible.
-		}
-		throw error;
-	}
 }
 
 /** Atomically register one public reconciliation request before side effects. */
@@ -219,7 +177,7 @@ export function registerReconciliationRequest(
 		const observedState = readReconcilerState(db);
 		const observedOwnerIsAlive = ownerIsAlive(observedState);
 		try {
-			return runTransaction(db, () => {
+			return runReconcilerTransaction(db, () => {
 				const state = readReconcilerState(db);
 				if (!ownerMatchesObservation(state, observedState)) {
 					throw new ReconciliationOwnerChanged();
@@ -241,15 +199,9 @@ export function registerReconciliationRequest(
 				const previousOwnerPid = state.ownerPid;
 				db.prepare(
 					`UPDATE reconciler_state SET
-						requested_generation = ?,
-						running_generation = ?,
-						owner_token = ?,
-						owner_pid = ?,
-						owner_boot_epoch_ms = ?,
-						owner_process_identity = ?,
-						owner_caller_name = ?,
-						owner_origin_agent = ?,
-						owner_session_id = ?,
+						requested_generation = ?, running_generation = ?, owner_token = ?,
+						owner_pid = ?, owner_boot_epoch_ms = ?, owner_process_identity = ?,
+						owner_caller_name = ?, owner_origin_agent = ?, owner_session_id = ?,
 						heartbeat_at_epoch_ms = ?
 					 WHERE singleton_id = 1`,
 				).run(
@@ -270,6 +222,7 @@ export function registerReconciliationRequest(
 					completedGeneration: state.completedGeneration,
 					recovered,
 					previousOwnerPid,
+					requiresExecutionRecovery: state.activeExecution !== null,
 				};
 			});
 		} catch (error) {
@@ -282,16 +235,21 @@ export function registerReconciliationRequest(
 	);
 }
 
-/** Finalize one pass and atomically decide whether a newer generation follows. */
+/** Finalize one pass only after its durable execution has been cleared. */
 export function finishReconciliationPass(
 	db: DatabaseSync,
 	options: FinishReconciliationPassOptions,
 ): FinishReconciliationResult {
-	return runTransaction(db, () => {
+	return runReconcilerTransaction(db, () => {
 		const state = readReconcilerState(db);
 		if (state.ownerToken !== options.token || state.ownerPid !== options.pid) {
 			throw new ReconcilerFencedError(
-				"The reconciler owner token no longer matches the coordinator state; refusing to finalize another owner's pass.",
+				"The reconciler owner token no longer matches; refusing to finalize another owner's pass.",
+			);
+		}
+		if (state.activeExecution !== null) {
+			throw new ReconcilerFencedError(
+				"An active execution remains registered; refusing false pass completion.",
 			);
 		}
 		if (state.runningGeneration !== options.generation) {
@@ -306,10 +264,8 @@ export function finishReconciliationPass(
 		if (state.requestedGeneration > options.generation) {
 			const nextRunning = state.requestedGeneration;
 			db.prepare(
-				`UPDATE reconciler_state SET
-					completed_generation = ?,
-					running_generation = ?,
-					heartbeat_at_epoch_ms = ?
+				`UPDATE reconciler_state SET completed_generation = ?,
+					running_generation = ?, heartbeat_at_epoch_ms = ?
 				 WHERE singleton_id = 1`,
 			).run(completedGeneration, nextRunning, options.nowEpochMs);
 			return {
@@ -321,16 +277,10 @@ export function finishReconciliationPass(
 		}
 
 		db.prepare(
-			`UPDATE reconciler_state SET
-				completed_generation = ?,
-				running_generation = NULL,
-				owner_token = NULL,
-				owner_pid = NULL,
-				owner_boot_epoch_ms = NULL,
-				owner_process_identity = NULL,
-				owner_caller_name = NULL,
-				owner_origin_agent = NULL,
-				owner_session_id = NULL,
+			`UPDATE reconciler_state SET completed_generation = ?, running_generation = NULL,
+				owner_token = NULL, owner_pid = NULL, owner_boot_epoch_ms = NULL,
+				owner_process_identity = NULL, owner_caller_name = NULL,
+				owner_origin_agent = NULL, owner_session_id = NULL,
 				heartbeat_at_epoch_ms = NULL
 			 WHERE singleton_id = 1`,
 		).run(completedGeneration);
@@ -340,11 +290,15 @@ export function finishReconciliationPass(
 	});
 }
 
-/** Token-fenced heartbeat. Returns false after ownership replacement. */
+/** Token-fenced owner heartbeat against a fully validated state row. */
 export function heartbeatReconciler(
 	db: DatabaseSync,
 	options: HeartbeatOptions,
 ): boolean {
+	const state = readReconcilerState(db);
+	if (state.ownerToken !== options.token || state.ownerPid !== options.pid) {
+		return false;
+	}
 	const result = db
 		.prepare(
 			`UPDATE reconciler_state SET heartbeat_at_epoch_ms = ?
@@ -354,25 +308,27 @@ export function heartbeatReconciler(
 	return result.changes === 1;
 }
 
-/** Release interrupted ownership without advancing completed generation. */
+/** Release interrupted ownership only from a valid execution-free state. */
 export function releaseReconciliationOwnership(
 	db: DatabaseSync,
 	options: ReleaseOwnershipOptions,
 ): boolean {
-	const result = db
-		.prepare(
-			`UPDATE reconciler_state SET
-				running_generation = NULL,
-				owner_token = NULL,
-				owner_pid = NULL,
-				owner_boot_epoch_ms = NULL,
-				owner_process_identity = NULL,
-				owner_caller_name = NULL,
-				owner_origin_agent = NULL,
-				owner_session_id = NULL,
-				heartbeat_at_epoch_ms = NULL
-			 WHERE singleton_id = 1 AND owner_token = ? AND owner_pid = ?`,
-		)
-		.run(options.token, options.pid);
-	return result.changes === 1;
+	return runReconcilerTransaction(db, () => {
+		const state = readReconcilerState(db);
+		if (state.ownerToken !== options.token || state.ownerPid !== options.pid) {
+			return false;
+		}
+		if (state.activeExecution !== null) return false;
+		const result = db
+			.prepare(
+				`UPDATE reconciler_state SET running_generation = NULL, owner_token = NULL,
+					owner_pid = NULL, owner_boot_epoch_ms = NULL,
+					owner_process_identity = NULL, owner_caller_name = NULL,
+					owner_origin_agent = NULL, owner_session_id = NULL,
+					heartbeat_at_epoch_ms = NULL
+				 WHERE singleton_id = 1 AND owner_token = ? AND owner_pid = ?`,
+			)
+			.run(options.token, options.pid);
+		return result.changes === 1;
+	});
 }

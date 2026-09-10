@@ -29,6 +29,28 @@ export interface SkillStatsLog {
 		ownerCallerName: string | null;
 	}): void;
 	logReconciliationPassStarted(params: { generation: number }): void;
+	logExecutionPrepared(params: {
+		generation: number;
+		executionPid: number;
+	}): void;
+	logExecutionRegistered(params: {
+		generation: number;
+		executionPid: number;
+	}): void;
+	logExecutionStarted(params: {
+		generation: number;
+		executionPid: number;
+	}): void;
+	logExecutionCleared(params: {
+		generation: number;
+		executionPid: number;
+	}): void;
+	logOrphanExecutionDetected(params: {
+		executionGeneration: number;
+		executionPid: number;
+	}): void;
+	logOrphanExecutionTerminationStarted(params: { executionPid: number }): void;
+	logOrphanExecutionTerminated(params: { executionPid: number }): void;
 	logReconciliationPassFinished(params: {
 		generation: number;
 		exitCode: number;
