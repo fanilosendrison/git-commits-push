@@ -19,6 +19,14 @@ const publicLauncherPath = path.join(
 	skillDirectory,
 	"bin/git-commits-push.mjs",
 );
+const executionControllerPath = path.join(
+	compiledSkillDirectory,
+	"src/entrypoints/execution-controller.js",
+);
+const pipelineStagePath = path.join(
+	testDirectory,
+	"fixtures/pipeline-stage.mjs",
+);
 
 function processGroupExists(groupId) {
 	try {
@@ -38,6 +46,31 @@ async function readEvents(eventsPath) {
 		.split("\n")
 		.filter(Boolean)
 		.map((line) => JSON.parse(line));
+}
+
+function waitForControllerMessage(controller, expectedType, token) {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			cleanup();
+			reject(new Error(`controller did not send ${expectedType}`));
+		}, 30_000);
+		const onMessage = (message) => {
+			if (message?.type !== expectedType || message.token !== token) return;
+			cleanup();
+			resolve(message);
+		};
+		const onClose = () => {
+			cleanup();
+			reject(new Error(`controller exited before ${expectedType}`));
+		};
+		const cleanup = () => {
+			clearTimeout(timeout);
+			controller.removeListener("message", onMessage);
+			controller.removeListener("close", onClose);
+		};
+		controller.on("message", onMessage);
+		controller.once("close", onClose);
+	});
 }
 
 async function createFixture(root) {
@@ -121,6 +154,79 @@ async function assertConverged(reconcilerDb, stateDirectory) {
 		db.close();
 	}
 }
+
+test("EXEC-INV-8 | IPC loss immediately after supervisor spawn kills the full boundary", {
+	skip: process.platform !== "darwin" && process.platform !== "linux",
+}, async () => {
+	await withTemporaryDirectory(async (root) => {
+		const eventsPath = path.join(root, "execution-events.jsonl");
+		const startedMessageBarrier = path.join(root, "release-started-send");
+		const disconnectBarrier = path.join(root, "never-release-disconnect");
+		await writeFile(eventsPath, "");
+		const token = "immediate-ipc-disconnect";
+		const controller = spawn(
+			process.execPath,
+			[executionControllerPath, pipelineStagePath, "signal-producer"],
+			{
+				cwd: compiledSkillDirectory,
+				detached: true,
+				env: {
+					...process.env,
+					GCP_TEST_EXECUTION_DISCONNECT_BARRIER: disconnectBarrier,
+					GCP_TEST_EXECUTION_EVENTS_PATH: eventsPath,
+					GCP_TEST_EXECUTION_STARTED_MESSAGE_BARRIER: startedMessageBarrier,
+					NODE_ENV: "test",
+					PIPELINE_SIGNAL_LOG: path.join(root, "signals.log"),
+				},
+				shell: false,
+				stdio: ["ignore", "ignore", "pipe", "ipc"],
+			},
+		);
+		try {
+			await new Promise((resolve, reject) => {
+				controller.once("spawn", resolve);
+				controller.once("error", reject);
+			});
+			const readyPromise = waitForControllerMessage(controller, "READY", token);
+			controller.send({ type: "PREPARE", version: 1, token });
+			const ready = await readyPromise;
+			assert.strictEqual(ready.groupId, controller.pid);
+			controller.send({ type: "START", version: 1, token });
+			await waitForCondition(
+				() =>
+					readEvents(eventsPath).then((events) =>
+						events.some(
+							(event) =>
+								event.type === "supervisor_started" &&
+								event.executionToken === token,
+						),
+					),
+				"controller did not spawn the supervisor",
+			);
+			assert.strictEqual(processGroupExists(ready.groupId), true);
+			controller.disconnect();
+			await writeFile(startedMessageBarrier, "release\n");
+			await waitForCondition(
+				() => controller.exitCode !== null || controller.signalCode !== null,
+				"controller did not exit after immediate IPC loss",
+			);
+			assert.strictEqual(processGroupExists(ready.groupId), false);
+			const events = await readEvents(eventsPath);
+			assert.strictEqual(
+				events.some(
+					(event) =>
+						event.type === "boundary_termination_started" &&
+						event.executionToken === token,
+				),
+				true,
+			);
+		} finally {
+			if (controller.pid !== undefined && processGroupExists(controller.pid)) {
+				process.kill(-controller.pid, "SIGKILL");
+			}
+		}
+	});
+});
 
 for (const scenario of [
 	{

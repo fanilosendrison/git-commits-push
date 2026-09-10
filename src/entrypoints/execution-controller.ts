@@ -9,6 +9,7 @@ import {
 	recordExecutionTestEvent,
 	waitForExecutionDisconnectTestBarrier,
 	waitForExecutionReadyTestBarrier,
+	waitForExecutionStartedMessageTestBarrier,
 	waitForExecutionStartTestBarrier,
 } from "../modules/reconciliation/execution-test-observer.ts";
 import { establishCurrentProcessIdentity } from "../modules/reconciliation/process-identity.ts";
@@ -24,8 +25,19 @@ interface SupervisorObservation {
 	spawnErrorMessage: string | null;
 }
 
-function sendMessage(message: ControllerExecutionMessage): void {
-	if (process.connected && process.send) process.send(message);
+function sendMessage(
+	message: ControllerExecutionMessage,
+	onComplete: (error: Error | null) => void,
+): void {
+	if (!process.connected || !process.send) {
+		onComplete(new Error("execution controller IPC channel is closed"));
+		return;
+	}
+	try {
+		process.send(message, (error) => onComplete(error ?? null));
+	} catch (error) {
+		onComplete(error instanceof Error ? error : new Error(String(error)));
+	}
 }
 
 function listOwnGroupMembers(): number[] | null {
@@ -108,7 +120,7 @@ export async function runExecutionController(
 			process.send
 		) {
 			resultSending = true;
-			process.send(
+			sendMessage(
 				{
 					type: "RESULT",
 					version: EXECUTION_CONTROL_PROTOCOL_VERSION,
@@ -178,14 +190,19 @@ export async function runExecutionController(
 			});
 			await waitForExecutionReadyTestBarrier();
 			if (!process.connected || completed) return;
-			sendMessage({
-				type: "READY",
-				version: EXECUTION_CONTROL_PROTOCOL_VERSION,
-				token: message.token,
-				pid: process.pid,
-				processIdentity,
-				groupId,
-			});
+			sendMessage(
+				{
+					type: "READY",
+					version: EXECUTION_CONTROL_PROTOCOL_VERSION,
+					token: message.token,
+					pid: process.pid,
+					processIdentity,
+					groupId,
+				},
+				(error) => {
+					if (error !== null) exitController(2);
+				},
+			);
 			return;
 		}
 
@@ -228,12 +245,18 @@ export async function runExecutionController(
 				groupId: process.pid,
 				supervisorPid,
 			});
-			sendMessage({
-				type: "STARTED",
-				version: EXECUTION_CONTROL_PROTOCOL_VERSION,
-				token: executionToken,
-				supervisorPid,
-			});
+			await waitForExecutionStartedMessageTestBarrier();
+			sendMessage(
+				{
+					type: "STARTED",
+					version: EXECUTION_CONTROL_PROTOCOL_VERSION,
+					token: executionToken,
+					supervisorPid,
+				},
+				(error) => {
+					if (error !== null) beginTermination();
+				},
+			);
 		}
 		supervisor.once("close", (exitCode, signal) => {
 			supervisorObservation = { exitCode, signal, spawnErrorMessage };

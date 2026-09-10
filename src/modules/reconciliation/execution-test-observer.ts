@@ -3,6 +3,8 @@ import { appendFileSync, existsSync } from "node:fs";
 const EVENTS_PATH_ENV = "GCP_TEST_EXECUTION_EVENTS_PATH";
 const READY_BARRIER_ENV = "GCP_TEST_EXECUTION_READY_BARRIER";
 const START_BARRIER_ENV = "GCP_TEST_EXECUTION_START_BARRIER";
+const STARTED_MESSAGE_BARRIER_ENV =
+	"GCP_TEST_EXECUTION_STARTED_MESSAGE_BARRIER";
 const DISCONNECT_BARRIER_ENV = "GCP_TEST_EXECUTION_DISCONNECT_BARRIER";
 const REGISTERED_BARRIER_ENV = "GCP_TEST_EXECUTION_REGISTERED_BARRIER";
 
@@ -48,6 +50,10 @@ export async function waitForExecutionReadyTestBarrier(): Promise<void> {
 
 export async function waitForExecutionStartTestBarrier(): Promise<void> {
 	await waitForBarrier(START_BARRIER_ENV);
+}
+
+export async function waitForExecutionStartedMessageTestBarrier(): Promise<void> {
+	await waitForBarrier(STARTED_MESSAGE_BARRIER_ENV);
 }
 
 export async function waitForExecutionDisconnectTestBarrier(): Promise<void> {
