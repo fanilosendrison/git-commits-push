@@ -13,6 +13,7 @@ import {
 	PushError,
 } from "../core/errors.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
+import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
 import { gitExec } from "./git-exec.ts";
 import { executePush } from "./push.ts";
 
@@ -21,6 +22,21 @@ import { executePush } from "./push.ts";
  */
 function normalizePath(p: string): string {
 	return path.posix.normalize(p).replace(/\/+$/, "");
+}
+
+function collectPendingFiles(
+	plans: readonly CommitPlan[],
+	index: number,
+): string[] {
+	const seen = new Set<string>();
+	return plans
+		.slice(index)
+		.flatMap((plan) => plan.files)
+		.filter((file) => {
+			if (seen.has(file)) return false;
+			seen.add(file);
+			return true;
+		});
 }
 
 /**
@@ -105,6 +121,30 @@ export async function executeMultiCommitAndPush(
 
 	try {
 		for (const [i, plan] of plans.entries()) {
+			const pendingFiles = collectPendingFiles(plans, i);
+			const fileState = inspectCommitPlanFileState(repoPath, plan.files);
+			if (fileState.nonexistentFiles.length > 0) {
+				throw new CommitPlanError(
+					`Plan ${i + 1}/${plans.length} references file(s) that do not exist on disk or in Git: ${fileState.nonexistentFiles.join(", ")}.`,
+					"nonexistent-file",
+					[...fileState.nonexistentFiles],
+					{
+						committedShas: [...committedShas],
+						pendingFiles,
+					},
+				);
+			}
+			if (fileState.unchangedFiles.length === plan.files.length) {
+				throw new CommitPlanError(
+					`Plan ${i + 1}/${plans.length} has no changes for file(s): ${fileState.unchangedFiles.join(", ")}.`,
+					"missing-file",
+					[...fileState.unchangedFiles],
+					{
+						committedShas: [...committedShas],
+						pendingFiles,
+					},
+				);
+			}
 			try {
 				// Stage the plan's files
 				gitExec(
@@ -163,68 +203,7 @@ export async function executeMultiCommitAndPush(
 						: "";
 				const msg = `${commitErrMsg}\n${commitErrStdout}\n${commitErrStderr}`;
 
-				// Build pendingFiles context (files from this plan + subsequent plans)
-				const pendingFilesSet = new Set<string>(plan.files);
-				const pendingFilesContext = [
-					...plan.files,
-					...plans
-						.slice(i + 1)
-						.flatMap((p) => p.files)
-						.filter((f) => {
-							if (pendingFilesSet.has(f)) return false;
-							pendingFilesSet.add(f);
-							return true;
-						}),
-				];
-
-				// File does not exist (git add failed before commit)
-				if (
-					msg.includes("did not match any file") ||
-					msg.includes("pathspec") ||
-					msg.includes("does not exist")
-				) {
-					throw new CommitPlanError(
-						`Plan ${i + 1}/${plans.length} references file(s) that do not exist on disk: ${plan.files.join(", ")}. ` +
-							`Files must exist relative to the repo root.`,
-						"nonexistent-file",
-						plan.files,
-						{
-							committedShas: [...committedShas],
-							pendingFiles: pendingFilesContext,
-						},
-					);
-				}
-
-				// Nothing to commit (file already committed or empty)
-				if (
-					msg.includes("nothing to commit") ||
-					msg.includes("nothing added to commit") ||
-					msg.includes("no changes added")
-				) {
-					throw new CommitPlanError(
-						`Plan ${i + 1}/${plans.length} has no changes to commit. Files: ${plan.files.join(", ")}`,
-						"missing-file",
-						plan.files,
-						{
-							committedShas: [...committedShas],
-							pendingFiles: pendingFilesContext,
-						},
-					);
-				}
-
-				// Otherwise: partial commit failure
-				const failedPlanFiles = [...plan.files];
-				const subsequentFiles = plans.slice(i + 1).flatMap((p) => p.files);
-				const seenFiles = new Set<string>(failedPlanFiles);
-				const pendingFiles = [
-					...failedPlanFiles,
-					...subsequentFiles.filter((f) => {
-						if (seenFiles.has(f)) return false;
-						seenFiles.add(f);
-						return true;
-					}),
-				];
-
+				// Structural file-state failures were classified before staging.
 				throw new PartialCommitError(
 					`Commit ${i + 1}/${plans.length} failed: ${msg}. ` +
 						`${committedShas.length} commit(s) already in history (from ${originalHead.slice(0, 7)}). ` +
