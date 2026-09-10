@@ -51,5 +51,8 @@ export function resolvePnpmOfflineEnvironment(
 		pnpm_config_cache_dir: resolvePnpmCacheDirectory(environment),
 		pnpm_config_offline: "true",
 		pnpm_config_store_dir: path.dirname(versionedStoreDirectory),
+		// CI verifies this committed lockfile before the offline deployment tests.
+		// Trusting it here keeps those tests independent of registry metadata caches.
+		pnpm_config_trust_lockfile: "true",
 	};
 }
