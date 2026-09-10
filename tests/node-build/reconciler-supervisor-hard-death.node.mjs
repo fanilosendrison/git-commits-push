@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -12,8 +12,6 @@ import {
 import {
 	createRepoWithBareRemote,
 	isolatedEnvironment,
-	nonProtocolBytes,
-	protocolActions,
 	runGit,
 	waitForClose,
 	withTemporaryDirectory,
@@ -24,13 +22,11 @@ const skillDirectory = path.resolve(testDirectory, "../..");
 const compiledSkillDirectory = path.join(skillDirectory, "dist");
 const publicLauncherPath = path.join(
 	skillDirectory,
-	"bin",
-	"git-commits-push.mjs",
+	"bin/git-commits-push.mjs",
 );
 const overlapPreloadPath = path.join(
 	testDirectory,
-	"fixtures",
-	"mock-openai-fetch-overlap.mjs",
+	"fixtures/mock-openai-fetch-overlap.mjs",
 );
 
 function processGroupExists(groupId) {
@@ -44,29 +40,6 @@ function processGroupExists(groupId) {
 	}
 }
 
-function processExists(pid) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		if (error.code === "ESRCH") return false;
-		if (error.code === "EPERM") return true;
-		throw error;
-	}
-}
-
-function collectOutput(child) {
-	let stdout = "";
-	let stderr = "";
-	child.stdout?.on("data", (chunk) => {
-		stdout += chunk.toString("utf8");
-	});
-	child.stderr?.on("data", (chunk) => {
-		stderr += chunk.toString("utf8");
-	});
-	return { stdout: () => stdout, stderr: () => stderr };
-}
-
 async function readEvents(eventsPath) {
 	if (!existsSync(eventsPath)) return [];
 	return (await readFile(eventsPath, "utf8"))
@@ -76,13 +49,12 @@ async function readEvents(eventsPath) {
 		.map((line) => JSON.parse(line));
 }
 
-test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
+test("EXEC-INV-6/7 | supervisor SIGKILL cannot orphan descendants into a fresh pass", {
 	skip: process.platform !== "darwin" && process.platform !== "linux",
 }, async () => {
 	await withTemporaryDirectory(async (root) => {
 		const llmServer = await startLlmOverlapServer();
-		let ownerA;
-		let ownerB;
+		let owner;
 		try {
 			const environment = isolatedEnvironment(root);
 			await mkdir(environment.HOME, { recursive: true });
@@ -95,17 +67,15 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 				bareRemotePath,
 				environment,
 			);
-			await writeFile(path.join(repositoryPath, "pipeline.ts"), "recovery\n");
+			await writeFile(path.join(repositoryPath, "pipeline.ts"), "supervisor\n");
 			runGit(repositoryPath, ["add", "pipeline.ts"], environment);
 
 			const orderStateDirectory = path.join(root, "reconciler state");
-			const turnlockRunRoot = path.join(root, "turnlock runs");
 			const executionEventsPath = path.join(root, "execution-events.jsonl");
-			const disconnectBarrier = path.join(root, "never-release-disconnect");
 			const settingsPath = path.join(root, "settings.json");
 			for (const directory of [
 				orderStateDirectory,
-				turnlockRunRoot,
+				path.join(root, "turnlock runs"),
 				path.join(root, "telemetry"),
 				path.join(root, "scanner telemetry"),
 			]) {
@@ -129,17 +99,17 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 			);
 			const baseEnvironment = {
 				...environment,
-				GCP_TEST_EXECUTION_DISCONNECT_BARRIER: disconnectBarrier,
 				GCP_TEST_EXECUTION_EVENTS_PATH: executionEventsPath,
+				GCP_TEST_LLM_IGNORE_SIGTERM: "1",
 				GCP_TEST_LLM_SERVER_URL: llmServer.url,
 				NODE_ENV: "test",
 				NODE_OPTIONS: `--import=${pathToFileURL(overlapPreloadPath).href}`,
 				OPENAI_API_KEY: "sk-test",
 				ORDER_STATE_DIR: orderStateDirectory,
-				PI_SESSION_ID: "launcher-hard-death",
+				PI_SESSION_ID: "supervisor-hard-death",
 				PI_SKILL_STATS_DIR: path.join(root, "telemetry"),
 				SECRET_SCANNER_STATS_DIR: path.join(root, "scanner telemetry"),
-				TURNLOCK_RUN_DIR_ROOT: turnlockRunRoot,
+				TURNLOCK_RUN_DIR_ROOT: path.join(root, "turnlock runs"),
 				TURNLOCK_SKILL_SETTINGS_PATH: settingsPath,
 			};
 			const reconcilerDb = await import(
@@ -152,85 +122,98 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 			);
 			const dbPath = reconcilerDb.resolveReconcilerDbPath(orderStateDirectory);
 
-			ownerA = spawn(process.execPath, [publicLauncherPath], {
+			owner = spawn(process.execPath, [publicLauncherPath], {
 				cwd: skillDirectory,
 				env: baseEnvironment,
 				shell: false,
-				stdio: "ignore",
+				stdio: ["ignore", "pipe", "pipe"],
 			});
+			let ownerStderr = "";
+			owner.stderr?.on("data", (chunk) => {
+				ownerStderr += chunk.toString("utf8");
+			});
+			const ownerClosed = waitForClose(owner);
 			await waitForCondition(
 				() => llmServer.events.some(({ type }) => type === "request_opened"),
-				"owner A did not reach the parent LLM barrier",
+				"first execution did not reach the LLM barrier",
 			);
-			const duringA = reconcilerDb.openReconcilerDb(dbPath);
-			let executionA;
+			await waitForCondition(
+				() =>
+					readEvents(executionEventsPath).then((events) =>
+						events.some(({ type }) => type === "supervisor_started"),
+					),
+				"supervisor start event was not observed",
+			);
+			const lifecycleBeforeKill = await readEvents(executionEventsPath);
+			const firstSupervisor = lifecycleBeforeKill.find(
+				({ type }) => type === "supervisor_started",
+			);
+			assert.ok(firstSupervisor);
+			const firstToken = firstSupervisor.executionToken;
+			const firstGroupId = firstSupervisor.groupId;
+			process.kill(firstSupervisor.supervisorPid, "SIGKILL");
+
+			await waitForCondition(async () => {
+				const events = await readEvents(executionEventsPath);
+				return events.some(
+					(event) =>
+						event.type === "boundary_termination_started" &&
+						event.executionToken === firstToken,
+				);
+			}, "controller did not begin cleanup after supervisor SIGKILL");
+			const duringCleanup = reconcilerDb.openReconcilerDb(dbPath);
 			try {
-				const state = reconcilerDb.readReconcilerState(duringA);
-				assert.strictEqual(state.ownerPid, ownerA.pid);
-				assert.strictEqual(state.activeExecution?.state, "START_AUTHORIZED");
-				executionA = state.activeExecution;
+				const state = reconcilerDb.readReconcilerState(duringCleanup);
+				assert.strictEqual(state.activeExecution?.token, firstToken);
+				assert.strictEqual(state.completedGeneration, 0);
 			} finally {
-				duringA.close();
+				duringCleanup.close();
 			}
-			assert.ok(executionA);
-			assert.strictEqual(processGroupExists(executionA.groupId), true);
+			assert.strictEqual(processGroupExists(firstGroupId), true);
+			assert.strictEqual(llmServer.activeExecutionCount(), 1);
+			assert.strictEqual(owner.exitCode, null);
 
-			const ownerAClosed = waitForClose(ownerA);
-			ownerA.kill("SIGKILL");
-			await ownerAClosed;
-			assert.strictEqual(processGroupExists(executionA.groupId), true);
-
-			ownerB = spawn(process.execPath, [publicLauncherPath], {
+			const followUp = spawn(process.execPath, [publicLauncherPath], {
 				cwd: skillDirectory,
-				env: { ...baseEnvironment, PI_SESSION_ID: "recovery-owner" },
+				env: { ...baseEnvironment, PI_SESSION_ID: "supervisor-follow-up" },
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
 			});
-			const ownerBOutput = collectOutput(ownerB);
-			const ownerBClosed = waitForClose(ownerB);
+			let followUpStdout = "";
+			followUp.stdout?.on("data", (chunk) => {
+				followUpStdout += chunk.toString("utf8");
+			});
+			assert.strictEqual(await waitForClose(followUp), 0);
+			assert.match(
+				followUpStdout,
+				/Another git-commits-push worker is active/u,
+			);
+
 			await waitForCondition(
 				() =>
 					llmServer.events.filter(({ type }) => type === "request_opened")
 						.length === 2,
-				"recovery owner did not start its fresh LLM request",
+				"owner did not start the follow-up pass after old boundary cleanup",
 			);
-
-			const requestEvents = llmServer.events;
-			const opened = requestEvents.filter(
+			const opened = llmServer.events.filter(
 				({ type }) => type === "request_opened",
 			);
 			assert.notStrictEqual(opened[0].token, opened[1].token);
-			const oldCloseIndex = requestEvents.findIndex(
+			const oldCloseIndex = llmServer.events.findIndex(
 				(event) =>
 					event.type === "request_closed" && event.token === opened[0].token,
 			);
-			const newOpenIndex = requestEvents.findIndex(
+			const newOpenIndex = llmServer.events.findIndex(
 				(event) =>
 					event.type === "request_opened" && event.token === opened[1].token,
 			);
 			assert.ok(oldCloseIndex >= 0 && oldCloseIndex < newOpenIndex);
+			assert.strictEqual(processGroupExists(firstGroupId), false);
 			assert.strictEqual(llmServer.overlapDetected(), false);
 			assert.strictEqual(llmServer.maximumActiveExecutions(), 1);
-			assert.strictEqual(processExists(executionA.pid), false);
-			assert.strictEqual(processGroupExists(executionA.groupId), false);
-
-			const lifecycle = await readEvents(executionEventsPath);
-			const oldTerminationIndex = lifecycle.findIndex(
-				(event) =>
-					event.type === "boundary_termination_started" &&
-					event.executionToken === opened[0].token,
-			);
-			const newSupervisorIndex = lifecycle.findIndex(
-				(event) =>
-					event.type === "supervisor_started" &&
-					event.executionToken === opened[1].token,
-			);
-			assert.ok(
-				oldTerminationIndex >= 0 && oldTerminationIndex < newSupervisorIndex,
-			);
 
 			llmServer.release();
-			assert.strictEqual(await ownerBClosed, 0, ownerBOutput.stderr());
+			assert.strictEqual(await ownerClosed, 0, ownerStderr);
 			const branch = runGit(
 				repositoryPath,
 				["symbolic-ref", "--quiet", "--short", "HEAD"],
@@ -248,33 +231,19 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 					environment,
 				),
 			);
-
 			const finalDb = reconcilerDb.openReconcilerDb(dbPath);
 			try {
 				const state = reconcilerDb.readReconcilerState(finalDb);
 				assert.strictEqual(state.requestedGeneration, 2);
 				assert.strictEqual(state.completedGeneration, 2);
-				assert.strictEqual(state.runningGeneration, null);
 				assert.strictEqual(state.ownerToken, null);
 				assert.strictEqual(state.activeExecution, null);
 			} finally {
 				finalDb.close();
 			}
-			const stateEntries = await readdir(orderStateDirectory);
-			assert.strictEqual(
-				stateEntries.some(
-					(name) => name === "running.lock" || name.startsWith("order-"),
-				),
-				false,
-			);
-			assert.strictEqual(nonProtocolBytes(ownerBOutput.stdout()), "");
-			assert.deepStrictEqual(protocolActions(ownerBOutput.stdout()), ["DONE"]);
 		} finally {
-			if (ownerA && ownerA.exitCode === null && ownerA.signalCode === null) {
-				ownerA.kill("SIGKILL");
-			}
-			if (ownerB && ownerB.exitCode === null && ownerB.signalCode === null) {
-				ownerB.kill("SIGKILL");
+			if (owner && owner.exitCode === null && owner.signalCode === null) {
+				owner.kill("SIGKILL");
 			}
 			await llmServer.close();
 		}

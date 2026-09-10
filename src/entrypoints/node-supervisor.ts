@@ -5,10 +5,7 @@ import {
 } from "node:child_process";
 import path from "node:path";
 import type { Readable, Writable } from "node:stream";
-import {
-	signalProcessTree,
-	usesIsolatedProcessGroup,
-} from "@git-commits-push/node-runtime";
+import { signalDirectProcess } from "@git-commits-push/node-runtime";
 import { isDirectExecution } from "../utils/direct-execution.ts";
 
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;
@@ -51,7 +48,7 @@ type ConsumerProcess = ChildProcessByStdio<Writable, Readable, Readable>;
 function stageSpawnOptions(stage: PipelineStageCommand) {
 	return {
 		...(stage.cwd === undefined ? {} : { cwd: stage.cwd }),
-		detached: usesIsolatedProcessGroup,
+		detached: false,
 		env: stage.env ?? process.env,
 		shell: false as const,
 		windowsHide: true,
@@ -135,11 +132,11 @@ export async function supervisePipeline(
 		if (terminationStarted) return;
 		terminationStarted = true;
 		for (const child of [producer, consumer]) {
-			if (isRunning(child)) signalProcessTree(child, "SIGTERM");
+			if (isRunning(child)) signalDirectProcess(child, "SIGTERM");
 		}
 		forceKillTimer = setTimeout(() => {
 			for (const child of [producer, consumer]) {
-				if (isRunning(child)) signalProcessTree(child, "SIGKILL");
+				if (isRunning(child)) signalDirectProcess(child, "SIGKILL");
 			}
 		}, options.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS);
 		forceKillTimer.unref();

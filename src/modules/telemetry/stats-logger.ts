@@ -88,6 +88,27 @@ export function createSkillStatsLog(): SkillStatsLog {
 				generation: params.generation,
 			});
 		},
+		logExecutionPrepared(params) {
+			appendEvent("execution_prepared", params);
+		},
+		logExecutionRegistered(params) {
+			appendEvent("execution_registered", params);
+		},
+		logExecutionStarted(params) {
+			appendEvent("execution_started", params);
+		},
+		logExecutionCleared(params) {
+			appendEvent("execution_cleared", params);
+		},
+		logOrphanExecutionDetected(params) {
+			appendEvent("orphan_execution_detected", params);
+		},
+		logOrphanExecutionTerminationStarted(params) {
+			appendEvent("orphan_execution_termination_started", params);
+		},
+		logOrphanExecutionTerminated(params) {
+			appendEvent("orphan_execution_terminated", params);
+		},
 		logReconciliationPassFinished(params) {
 			appendEvent("reconciliation_pass_finished", {
 				generation: params.generation,

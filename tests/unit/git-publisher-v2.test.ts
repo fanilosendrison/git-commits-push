@@ -185,6 +185,41 @@ describe("U-GE-19 | missing-file → CommitPlanError", () => {
 
 		repo.dispose();
 	});
+
+	test("plan mixing changed and unchanged files still commits the change", async () => {
+		const repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.writeAndStage("unchanged.ts", "export const u = 1;\n");
+		repo.commit("commit unchanged");
+		repo.writeAndStage("changed.ts", "export const c = 1;\n");
+		const { diffHash } = await extractDiff(repo.dir);
+
+		const result = await executeMultiCommitAndPush(
+			repo.dir,
+			[
+				{
+					commit: {
+						type: "feat",
+						description: "add changed file",
+						isBreaking: false,
+					},
+					files: ["changed.ts", "unchanged.ts"],
+				},
+			],
+			diffHash,
+			NO_PUSH_SETTINGS,
+		);
+
+		assert.strictEqual(result.committedShas.length, 1);
+		assert.match(
+			execSync("git show --name-only --format= HEAD", {
+				cwd: repo.dir,
+				encoding: "utf-8",
+			}),
+			/changed\.ts/u,
+		);
+		repo.dispose();
+	});
 });
 
 // ── U-GE-22: nonexistent-file ───────────────────────────────────────────────

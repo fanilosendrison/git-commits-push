@@ -16,7 +16,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
-import { CommitPlanError } from "../../src/modules/core/errors.ts";
+import {
+	CommitPlanError,
+	PartialCommitError,
+} from "../../src/modules/core/errors.ts";
 import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import { classifyTransient } from "../../src/modules/git/push.ts";
 import type { CommitPlan, Settings } from "../../src/types.ts";
@@ -184,6 +187,149 @@ describe("U-GE-16 | mid-loop failure preserves committed SHAs in context", () =>
 		});
 		assert.ok(log.includes("add a"));
 
+		repo.dispose();
+	});
+});
+
+describe("machine-readable planned-file classification", () => {
+	test("stages shell metacharacters and leading whitespace as literal paths", async () => {
+		const repo = GitRepoFixture.create();
+		repo.commit("initial");
+		const shellMetacharacterPath = "$(touch injected)";
+		const leadingWhitespacePath = " leading.ts";
+		repo.writeAndStage(shellMetacharacterPath, "literal shell syntax\n");
+		repo.writeAndStage(leadingWhitespacePath, "leading whitespace\n");
+		const { diffHash } = await extractDiff(repo.dir);
+
+		const result = await executeMultiCommitAndPush(
+			repo.dir,
+			[
+				{
+					commit: {
+						type: "test",
+						description: "preserve unusual paths",
+						isBreaking: false,
+					},
+					files: [shellMetacharacterPath, leadingWhitespacePath],
+				},
+			],
+			diffHash,
+			NO_PUSH_SETTINGS,
+		);
+
+		assert.strictEqual(result.committedShas.length, 1);
+		assert.strictEqual(fs.existsSync(path.join(repo.dir, "injected")), false);
+		assert.strictEqual(
+			execSync("git status --porcelain", {
+				cwd: repo.dir,
+				encoding: "utf-8",
+			}),
+			"",
+		);
+		repo.dispose();
+	});
+
+	test("treats Git pathspec metacharacters as literal filenames", async () => {
+		const repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.writeAndStage("*.ts", "literal wildcard\n");
+		repo.writeAndStage("other.ts", "must remain pending\n");
+		const { diffHash } = await extractDiff(repo.dir);
+
+		await executeMultiCommitAndPush(
+			repo.dir,
+			[
+				{
+					commit: {
+						type: "test",
+						description: "stage literal wildcard",
+						isBreaking: false,
+					},
+					files: ["*.ts"],
+				},
+			],
+			diffHash,
+			NO_PUSH_SETTINGS,
+		);
+
+		assert.strictEqual(
+			execSync("git show --name-only --format= HEAD", {
+				cwd: repo.dir,
+				encoding: "utf-8",
+			}).trim(),
+			"*.ts",
+		);
+		assert.match(
+			execSync("git status --porcelain", {
+				cwd: repo.dir,
+				encoding: "utf-8",
+			}),
+			/other\.ts/u,
+		);
+		repo.dispose();
+	});
+
+	test("accepts a tracked deletion as a changed planned path", async () => {
+		const repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.writeAndStage("deleted.ts", "delete me\n");
+		repo.commit("add deleted file");
+		fs.unlinkSync(path.join(repo.dir, "deleted.ts"));
+		execSync("git add -A", { cwd: repo.dir, encoding: "utf-8" });
+		const { diffHash } = await extractDiff(repo.dir);
+
+		await executeMultiCommitAndPush(
+			repo.dir,
+			[
+				{
+					commit: {
+						type: "chore",
+						description: "remove deleted file",
+						isBreaking: false,
+					},
+					files: ["deleted.ts"],
+				},
+			],
+			diffHash,
+			NO_PUSH_SETTINGS,
+		);
+
+		assert.match(
+			execSync("git show --name-status --format= HEAD", {
+				cwd: repo.dir,
+				encoding: "utf-8",
+			}),
+			/^D\s+deleted\.ts$/mu,
+		);
+		repo.dispose();
+	});
+
+	test("leaves ignored-path staging failures as partial commit errors", async () => {
+		const repo = GitRepoFixture.create();
+		repo.commit("initial");
+		repo.writeAndStage(".gitignore", "ignored.ts\n");
+		repo.commit("ignore generated file");
+		fs.writeFileSync(path.join(repo.dir, "ignored.ts"), "ignored\n");
+		const { diffHash } = await extractDiff(repo.dir);
+
+		await assert.rejects(
+			executeMultiCommitAndPush(
+				repo.dir,
+				[
+					{
+						commit: {
+							type: "chore",
+							description: "stage ignored file",
+							isBreaking: false,
+						},
+						files: ["ignored.ts"],
+					},
+				],
+				diffHash,
+				NO_PUSH_SETTINGS,
+			),
+			PartialCommitError,
+		);
 		repo.dispose();
 	});
 });

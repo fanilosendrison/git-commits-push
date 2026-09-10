@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "2.1.0"
+version: "3.0.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -198,6 +198,9 @@ the cheap model can't produce valid Conventional Commits.
 - **Git** 2.17 or later and each package manager required by your target
   repositories (`bun`, `pnpm`, `yarn`, `npm`, or `pytest`) available on `PATH`
   so their tests can run.
+- **Linux or macOS** for automated Git execution. Windows and untested POSIX
+  platforms fail closed until an equivalent tested whole-tree containment
+  boundary is available.
 
 On macOS High Sierra (Darwin 17), the installed CLI resolves and validates the
 Apple toolchain Git through `xcrun` before any repository operation. This avoids
@@ -308,10 +311,20 @@ rescans the global set of repositories, and runs another pass when a newer
 generation was registered.
 
 There is no per-request order queue. The durable contract is that every wakeup
-causes reconciliation after the latest observed change, while only one live
-owner may launch Turnlock at a time. Ownership combines a random fencing token,
-the launcher PID, and its process-start identity so PID reuse and clock drift do
-not let a concurrent invocation steal a live owner.
+causes reconciliation after the latest observed change. SQLite distinguishes the
+launcher that owns reconciliation scheduling from the concrete execution tree
+that can mutate Git.
+
+Each pass has a separate execution token, controller PID, process-start identity,
+and POSIX process-group identity. The controller starts inert, reports `READY`
+over IPC, and cannot launch Turnlock until its identity is durably registered and
+`START_AUTHORIZED` is committed. All pipeline stages inherit that one process
+group.
+
+If a launcher dies, the next elected owner preserves the old execution record,
+terminates and proves that complete boundary dead, token-clears it, and only then
+performs a fresh global rescan. Launcher death, supervisor exit, and stale
+heartbeat age are never treated as proof that Git execution has ended.
 
 ---
 
@@ -382,32 +395,47 @@ while that version awaits publication. New requests use delegation manifest v3
 with the logical target `worker("git-commit-generator")`. The stable public link
 resolves through the atomically selected immutable application release. The
 compiled Node launcher registers a SQLite reconciliation generation before one
-owner starts the shell-free supervisor:
+owner starts the shell-free execution boundary:
 
 ```text
 ~/.local/bin/git-commits-push
   → current/bin/git-commits-push.mjs
   → compiled public launcher
-  → SQLite reconciler
-  → node-supervisor
-  → orchestrator + LLM bridge
+  → SQLite reconciler owner
+  → paused execution controller [durably registered SID/PGID leader]
+  → node-supervisor [inherits execution group]
+  → orchestrator + LLM bridge [inherit execution group]
 ```
 
 The installed launcher never builds at runtime. The source-only
 `scripts/start-node.mjs` entrypoint builds once for development and then invokes
 the same compiled public launcher. The launcher owns admission, lifecycle-wide
-signal cancellation, coalescing,
-recovery, and the pass loop. The orchestrator owns one pass's finite-state
-machine and persists Turnlock snapshots.
+signal cancellation, coalescing, recovery, and the pass loop. The execution
+controller owns parent-disconnect response and the externally fenceable process
+boundary. The orchestrator owns one pass's finite-state machine and persists
+Turnlock snapshots.
 The bridge writes v3 requests and authorizes only
 `worker("git-commit-generator")` before resolving that capability to direct LLM
 inference. During the bounded transition it can also read v2 manifests whose
 historical `worker` is exactly `git-commit-generator`, and v3 retry manifests
 whose only compatibility marker is `legacy-v2`. Other targets and markers fail
 closed before any job is read. The bridge then validates mode-specific
-responses, writes results, and resumes the orchestrator. The
-supervisor owns process isolation, cancellation of its descendant tree,
-backpressure, and protocol-safe stdout routing.
+responses, writes results, and resumes the orchestrator. The supervisor owns producer/consumer piping, direct-stage shutdown,
+backpressure, and protocol-safe stdout routing. Full-boundary termination and
+proof remain controller/launcher responsibilities.
+
+### Reconciler schema-v2 migration
+
+Schema v3 adds durable active-execution identity. A v2 database cannot prove that
+an old pipeline is absent, so production does not silently reinterpret it.
+After stopping all launchers and proving that no supervisor or descendant
+remains alive, migrate an idle, fully converged v2 singleton explicitly:
+
+```bash
+pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
+```
+
+Active, pending, malformed, uncheckpointed, or unconfirmed v2 state fails closed.
 
 ### Compatibility with older Turnlock runs
 

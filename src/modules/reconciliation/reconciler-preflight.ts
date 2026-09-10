@@ -7,10 +7,15 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { classifyExecutionBoundary } from "./execution-boundary-process.ts";
 import {
 	inspectLegacyQueueState,
 	LEGACY_LOCK_FILE_NAME,
 } from "./legacy-queue-state.ts";
+import {
+	isProcessAlive,
+	readProcessStartIdentity,
+} from "./process-identity.ts";
 import {
 	openReconcilerDb,
 	ReconcilerInvariantError,
@@ -26,6 +31,9 @@ export type ReconcilerPreflightBlockerKind =
 	| "pending-order"
 	| "unreadable-order-state"
 	| "active-reconciler"
+	| "stale-reconciler"
+	| "active-execution"
+	| "orphan-execution"
 	| "pending-reconciliation"
 	| "uncheckpointed-reconciler-db"
 	| "corrupt-reconciler-db"
@@ -176,13 +184,37 @@ export function inspectReconciliationPreflightState(
 		const db = openReconcilerDb(dbPath, { readOnly: true });
 		try {
 			const state = readReconcilerState(db);
-			if (state.ownerToken !== null && state.ownerPid !== null) {
+			let ownerIsExact = false;
+			if (
+				state.ownerToken !== null &&
+				state.ownerPid !== null &&
+				state.ownerProcessIdentity !== null
+			) {
+				const currentIdentity = isProcessAlive(state.ownerPid)
+					? readProcessStartIdentity(state.ownerPid)
+					: null;
+				ownerIsExact = currentIdentity === state.ownerProcessIdentity;
 				databaseBlockers.push({
-					detail: `reconciliation owner is active (pid ${state.ownerPid}, generation ${String(state.runningGeneration)})`,
-					kind: "active-reconciler",
+					detail: `reconciliation owner is ${ownerIsExact ? "live" : "stale or unverifiable"} (pid ${state.ownerPid}, generation ${String(state.runningGeneration)})`,
+					kind: ownerIsExact ? "active-reconciler" : "stale-reconciler",
 					subject: "reconciler.sqlite",
 				});
-			} else if (state.requestedGeneration > state.completedGeneration) {
+			}
+			if (state.activeExecution !== null) {
+				const liveness = classifyExecutionBoundary(state.activeExecution);
+				databaseBlockers.push({
+					detail: `durable Git execution is ${liveness} (pid ${state.activeExecution.pid}, generation ${state.activeExecution.generation})`,
+					kind:
+						ownerIsExact && liveness === "alive-exact"
+							? "active-execution"
+							: "orphan-execution",
+					subject: "reconciler.sqlite",
+				});
+			}
+			if (
+				state.ownerToken === null &&
+				state.requestedGeneration > state.completedGeneration
+			) {
 				databaseBlockers.push({
 					detail: `reconciliation is pending (requested ${state.requestedGeneration} > completed ${state.completedGeneration}) with no active owner`,
 					kind: "pending-reconciliation",
