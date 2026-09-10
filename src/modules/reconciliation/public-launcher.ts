@@ -285,7 +285,7 @@ export async function runPublicLauncher(
 			}
 		} catch (error) {
 			cancellation.abortForOwnershipFailure(
-				`reconciliation heartbeat failed: ${errorMessage(error)}`,
+				`reconciliation ownership was lost because heartbeat validation failed: ${errorMessage(error)}`,
 			);
 		}
 	}, HEARTBEAT_INTERVAL_MS);
