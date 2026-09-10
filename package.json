@@ -1,6 +1,6 @@
 {
 	"name": "git-commits-push",
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"description": "Turnlock-orchestrated CLI that discovers dirty repositories, validates them, commits, and pushes.",
 	"type": "module",
 	"private": true,
