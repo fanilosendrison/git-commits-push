@@ -1,17 +1,21 @@
+import { lstatSync } from "node:fs";
 import * as path from "node:path";
-import { gitExecArgs } from "./git-exec.ts";
+import { gitExecArgsRaw } from "./git-exec.ts";
 
 export interface CommitPlanFileState {
 	readonly nonexistentFiles: readonly string[];
 	readonly unchangedFiles: readonly string[];
 }
 
-function splitNullTerminated(output: string): string[] {
-	return output.split("\0").filter(Boolean);
-}
-
-function normalizeRepositoryPath(filePath: string): string {
-	return path.posix.normalize(filePath).replace(/^\.\//u, "");
+function pathExists(filePath: string): boolean {
+	try {
+		lstatSync(filePath);
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") return false;
+		throw error;
+	}
 }
 
 /** Classify planned paths through stable Git plumbing, never localized stderr. */
@@ -22,30 +26,31 @@ export function inspectCommitPlanFileState(
 	const nonexistentFiles: string[] = [];
 	const unchangedFiles: string[] = [];
 	for (const plannedFile of plannedFiles) {
-		const normalized = normalizeRepositoryPath(plannedFile);
-		const knownPaths = splitNullTerminated(
-			gitExecArgs(
-				[
-					"ls-files",
-					"--cached",
-					"--others",
-					"--exclude-standard",
-					"-z",
-					"--",
-					plannedFile,
-				],
-				repositoryPath,
-			),
-		).map(normalizeRepositoryPath);
-		if (!knownPaths.includes(normalized)) {
-			nonexistentFiles.push(plannedFile);
-			continue;
-		}
-		const status = gitExecArgs(
-			["status", "--porcelain=v1", "-z", "--", plannedFile],
+		const status = gitExecArgsRaw(
+			[
+				"--literal-pathspecs",
+				"status",
+				"--porcelain=v1",
+				"--ignored=matching",
+				"-z",
+				"--",
+				plannedFile,
+			],
 			repositoryPath,
 		);
-		if (status.length === 0) unchangedFiles.push(plannedFile);
+		// Changed and ignored paths both defer to staging; ignored paths retain
+		// their historical PartialCommitError classification.
+		if (status.length > 0) continue;
+		if (pathExists(path.resolve(repositoryPath, plannedFile))) {
+			unchangedFiles.push(plannedFile);
+			continue;
+		}
+		const trackedPath = gitExecArgsRaw(
+			["--literal-pathspecs", "ls-files", "--cached", "-z", "--", plannedFile],
+			repositoryPath,
+		);
+		if (trackedPath.length > 0) unchangedFiles.push(plannedFile);
+		else nonexistentFiles.push(plannedFile);
 	}
 	return { nonexistentFiles, unchangedFiles };
 }

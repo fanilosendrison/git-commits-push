@@ -14,7 +14,7 @@ import {
 } from "../core/errors.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
-import { gitExec } from "./git-exec.ts";
+import { gitExec, gitExecArgs } from "./git-exec.ts";
 import { executePush } from "./push.ts";
 
 /**
@@ -122,33 +122,10 @@ export async function executeMultiCommitAndPush(
 	try {
 		for (const [i, plan] of plans.entries()) {
 			const pendingFiles = collectPendingFiles(plans, i);
-			const fileState = inspectCommitPlanFileState(repoPath, plan.files);
-			if (fileState.nonexistentFiles.length > 0) {
-				throw new CommitPlanError(
-					`Plan ${i + 1}/${plans.length} references file(s) that do not exist on disk or in Git: ${fileState.nonexistentFiles.join(", ")}.`,
-					"nonexistent-file",
-					[...fileState.nonexistentFiles],
-					{
-						committedShas: [...committedShas],
-						pendingFiles,
-					},
-				);
-			}
-			if (fileState.unchangedFiles.length === plan.files.length) {
-				throw new CommitPlanError(
-					`Plan ${i + 1}/${plans.length} has no changes for file(s): ${fileState.unchangedFiles.join(", ")}.`,
-					"missing-file",
-					[...fileState.unchangedFiles],
-					{
-						committedShas: [...committedShas],
-						pendingFiles,
-					},
-				);
-			}
 			try {
 				// Stage the plan's files
-				gitExec(
-					`add -- ${plan.files.map((f) => JSON.stringify(f)).join(" ")}`,
+				gitExecArgs(
+					["--literal-pathspecs", "add", "--", ...plan.files],
 					repoPath,
 				);
 
@@ -160,8 +137,8 @@ export async function executeMultiCommitAndPush(
 				);
 				fs.writeFileSync(tempMsgPath, message, "utf-8");
 				try {
-					gitExec(
-						`commit --file=${JSON.stringify(tempMsgPath)} --no-verify`,
+					gitExecArgs(
+						["commit", "--file", tempMsgPath, "--no-verify"],
 						repoPath,
 					);
 				} finally {
@@ -190,7 +167,31 @@ export async function executeMultiCommitAndPush(
 					);
 				}
 
-				// Classify the commit failure
+				const fileState = inspectCommitPlanFileState(repoPath, plan.files);
+				if (fileState.nonexistentFiles.length > 0) {
+					throw new CommitPlanError(
+						`Plan ${i + 1}/${plans.length} references file(s) that do not exist on disk or in Git: ${fileState.nonexistentFiles.join(", ")}.`,
+						"nonexistent-file",
+						[...fileState.nonexistentFiles],
+						{
+							committedShas: [...committedShas],
+							pendingFiles,
+						},
+					);
+				}
+				if (fileState.unchangedFiles.length === plan.files.length) {
+					throw new CommitPlanError(
+						`Plan ${i + 1}/${plans.length} has no changes for file(s): ${fileState.unchangedFiles.join(", ")}.`,
+						"missing-file",
+						[...fileState.unchangedFiles],
+						{
+							committedShas: [...committedShas],
+							pendingFiles,
+						},
+					);
+				}
+
+				// Structural file-state failures are classified without localized stderr.
 				const commitErrMsg =
 					commitErr instanceof Error ? commitErr.message : String(commitErr);
 				const commitErrStdout =
@@ -203,7 +204,6 @@ export async function executeMultiCommitAndPush(
 						: "";
 				const msg = `${commitErrMsg}\n${commitErrStdout}\n${commitErrStderr}`;
 
-				// Structural file-state failures were classified before staging.
 				throw new PartialCommitError(
 					`Commit ${i + 1}/${plans.length} failed: ${msg}. ` +
 						`${committedShas.length} commit(s) already in history (from ${originalHead.slice(0, 7)}). ` +

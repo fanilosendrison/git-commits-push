@@ -76,11 +76,10 @@ export function gitExec(args: string, cwd: string): string {
 	}).trim();
 }
 
-/** Run Git without a shell when arguments contain discovered refs or remotes. */
-export function gitExecArgs(
+function executeGitArgs(
 	args: readonly string[],
 	cwd: string,
-	processConfig: readonly GitProcessConfigEntry[] = [],
+	processConfig: readonly GitProcessConfigEntry[],
 ): string {
 	return execFileSync("git", [...args], {
 		cwd,
@@ -88,5 +87,23 @@ export function gitExecArgs(
 		stdio: ["pipe", "pipe", "pipe"],
 		env: buildGitEnv(processConfig),
 		maxBuffer: 50 * 1024 * 1024,
-	}).trim();
+	});
+}
+
+/** Run Git without a shell and return stdout with surrounding whitespace removed. */
+export function gitExecArgs(
+	args: readonly string[],
+	cwd: string,
+	processConfig: readonly GitProcessConfigEntry[] = [],
+): string {
+	return executeGitArgs(args, cwd, processConfig).trim();
+}
+
+/** Run Git without a shell while preserving machine-readable stdout exactly. */
+export function gitExecArgsRaw(
+	args: readonly string[],
+	cwd: string,
+	processConfig: readonly GitProcessConfigEntry[] = [],
+): string {
+	return executeGitArgs(args, cwd, processConfig);
 }
