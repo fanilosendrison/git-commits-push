@@ -32,6 +32,22 @@ a security boundary against arbitrary code running as the same OS user.
 Harnesses consume a pinned packed artifact of the trust package; never duplicate
 its constants or validation rules in a harness repository.
 
+## Engineering work tracking
+
+- Apply the shared GitHub Engineering Projects operational protocol for generic
+  Issue and Project operations.
+- Use
+  [`docs/repository-governance/git-commits-push-engineering.md`](docs/repository-governance/git-commits-push-engineering.md)
+  for this repository's Project coordinates, fields, views, and workflow policy.
+- Resolve an unqualified `Issue #N` as
+  `fanilosendrison/git-commits-push#N`.
+- Track durable future work in git-commits-push Engineering and its associated
+  GitHub Issues.
+- Revalidate every Issue and finding against current authoritative repository
+  sources before implementation.
+- Never use a Project status transition or Issue closure as a substitute for
+  repository validation or installed-release verification.
+
 ## Runtime architecture
 
 The production path is:
