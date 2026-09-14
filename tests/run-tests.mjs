@@ -44,6 +44,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/git-publisher-multi-commit.test.ts",
 	"unit/historical-turnlock-state.test.ts",
 	"unit/legacy-queue-state.test.ts",
+	"unit/llm-invoker-deepseek-thinking.test.ts",
 	"unit/orchestrator-schema.test.ts",
 	"unit/post-commit-push-recovery.test.ts",
 	"unit/pre-commit-validators.test.ts",
