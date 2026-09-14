@@ -1,7 +1,7 @@
 {
 	"searchPaths": ["~/Developper"],
 	"provider": "deepseek",
-	"model": "deepseek-v4-flash",
+	"model": "deepseek-flash",
 	"temperature": 0.2,
 	"systemPromptPath": "../../system-prompt.md",
 	"autoPush": true,
