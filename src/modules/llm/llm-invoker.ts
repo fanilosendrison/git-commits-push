@@ -14,6 +14,30 @@ type OpenAICompatibleProvider =
 	| "together"
 	| "ollama";
 
+const DEEPSEEK_PROVIDER = "deepseek";
+
+/**
+ * DeepSeek enables thinking mode at high effort when the request omits the
+ * field, so an omitted `thinking: false` used to mean "provider default"
+ * instead of "disabled" and could stall a call for minutes. The provider
+ * option makes the disabled state explicit; `undefined` keeps the upstream
+ * default. Other providers must not receive this DeepSeek-only option.
+ */
+function buildDeepSeekProviderOptions(payload: {
+	readonly provider: string;
+	readonly thinking?: boolean;
+}): Record<string, unknown> | undefined {
+	if (
+		payload.provider !== DEEPSEEK_PROVIDER ||
+		payload.thinking === undefined
+	) {
+		return undefined;
+	}
+	return payload.thinking
+		? { thinking: { type: "enabled", reasoningEffort: "high" } }
+		: { thinking: { type: "disabled" } };
+}
+
 export interface LlmAdapterFactories {
 	readonly buildSimplePrompt: typeof buildSimplePrompt;
 	readonly createAnthropicAdapter: typeof createAnthropicAdapter;
@@ -53,6 +77,9 @@ export async function invokeLlm(
 		},
 	};
 
+	const deepSeekProviderOptions = buildDeepSeekProviderOptions(payload);
+	const isDeepSeek = payload.provider === DEEPSEEK_PROVIDER;
+
 	let adapter: ProviderAdapter;
 	if (payload.provider === "anthropic") {
 		adapter = adapterFactories.createAnthropicAdapter(commonConfig);
@@ -64,6 +91,9 @@ export async function invokeLlm(
 		adapter = adapterFactories.createOpenAICompatibleAdapter({
 			...commonConfig,
 			provider: payload.provider as OpenAICompatibleProvider,
+			...(deepSeekProviderOptions !== undefined
+				? { providerOptions: deepSeekProviderOptions }
+				: {}),
 		});
 	}
 
@@ -73,7 +103,10 @@ export async function invokeLlm(
 			user: payload.userPrompt,
 		}),
 		temperature: payload.temperature,
-		...(payload.thinking ? { thinking: true, reasoningEffort: "high" } : {}),
+		// Legacy portable field: kept for non-DeepSeek providers only.
+		...(!isDeepSeek && payload.thinking
+			? { thinking: true, reasoningEffort: "high" }
+			: {}),
 	});
 	return response.content;
 }
