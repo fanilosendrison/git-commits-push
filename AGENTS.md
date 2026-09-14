@@ -186,6 +186,21 @@ queue execution path. Telemetry failures must never block reconciliation.
 - `pnpm` is allowed during source installation only. The installed release must
   run with Node and Git when the source checkout and `pnpm` are unavailable.
 
+## Dependency patching
+
+- `patches/@fanilosendrison__llm-runtime@0.1.3.patch` is a transitional pnpm
+  patch that carries two upstream fixes: explicit DeepSeek thinking-mode control
+  through `providerOptions` and a per-attempt timeout that covers the response
+  body as well as the headers. It applies until
+  `@fanilosendrison/llm-runtime` 0.1.4 is published to the registry.
+- The patch payload is the exact compiled output of the upstream fix; do not
+  hand-edit it. Regenerate it from the llm-runtime build whenever the upstream
+  fix changes.
+- Adopting `>= 0.1.4` must bump the dependency, delete the patch and its
+  `pnpm-workspace.yaml` entry, and keep
+  `tests/node-build/deepseek-thinking-patch.node.mjs` green against the
+  published release in the same change.
+
 ## State and schema
 
 - Parse persisted Turnlock state through `src/config/state-schema.ts`.

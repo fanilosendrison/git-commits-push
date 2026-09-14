@@ -2,6 +2,11 @@
 
 Open items. Resolved items archived in `backlog.archive.md`.
 
+## 2026-09-14 DeepSeek provider incident
+
+- [ ] [major] `src/entrypoints/turnlock-to-llm-bridge.ts` (+ `src/modules/core/llm-job-failure-handler.ts`) — the bridge collapses every provider failure into the string `LLM Fatal Error: <message>`, so `classifyLLMFailure` cannot distinguish a transient provider failure (timeout, transient 5xx, truncated or malformed provider response) from a structural plan defect, and the configured fallback model is only attempted for validation failures. Observed 2026-09-14: a DeepSeek Flash backend stall reached the bridge as a parse error, the run failed after ~15 minutes, and `deepseek-v4-pro` was never attempted. A future fix must preserve the typed LLM failure kind across the bridge boundary (structured result, never message parsing) and define a bounded provider-failure fallback that keeps the existing repair budgets. (resilience / error-classification)
+- [ ] [minor] `patches/@fanilosendrison__llm-runtime@0.1.3.patch` — transitional patch carrying the DeepSeek thinking-mode control and the aggregate fetch/body timeout. Once `@fanilosendrison/llm-runtime` >= 0.1.4 is published, bump `package.json` to `^0.1.4`, delete the patch and the `pnpm-workspace.yaml` `patchedDependencies` entry, and keep `tests/node-build/deepseek-thinking-patch.node.mjs` green against the published release. (dependency-hygiene)
+
 ## 2026-09-02 push incident
 
 - [ ] [major] `src/modules/git/push.ts` — `classifyTransient()` (and `PERMANENT_PUSH_SIGNATURES`) does not recognize GitHub branch-protection rejections (`GH006`, `protected branch`, `protected branch hook declined`) as permanent. A direct push to a protected branch is therefore classified `kind=network` (transient), which triggers retries that can never succeed and ends in a misleading `LLM fatal error` report instead of a clear "changes must be made through a pull request" message. A future fix must: add the protected-branch signatures to the permanent set (or classify them as a distinct permanent kind) and surface the actual remote rejection in the report. (correctness / error-classification)
