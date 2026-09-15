@@ -5,6 +5,7 @@ import type {
 	CommitPlan,
 	GlobalState,
 } from "../types.ts";
+import { REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES } from "../types.ts";
 
 const commitMessageStateSchema = z.object({
 	type: z.string(),
@@ -109,6 +110,10 @@ const repoStateSchema = z
 		operation: z.enum(["commit-and-push", "push-only"]).optional(),
 		pushSnapshot: pushSnapshotSchema.optional(),
 		pushedShas: z.array(gitObjectIdSchema).optional(),
+		publishedSha: gitObjectIdSchema.optional(),
+		remoteTrackingRefSynchronization: z
+			.enum(REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES)
+			.optional(),
 		diffHash: z.string().optional(),
 		commits: z.array(commitPlanSchema).optional(),
 		error: z.string().optional(),
@@ -128,12 +133,30 @@ const repoStateSchema = z
 		fallbackAttempted: z.boolean().optional(),
 	})
 	.superRefine((repoState, context) => {
+		if (repoState.remoteTrackingRefSynchronization && !repoState.publishedSha) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				message:
+					"remote-tracking synchronization evidence requires a verified publication SHA",
+				path: ["remoteTrackingRefSynchronization"],
+			});
+		}
 		if (repoState.operation === "push-only") {
 			if (!repoState.pushSnapshot) {
 				context.addIssue({
 					code: z.ZodIssueCode.custom,
 					message: "push-only state requires a durable push snapshot",
 					path: ["pushSnapshot"],
+				});
+			} else if (
+				repoState.publishedSha !== undefined &&
+				repoState.publishedSha !== repoState.pushSnapshot.validatedHeadSha
+			) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					message:
+						"published SHA must match the checkpointed validated head for push-only evidence",
+					path: ["publishedSha"],
 				});
 			}
 			if (repoState.status === "SUCCESS") {

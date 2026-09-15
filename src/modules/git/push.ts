@@ -1,11 +1,16 @@
+import type { RemoteTrackingRefSynchronization } from "../../types.ts";
 import { PushError } from "../core/errors.ts";
 import { gitExecArgs } from "./git-exec.ts";
-import { resolveCurrentPushDestination } from "./push-destination.ts";
+import {
+	type LocalTrackingRefCandidate,
+	resolveCurrentPushDestination,
+} from "./push-destination.ts";
 import { sanitizePushDiagnostic } from "./push-diagnostic-sanitizer.ts";
 import {
 	type ResolvedPushEndpoint,
 	resolveSinglePushEndpoint,
 } from "./push-endpoint.ts";
+import { synchronizeVerifiedRemoteTrackingRef } from "./remote-tracking-ref.ts";
 
 const PERMANENT_PUSH_SIGNATURES: readonly string[] = [
 	"Permission denied",
@@ -162,8 +167,7 @@ function establishUpstreamTracking(
 	sourceBranch: string,
 	remote: string,
 	destinationRef: string,
-	sourceSha: string,
-): void {
+): LocalTrackingRefCandidate | null {
 	try {
 		gitExecArgs(
 			["config", `branch.${sourceBranch}.remote`, remote],
@@ -173,7 +177,7 @@ function establishUpstreamTracking(
 			["config", `branch.${sourceBranch}.merge`, destinationRef],
 			repository,
 		);
-		const upstreamRef = gitExecArgs(
+		const ref = gitExecArgs(
 			[
 				"for-each-ref",
 				"--format=%(upstream)",
@@ -182,22 +186,37 @@ function establishUpstreamTracking(
 			],
 			repository,
 		);
-		if (!upstreamRef.startsWith("refs/remotes/")) {
-			throw new Error("Git did not resolve a remote-tracking upstream ref.");
+		if (!ref.startsWith("refs/remotes/")) return null;
+		let expectedSha: string | null = null;
+		try {
+			expectedSha = gitExecArgs(["rev-parse", "--verify", ref], repository);
+		} catch {
+			// A first publication commonly creates this projection from no prior ref.
 		}
-		gitExecArgs(["update-ref", upstreamRef, sourceSha], repository);
-	} catch (error) {
-		const rawMessage = error instanceof Error ? error.message : String(error);
-		throw new PushError(
-			`Push succeeded but upstream tracking could not be established: ${sanitizePushDiagnostic(rawMessage)}`,
-			false,
-		);
+		return { ref, expectedSha };
+	} catch {
+		return null;
 	}
 }
 
+export interface PushExecutionResult {
+	readonly retryCount: number;
+	readonly publishedSha: string | null;
+	readonly remoteTrackingRefSynchronization: RemoteTrackingRefSynchronization | null;
+}
+
 /** Publish the exact current HEAD to one resolved endpoint with a remote lease. */
-export function executePush(repository: string, autoPush: boolean): number {
-	if (!autoPush) return 0;
+export function executePush(
+	repository: string,
+	autoPush: boolean,
+): PushExecutionResult {
+	if (!autoPush) {
+		return {
+			retryCount: 0,
+			publishedSha: null,
+			remoteTrackingRefSynchronization: null,
+		};
+	}
 
 	let destination: ReturnType<typeof resolveCurrentPushDestination>;
 	try {
@@ -209,7 +228,13 @@ export function executePush(repository: string, autoPush: boolean): number {
 			false,
 		);
 	}
-	if (!destination) return 0;
+	if (!destination) {
+		return {
+			retryCount: 0,
+			publishedSha: null,
+			remoteTrackingRefSynchronization: null,
+		};
+	}
 
 	let pushEndpoint: ResolvedPushEndpoint;
 	try {
@@ -277,14 +302,28 @@ export function executePush(repository: string, autoPush: boolean): number {
 		);
 	}
 
-	if (destination.establishUpstream) {
-		establishUpstreamTracking(
-			repository,
-			destination.sourceBranch,
-			destination.remote,
-			destination.destinationRef,
-			sourceSha,
-		);
-	}
-	return retryCount;
+	const trackingRefCandidate = destination.establishUpstream
+		? establishUpstreamTracking(
+				repository,
+				destination.sourceBranch,
+				destination.remote,
+				destination.destinationRef,
+			)
+		: destination.localTrackingRef;
+	const remoteTrackingRefSynchronization = trackingRefCandidate
+		? synchronizeVerifiedRemoteTrackingRef(
+				repository,
+				trackingRefCandidate,
+				destination.remote,
+				pushEndpoint.fingerprint,
+				sourceSha,
+			)
+		: destination.establishUpstream
+			? "failed"
+			: "not-applicable";
+	return {
+		retryCount,
+		publishedSha: sourceSha,
+		remoteTrackingRefSynchronization,
+	};
 }

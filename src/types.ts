@@ -28,6 +28,17 @@ export interface Settings {
 
 export type RepositoryOperation = "commit-and-push" | "push-only";
 
+export const REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES = [
+	"synchronized",
+	"already-current",
+	"not-applicable",
+	"concurrent-update-preserved",
+	"failed",
+] as const;
+
+export type RemoteTrackingRefSynchronization =
+	(typeof REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES)[number];
+
 export interface TrackedPushSnapshot {
 	sourceBranch: string;
 	validatedHeadSha: string;
@@ -199,6 +210,12 @@ export interface RepoState {
 	operation?: RepositoryOperation | undefined;
 	pushSnapshot?: TrackedPushSnapshot | undefined;
 	pushedShas?: string[] | undefined;
+	/** Exact source SHA observed at the frozen remote after publication. */
+	publishedSha?: string | undefined;
+	/** Outcome of the separate local remote-tracking projection step. */
+	remoteTrackingRefSynchronization?:
+		| RemoteTrackingRefSynchronization
+		| undefined;
 	diffHash?: string | undefined;
 	/**
 	 * Plural commits. Legacy singular `commit?: CommitMessage` is silently
@@ -246,6 +263,10 @@ export interface RepoReport {
 	error?: string | undefined;
 	committedShas: CommittedSha[];
 	pushedShas: string[];
+	publishedSha?: string | undefined;
+	remoteTrackingRefSynchronization?:
+		| RemoteTrackingRefSynchronization
+		| undefined;
 	attempts: Partial<Record<FeedbackError["kind"], number>>;
 	totalRetries: number;
 	loopDetected?: { kind: FeedbackError["kind"]; planHash: string } | undefined;

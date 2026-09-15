@@ -1,9 +1,15 @@
 import { gitExecArgs } from "./git-exec.ts";
 
+export interface LocalTrackingRefCandidate {
+	readonly ref: string;
+	readonly expectedSha: string | null;
+}
+
 export interface TrackedPushDestination {
 	readonly upstreamRef: string;
 	readonly remote: string;
 	readonly destinationRef: string;
+	readonly localTrackingRef: LocalTrackingRefCandidate | null;
 }
 
 export interface CurrentPushDestination {
@@ -11,6 +17,7 @@ export interface CurrentPushDestination {
 	readonly remote: string;
 	readonly destinationRef: string;
 	readonly establishUpstream: boolean;
+	readonly localTrackingRef: LocalTrackingRefCandidate | null;
 }
 
 type SupportedPushDefault = "current" | "simple" | "upstream";
@@ -57,6 +64,37 @@ function readBranchRemote(
 		["config", "--get", `branch.${sourceBranch}.remote`],
 		repository,
 	);
+}
+
+function resolveLocalTrackingRef(
+	repository: string,
+	sourceBranch: string,
+	upstreamRemote: string,
+	pushRemote: string,
+	upstreamDestinationRef: string,
+	pushDestinationRef: string,
+): LocalTrackingRefCandidate | null {
+	if (
+		pushRemote !== upstreamRemote ||
+		pushDestinationRef !== upstreamDestinationRef
+	) {
+		return null;
+	}
+	const ref = readOptionalGit(
+		[
+			"for-each-ref",
+			"--format=%(upstream)",
+			"--",
+			`refs/heads/${sourceBranch}`,
+		],
+		repository,
+	);
+	if (!ref?.startsWith("refs/remotes/")) return null;
+	const expectedSha = readOptionalGit(
+		["rev-parse", "--verify", ref],
+		repository,
+	);
+	return { ref, expectedSha };
 }
 
 function assertConfiguredRemote(
@@ -156,7 +194,19 @@ export function resolveTrackedPushDestination(
 		remote,
 		upstreamDestinationRef,
 	);
-	return { upstreamRef, remote, destinationRef };
+	return {
+		upstreamRef,
+		remote,
+		destinationRef,
+		localTrackingRef: resolveLocalTrackingRef(
+			repository,
+			sourceBranch,
+			upstreamRemote,
+			remote,
+			upstreamDestinationRef,
+			destinationRef,
+		),
+	};
 }
 
 /** Resolve the current branch for exact publication, including first push. */
@@ -179,6 +229,7 @@ export function resolveCurrentPushDestination(
 			remote: tracked.remote,
 			destinationRef: tracked.destinationRef,
 			establishUpstream: false,
+			localTrackingRef: tracked.localTrackingRef,
 		};
 	}
 	const preferredRemote =
@@ -193,5 +244,6 @@ export function resolveCurrentPushDestination(
 		remote,
 		destinationRef: `refs/heads/${sourceBranch}`,
 		establishUpstream: true,
+		localTrackingRef: null,
 	};
 }

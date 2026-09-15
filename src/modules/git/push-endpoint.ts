@@ -19,6 +19,17 @@ function splitNonemptyLines(value: string): string[] {
 		.filter(Boolean);
 }
 
+function fingerprintEndpoint(
+	url: string,
+	rewriteConfiguration: string,
+): string {
+	return createHash("sha256")
+		.update(url)
+		.update("\0")
+		.update(rewriteConfiguration)
+		.digest("hex");
+}
+
 function readUrlRewriteConfiguration(repoPath: string): string {
 	try {
 		return gitExecArgs(
@@ -40,6 +51,28 @@ function readUrlRewriteConfiguration(repoPath: string): string {
 			return "";
 		}
 		throw error;
+	}
+}
+
+/**
+ * Fingerprint one effective fetch URL without exposing it to callers.
+ * Any unreadable or ambiguous configuration returns null instead of throwing,
+ * because this result only decides whether a local projection is applicable.
+ */
+export function resolveSingleFetchEndpointFingerprint(
+	repoPath: string,
+	remote: string,
+): string | null {
+	try {
+		const fetchUrls = splitNonemptyLines(
+			gitExecArgs(["remote", "get-url", "--all", "--", remote], repoPath),
+		);
+		if (fetchUrls.length !== 1) return null;
+		const fetchUrl = fetchUrls[0];
+		if (!fetchUrl || /[=\0\r\n]/u.test(fetchUrl)) return null;
+		return fingerprintEndpoint(fetchUrl, readUrlRewriteConfiguration(repoPath));
+	} catch {
+		return null;
 	}
 }
 
@@ -68,11 +101,10 @@ export function resolveSinglePushEndpoint(
 			`Remote ${remote} uses a push URL that cannot be safely pinned in process-scoped Git configuration.`,
 		);
 	}
-	const fingerprint = createHash("sha256")
-		.update(pushUrl)
-		.update("\0")
-		.update(readUrlRewriteConfiguration(repoPath))
-		.digest("hex");
+	const fingerprint = fingerprintEndpoint(
+		pushUrl,
+		readUrlRewriteConfiguration(repoPath),
+	);
 	const endpointId = randomUUID();
 	const ephemeralRemote = `gcp-endpoint-${endpointId}`;
 	const endpointAlias = `gcp-pinned-${endpointId}://endpoint`;

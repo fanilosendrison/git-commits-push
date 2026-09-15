@@ -32,16 +32,17 @@ export async function handlePushOnlyCheckpointResult(
 				"Push-only publication was checkpointed but autoPush is now disabled.",
 			);
 		}
-		const pushedShas = await validateAndPushTrackedSnapshot(
-			{
-				id: options.repoId,
-				path: options.repoState.repository,
-				operation: "push-only",
-				pushSnapshot: snapshot,
-			},
-			snapshot,
-			options.settings,
-		);
+		const { pushedShas, publishedSha, remoteTrackingRefSynchronization } =
+			await validateAndPushTrackedSnapshot(
+				{
+					id: options.repoId,
+					path: options.repoState.repository,
+					operation: "push-only",
+					pushSnapshot: snapshot,
+				},
+				snapshot,
+				options.settings,
+			);
 		if (
 			pushedShas.length !== snapshot.outgoingShas.length ||
 			pushedShas.some((sha, index) => sha !== snapshot.outgoingShas[index])
@@ -56,6 +57,9 @@ export async function handlePushOnlyCheckpointResult(
 			operation: "push-only",
 			pushSnapshot: snapshot,
 			pushedShas,
+			publishedSha: publishedSha ?? undefined,
+			remoteTrackingRefSynchronization:
+				remoteTrackingRefSynchronization ?? undefined,
 		};
 		options.skillLog.logRepoOutcome({
 			runId: options.runId,

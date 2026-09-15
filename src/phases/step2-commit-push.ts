@@ -138,13 +138,18 @@ export async function runCommitAndPushPhase(
 		}
 
 		try {
-			const { committedShas, originalHead, pushRetryCount } =
-				await executeMultiCommitAndPush(
-					repoState.repository,
-					result.commits,
-					repoState.diffHash,
-					settings,
-				);
+			const {
+				committedShas,
+				originalHead,
+				pushRetryCount,
+				publishedSha,
+				remoteTrackingRefSynchronization,
+			} = await executeMultiCommitAndPush(
+				repoState.repository,
+				result.commits,
+				repoState.diffHash,
+				settings,
+			);
 			// Merge with anything that landed in prior retries.
 			repoState = {
 				...repoState,
@@ -153,6 +158,10 @@ export async function runCommitAndPushPhase(
 					committedShas,
 				),
 				originalHead: repoState.originalHead ?? originalHead,
+				publishedSha: publishedSha ?? repoState.publishedSha,
+				remoteTrackingRefSynchronization:
+					remoteTrackingRefSynchronization ??
+					repoState.remoteTrackingRefSynchronization,
 				attempts:
 					pushRetryCount > 0
 						? {

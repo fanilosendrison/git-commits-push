@@ -15,7 +15,7 @@ import {
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
 import { gitExec, gitExecArgs } from "./git-exec.ts";
-import { executePush } from "./push.ts";
+import { executePush, type PushExecutionResult } from "./push.ts";
 
 /**
  * Helper to normalize file paths for the duplicate file check.
@@ -57,6 +57,8 @@ export async function executeMultiCommitAndPush(
 	committedShas: CommittedSha[];
 	originalHead: string;
 	pushRetryCount: number;
+	publishedSha: string | null;
+	remoteTrackingRefSynchronization: PushExecutionResult["remoteTrackingRefSynchronization"];
 }> {
 	// 1. Empty-plans guard
 	if (plans.length === 0) {
@@ -238,8 +240,14 @@ export async function executeMultiCommitAndPush(
 
 	// 7. Push. Never send landed commits back through LLM planning on failure.
 	let pushRetryCount: number;
+	let publishedSha: string | null;
+	let remoteTrackingRefSynchronization: PushExecutionResult["remoteTrackingRefSynchronization"];
 	try {
-		pushRetryCount = executePush(repoPath, !!settings.autoPush);
+		({
+			retryCount: pushRetryCount,
+			publishedSha,
+			remoteTrackingRefSynchronization,
+		} = executePush(repoPath, !!settings.autoPush));
 	} catch (error) {
 		if (error instanceof PushError) {
 			throw new PostCommitPushError(error, {
@@ -251,5 +259,11 @@ export async function executeMultiCommitAndPush(
 		throw error;
 	}
 
-	return { committedShas, originalHead, pushRetryCount };
+	return {
+		committedShas,
+		originalHead,
+		pushRetryCount,
+		publishedSha,
+		remoteTrackingRefSynchronization,
+	};
 }

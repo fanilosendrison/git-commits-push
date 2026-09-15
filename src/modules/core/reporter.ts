@@ -10,6 +10,8 @@ export function buildReport(repos: Record<string, RepoState>): RepoReport[] {
 			error: r.error,
 			committedShas: r.committedShas ?? [],
 			pushedShas: r.pushedShas ?? [],
+			publishedSha: r.publishedSha,
+			remoteTrackingRefSynchronization: r.remoteTrackingRefSynchronization,
 			attempts,
 			totalRetries,
 			loopDetected: r.loopDetected
@@ -72,6 +74,36 @@ export function generateReport(repos: Record<string, RepoState>): string {
 			for (const cs of state.committedShas) {
 				lines.push(`   📦 ${cs.sha.slice(0, 7)}: ${cs.files.join(", ")}`);
 			}
+		}
+
+		if (state.publishedSha) {
+			lines.push(
+				`   🚀 Exact remote publication verified: ${state.publishedSha.slice(0, 7)}`,
+			);
+		}
+
+		switch (state.remoteTrackingRefSynchronization) {
+			case "synchronized":
+				lines.push("   🔄 Local remote-tracking ref synchronized.");
+				break;
+			case "already-current":
+				lines.push("   🔄 Local remote-tracking ref was already current.");
+				break;
+			case "not-applicable":
+				lines.push(
+					"   ℹ️ Local remote-tracking ref not changed: no unambiguous matching projection.",
+				);
+				break;
+			case "concurrent-update-preserved":
+				lines.push(
+					"   ⚠️ Local remote-tracking ref not changed: a concurrent update was preserved.",
+				);
+				break;
+			case "failed":
+				lines.push(
+					"   ⚠️ Remote publication succeeded, but local remote-tracking synchronization failed.",
+				);
+				break;
 		}
 
 		lines.push("");

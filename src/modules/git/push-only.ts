@@ -1,4 +1,5 @@
 import type {
+	RemoteTrackingRefSynchronization,
 	RepositoryInfo,
 	Settings,
 	TrackedPushSnapshot,
@@ -11,12 +12,16 @@ import {
 } from "../core/validators/pre-commit-validators.ts";
 import { gitExecArgs } from "./git-exec.ts";
 import { classifyTransient } from "./push.ts";
-import { resolveTrackedPushDestination } from "./push-destination.ts";
+import {
+	resolveTrackedPushDestination,
+	type TrackedPushDestination,
+} from "./push-destination.ts";
 import { sanitizePushDiagnostic } from "./push-diagnostic-sanitizer.ts";
 import {
 	type ResolvedPushEndpoint,
 	resolveSinglePushEndpoint,
 } from "./push-endpoint.ts";
+import { synchronizeVerifiedRemoteTrackingRef } from "./remote-tracking-ref.ts";
 
 function readOptionalGit(
 	args: readonly string[],
@@ -182,11 +187,49 @@ function readRemoteDestinationSha(
 	}
 }
 
+/**
+ * Resolve the ambiguous outcome of a failed exact push. A transport failure can
+ * occur after the destination already received the validated HEAD, so the
+ * destination is read back before the failure is accepted. This returns the
+ * observed destination SHA only when it proves the intended publication, and
+ * otherwise throws so an uncertain failure is never reported as success.
+ */
+export function resolveUncertainPushOnlyPublication(
+	pushEndpoint: Pick<ResolvedPushEndpoint, "readOptionalDestinationSha">,
+	snapshot: Pick<
+		TrackedPushSnapshot,
+		"destinationRef" | "destinationBaselineSha" | "validatedHeadSha"
+	>,
+	pushError: PushError,
+): string {
+	let observedSha: string | null = null;
+	try {
+		observedSha = pushEndpoint.readOptionalDestinationSha(
+			snapshot.destinationRef,
+		);
+	} catch {
+		observedSha = null;
+	}
+	if (observedSha === snapshot.validatedHeadSha) return observedSha;
+	if (observedSha !== null && observedSha !== snapshot.destinationBaselineSha) {
+		throw new PushError(
+			"Push destination changed while recovering an uncertain push-only publication; refusing automatic retry.",
+			false,
+		);
+	}
+	throw pushError;
+}
+
+interface RevalidatedTrackedPushSnapshot {
+	readonly state: "pending" | "already-pushed";
+	readonly destination: TrackedPushDestination;
+}
+
 function revalidateTrackedPushSnapshot(
 	repoPath: string,
 	snapshot: TrackedPushSnapshot,
 	pushEndpoint: ResolvedPushEndpoint,
-): "pending" | "already-pushed" {
+): RevalidatedTrackedPushSnapshot {
 	const currentBranch = gitExecArgs(
 		["symbolic-ref", "--quiet", "--short", "HEAD"],
 		repoPath,
@@ -225,7 +268,7 @@ function revalidateTrackedPushSnapshot(
 
 	const remoteDestinationSha = readRemoteDestinationSha(pushEndpoint, snapshot);
 	if (remoteDestinationSha === snapshot.validatedHeadSha) {
-		return "already-pushed";
+		return { state: "already-pushed", destination: currentDestination };
 	}
 	if (remoteDestinationSha !== snapshot.destinationBaselineSha) {
 		throw new PushError(
@@ -233,7 +276,13 @@ function revalidateTrackedPushSnapshot(
 			false,
 		);
 	}
-	return "pending";
+	return { state: "pending", destination: currentDestination };
+}
+
+export interface PushOnlyPublicationResult {
+	readonly pushedShas: string[];
+	readonly publishedSha: string | null;
+	readonly remoteTrackingRefSynchronization: RemoteTrackingRefSynchronization | null;
 }
 
 export async function validateAndPushTrackedSnapshot(
@@ -241,8 +290,14 @@ export async function validateAndPushTrackedSnapshot(
 	snapshot: TrackedPushSnapshot,
 	settings: Settings,
 	scanner?: SecretScanner,
-): Promise<string[]> {
-	if (!settings.autoPush) return [];
+): Promise<PushOnlyPublicationResult> {
+	if (!settings.autoPush) {
+		return {
+			pushedShas: [],
+			publishedSha: null,
+			remoteTrackingRefSynchronization: null,
+		};
+	}
 	if (!settings.skipTests) await runTestCascade(repository.path);
 
 	assertOutgoingShasMatchSnapshot(repository.path, snapshot);
@@ -266,13 +321,28 @@ export async function validateAndPushTrackedSnapshot(
 			false,
 		);
 	}
-	if (
-		revalidateTrackedPushSnapshot(repository.path, snapshot, pushEndpoint) ===
-		"already-pushed"
-	) {
-		return [...snapshot.outgoingShas];
+	const revalidated = revalidateTrackedPushSnapshot(
+		repository.path,
+		snapshot,
+		pushEndpoint,
+	);
+	if (revalidated.state === "already-pushed") {
+		const remoteTrackingRefSynchronization =
+			synchronizeVerifiedRemoteTrackingRef(
+				repository.path,
+				revalidated.destination.localTrackingRef,
+				snapshot.remote,
+				pushEndpoint.fingerprint,
+				snapshot.validatedHeadSha,
+			);
+		return {
+			pushedShas: [...snapshot.outgoingShas],
+			publishedSha: snapshot.validatedHeadSha,
+			remoteTrackingRefSynchronization,
+		};
 	}
 
+	let pushError: PushError | null = null;
 	try {
 		pushEndpoint.pushExact(
 			snapshot.validatedHeadSha,
@@ -281,21 +351,31 @@ export async function validateAndPushTrackedSnapshot(
 		);
 	} catch (error) {
 		const rawMessage = error instanceof Error ? error.message : String(error);
-		const message = sanitizePushDiagnostic(rawMessage);
-		throw new PushError(
-			`Push-only publication failed: ${message}`,
+		pushError = new PushError(
+			`Push-only publication failed: ${sanitizePushDiagnostic(rawMessage)}`,
 			classifyTransient(rawMessage),
 		);
 	}
 
-	if (
-		readRemoteDestinationSha(pushEndpoint, snapshot) !==
-		snapshot.validatedHeadSha
-	) {
+	const observedDestinationSha = pushError
+		? resolveUncertainPushOnlyPublication(pushEndpoint, snapshot, pushError)
+		: readRemoteDestinationSha(pushEndpoint, snapshot);
+	if (observedDestinationSha !== snapshot.validatedHeadSha) {
 		throw new PushError(
 			"Push completed without updating the destination to the validated HEAD.",
 			false,
 		);
 	}
-	return [...snapshot.outgoingShas];
+	const remoteTrackingRefSynchronization = synchronizeVerifiedRemoteTrackingRef(
+		repository.path,
+		revalidated.destination.localTrackingRef,
+		snapshot.remote,
+		pushEndpoint.fingerprint,
+		snapshot.validatedHeadSha,
+	);
+	return {
+		pushedShas: [...snapshot.outgoingShas],
+		publishedSha: snapshot.validatedHeadSha,
+		remoteTrackingRefSynchronization,
+	};
 }
