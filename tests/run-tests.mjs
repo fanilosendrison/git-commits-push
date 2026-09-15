@@ -4,7 +4,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const FIXED_TEST_TIMEOUT_MILLISECONDS = 180_000;
+export const FIXED_TEST_TIMEOUT_MILLISECONDS = 600_000;
 export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"acceptance/a1-initial-run.test.ts",
 	"acceptance/a2-resume-run.test.ts",

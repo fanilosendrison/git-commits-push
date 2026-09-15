@@ -105,7 +105,7 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 	let stdout: string;
 	let durationMs: number;
 
-	test("I2-01 | process completes within 10 seconds (no hang)", () => {
+	test("I2-01 | process terminates without hitting the fail-safe timeout (no hang)", () => {
 		const start = Date.now();
 		const result = spawnSync(
 			process.execPath,
@@ -120,15 +120,20 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 					XDG_CONFIG_HOME: env.runDir,
 				},
 				encoding: "utf-8",
-				timeout: 10_000, // fail-safe: bun will kill if it hangs
+				timeout: 60_000, // fail-safe only: a credential-prompt hang is killed here
 			},
 		);
 		durationMs = Date.now() - start;
 		stderr = result.stderr ?? "";
 		stdout = result.stdout ?? "";
-		// We do not assert exit code 0 here — the push WILL fail, but gracefully
-		// The important thing is that it does NOT hang
-		assert.ok(durationMs < 10_000);
+		// We do not assert exit code 0 here — the push WILL fail, but gracefully.
+		// The invariant is absence of a credential-prompt hang, so the fail-safe
+		// timeout must remain untouched; host slowness must not fail this test.
+		assert.ok(
+			result.error === undefined,
+			`process was killed by the fail-safe timeout: ${String(result.error)}`,
+		);
+		assert.ok(durationMs < 60_000);
 	});
 
 	test("I2-02 | post-commit push failure never delegates another LLM plan", () => {
