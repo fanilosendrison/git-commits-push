@@ -9,7 +9,12 @@ import {
 	executePush,
 	publishWithFrozenEndpoint,
 } from "../../src/modules/git/push.ts";
-import type { ResolvedPushEndpoint } from "../../src/modules/git/push-endpoint.ts";
+import { resolveCurrentPushDestination } from "../../src/modules/git/push-destination.ts";
+import {
+	type ResolvedPushEndpoint,
+	resolveSinglePushEndpoint,
+} from "../../src/modules/git/push-endpoint.ts";
+import { synchronizeVerifiedRemoteTrackingRef } from "../../src/modules/git/remote-tracking-ref.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 
 interface PushPublicationFixture {
@@ -156,14 +161,178 @@ describe("normal push publication", () => {
 		const fixture = createPushPublicationFixture();
 		const expectedHead = addCommit(fixture);
 
-		executePush(fixture.repository.dir, true);
+		const publication = executePush(fixture.repository.dir, true);
 
+		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"not-applicable",
+		);
 		assert.strictEqual(
 			git(fixture.pushRemotePath, ["rev-parse", fixture.branch]),
 			expectedHead,
 		);
 		assert.strictEqual(
 			git(fixture.fetchRemotePath, ["rev-parse", fixture.branch]),
+			fixture.baselineSha,
+		);
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
+			fixture.baselineSha,
+		);
+	});
+
+	test("synchronizes the tracking ref when fetch and push endpoints match", () => {
+		const fixture = createPushPublicationFixture();
+		git(fixture.repository.dir, [
+			"remote",
+			"set-url",
+			"origin",
+			fixture.pushRemotePath,
+		]);
+		const expectedHead = addCommit(fixture);
+
+		const publication = executePush(fixture.repository.dir, true);
+
+		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"synchronized",
+		);
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
+			expectedHead,
+		);
+		assert.strictEqual(
+			git(fixture.repository.dir, [
+				"rev-list",
+				"--left-right",
+				"--count",
+				"@{upstream}...HEAD",
+			]),
+			"0\t0",
+		);
+	});
+
+	test("does not overwrite a concurrent local tracking-ref change", () => {
+		const fixture = createPushPublicationFixture();
+		git(fixture.repository.dir, [
+			"remote",
+			"set-url",
+			"origin",
+			fixture.pushRemotePath,
+		]);
+		const destination = resolveCurrentPushDestination(fixture.repository.dir);
+		assert.ok(destination?.localTrackingRef);
+		const concurrentSha = addCommit(fixture);
+		git(fixture.repository.dir, [
+			"update-ref",
+			destination.localTrackingRef.ref,
+			concurrentSha,
+		]);
+
+		synchronizeVerifiedRemoteTrackingRef(
+			fixture.repository.dir,
+			destination.localTrackingRef,
+			destination.remote,
+			resolveSinglePushEndpoint(fixture.repository.dir, destination.remote)
+				.fingerprint,
+			fixture.baselineSha,
+		);
+
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
+			concurrentSha,
+		);
+	});
+
+	test("reports not-applicable instead of failing when local config is unreadable", () => {
+		const fixture = createPushPublicationFixture();
+		git(fixture.repository.dir, [
+			"remote",
+			"set-url",
+			"origin",
+			fixture.pushRemotePath,
+		]);
+		const destination = resolveCurrentPushDestination(fixture.repository.dir);
+		assert.ok(destination?.localTrackingRef);
+		const pushEndpointFingerprint = resolveSinglePushEndpoint(
+			fixture.repository.dir,
+			destination.remote,
+		).fingerprint;
+		const expectedHead = addCommit(fixture);
+		fs.appendFileSync(
+			path.join(fixture.repository.dir, ".git", "config"),
+			"\n[broken\n",
+		);
+
+		const synchronization = synchronizeVerifiedRemoteTrackingRef(
+			fixture.repository.dir,
+			destination.localTrackingRef,
+			destination.remote,
+			pushEndpointFingerprint,
+			expectedHead,
+		);
+
+		assert.strictEqual(synchronization, "not-applicable");
+	});
+
+	test("preserves a ref created concurrently from an absent baseline", () => {
+		const fixture = createPushPublicationFixture();
+		git(fixture.repository.dir, [
+			"remote",
+			"set-url",
+			"origin",
+			fixture.pushRemotePath,
+		]);
+		const ref = `refs/remotes/origin/${fixture.branch}`;
+		git(fixture.repository.dir, ["update-ref", "-d", ref]);
+		const candidate = { ref, expectedSha: null };
+		const concurrentSha = addCommit(fixture);
+		git(fixture.repository.dir, ["update-ref", ref, concurrentSha]);
+
+		const synchronization = synchronizeVerifiedRemoteTrackingRef(
+			fixture.repository.dir,
+			candidate,
+			"origin",
+			resolveSinglePushEndpoint(fixture.repository.dir, "origin").fingerprint,
+			fixture.baselineSha,
+		);
+
+		assert.strictEqual(synchronization, "concurrent-update-preserved");
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", ref]),
+			concurrentSha,
+		);
+	});
+
+	test("keeps verified publication successful when local synchronization fails", () => {
+		const fixture = createPushPublicationFixture();
+		git(fixture.repository.dir, [
+			"remote",
+			"set-url",
+			"origin",
+			fixture.pushRemotePath,
+		]);
+		const destination = resolveCurrentPushDestination(fixture.repository.dir);
+		assert.ok(destination?.localTrackingRef);
+		const expectedHead = addCommit(fixture);
+		const lockPath = path.join(
+			fixture.repository.dir,
+			".git",
+			`${destination.localTrackingRef.ref}.lock`,
+		);
+		fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+		fs.writeFileSync(lockPath, "held\n");
+
+		const publication = executePush(fixture.repository.dir, true);
+
+		assert.strictEqual(publication.publishedSha, expectedHead);
+		assert.strictEqual(publication.remoteTrackingRefSynchronization, "failed");
+		assert.strictEqual(
+			git(fixture.pushRemotePath, ["rev-parse", fixture.branch]),
+			expectedHead,
+		);
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
 			fixture.baselineSha,
 		);
 	});
@@ -235,7 +404,7 @@ describe("normal push publication", () => {
 		fs.chmodSync(hookPath, 0o755);
 		const expectedHead = addCommit(fixture);
 
-		const retryCount = executePush(fixture.repository.dir, true);
+		const { retryCount } = executePush(fixture.repository.dir, true);
 
 		assert.strictEqual(retryCount, 1);
 		assert.strictEqual(

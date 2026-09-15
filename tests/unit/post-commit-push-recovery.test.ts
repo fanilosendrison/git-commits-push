@@ -128,7 +128,7 @@ describe("post-commit push recovery", () => {
 		const snapshot = captureTrackedPushSnapshot(fixture.repository.dir);
 		assert.ok(snapshot);
 		if (!snapshot) return;
-		const pushedShas = await validateAndPushTrackedSnapshot(
+		const { pushedShas } = await validateAndPushTrackedSnapshot(
 			{
 				id: "repository",
 				path: fixture.repository.dir,

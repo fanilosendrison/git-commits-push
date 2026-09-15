@@ -260,7 +260,8 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 		assert.equal(nonProtocolBytes(pipeline.stdout), "");
 		assert.doesNotMatch(pipeline.stdout, /action: ERROR/);
 		assert.match(pipeline.stderr, /Retry delegation detected/);
-		assert.match(pipeline.stderr, /=== TURNLOCK EXECUTION REPORT ===/);
+		assert.match(pipeline.stderr, /Exact remote publication verified:/u);
+		assert.match(pipeline.stderr, /Local remote-tracking ref synchronized/u);
 		for (const secret of [SYNTHETIC_API_KEY]) {
 			assert.equal(pipeline.stdout.includes(secret), false);
 			assert.equal(pipeline.stderr.includes(secret), false);
@@ -286,6 +287,10 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 				["rev-parse", `refs/heads/${branchName}`],
 				environment,
 			),
+		);
+		assert.equal(
+			runGit(repositoryPath, ["rev-parse", "@{upstream}"], environment),
+			runGit(repositoryPath, ["rev-parse", "HEAD"], environment),
 		);
 
 		const runsDirectory = path.join(turnlockRunRoot, "git-commits-push-tl");

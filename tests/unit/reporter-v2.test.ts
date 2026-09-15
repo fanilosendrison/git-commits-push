@@ -104,10 +104,17 @@ describe("buildReport", () => {
 				status: "SUCCESS",
 				operation: "push-only",
 				pushedShas: ["first-sha", "second-sha"],
+				publishedSha: "second-sha",
+				remoteTrackingRefSynchronization: "synchronized",
 			},
 		});
 
 		assert.deepStrictEqual(result[0]?.pushedShas, ["first-sha", "second-sha"]);
+		assert.strictEqual(result[0]?.publishedSha, "second-sha");
+		assert.strictEqual(
+			result[0]?.remoteTrackingRefSynchronization,
+			"synchronized",
+		);
 		assert.deepStrictEqual(result[0]?.committedShas, []);
 	});
 });
@@ -175,6 +182,23 @@ describe("generateReport — new fields", () => {
 		const report = generateReport(repos);
 		assert.ok(report.includes("abcdef1")); // sha.slice(0, 7)
 		assert.ok(report.includes("src/a.ts"));
+	});
+
+	test("renders the exact postflight-verified publication SHA", () => {
+		const report = generateReport({
+			"repo-1": {
+				repository: "/path",
+				status: "SUCCESS",
+				publishedSha: "abcdef1234567890",
+				remoteTrackingRefSynchronization: "failed",
+			},
+		});
+
+		assert.match(report, /Exact remote publication verified: abcdef1/u);
+		assert.match(
+			report,
+			/Remote publication succeeded, but local remote-tracking synchronization failed/u,
+		);
 	});
 
 	test("push-only success renders its existing-commit publication count", () => {

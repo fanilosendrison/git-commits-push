@@ -239,7 +239,7 @@ describe("push-only endpoint consistency", () => {
 		assert.ok(snapshot);
 		assert.match(snapshot.pushUrlFingerprint, /^[a-f0-9]{64}$/u);
 
-		await validateAndPushTrackedSnapshot(
+		const publication = await validateAndPushTrackedSnapshot(
 			{ id: "repo", path: fixture.repository.dir },
 			snapshot,
 			SETTINGS,
@@ -247,11 +247,19 @@ describe("push-only endpoint consistency", () => {
 		);
 
 		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"not-applicable",
+		);
+		assert.strictEqual(
 			git(fixture.pushRemotePath, ["rev-parse", fixture.branch]),
 			expectedHead,
 		);
 		assert.strictEqual(
 			git(fixture.fetchRemotePath, ["rev-parse", fixture.branch]),
+			fixture.baselineSha,
+		);
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
 			fixture.baselineSha,
 		);
 	});
@@ -335,9 +343,17 @@ describe("push-only endpoint consistency", () => {
 		]);
 		const expectedHead = git(repository.dir, ["rev-parse", "HEAD"]);
 
-		executePush(repository.dir, true);
+		const publication = executePush(repository.dir, true);
 
+		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"synchronized",
+		);
 		assert.strictEqual(git(remotePath, ["rev-parse", branch]), expectedHead);
+		assert.strictEqual(
+			git(repository.dir, ["rev-parse", "@{upstream}"]),
+			expectedHead,
+		);
 	});
 
 	test("rejects a tracked remote with multiple effective push URLs", () => {

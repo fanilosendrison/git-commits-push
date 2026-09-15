@@ -4,8 +4,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, test } from "node:test";
+import { PushError } from "../../src/modules/core/errors.ts";
 import {
 	captureTrackedPushSnapshot,
+	resolveUncertainPushOnlyPublication,
 	validateAndPushTrackedSnapshot,
 } from "../../src/modules/git/push-only.ts";
 import { handlePushOnlyCheckpointResult } from "../../src/modules/git/push-only-checkpoint.ts";
@@ -221,11 +223,15 @@ describe("tracked push-only publication", () => {
 		};
 		const repository = { id: "repo", path: fixture.repository.dir };
 
-		await validateAndPushTrackedSnapshot(
+		const publication = await validateAndPushTrackedSnapshot(
 			repository,
 			snapshot,
 			SETTINGS,
 			scanner,
+		);
+		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"synchronized",
 		);
 		assert.match(scannedDiff, /firstMarker/u);
 		assert.match(scannedDiff, /secondMarker/u);
@@ -233,11 +239,28 @@ describe("tracked push-only publication", () => {
 			git(fixture.remotePath, ["rev-parse", fixture.branch]),
 			expectedHead,
 		);
-		await validateAndPushTrackedSnapshot(
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
+			expectedHead,
+		);
+		git(fixture.repository.dir, [
+			"update-ref",
+			`refs/remotes/origin/${fixture.branch}`,
+			fixture.baselineSha,
+		]);
+		const recovery = await validateAndPushTrackedSnapshot(
 			repository,
 			snapshot,
 			SETTINGS,
 			scanner,
+		);
+		assert.strictEqual(
+			recovery.remoteTrackingRefSynchronization,
+			"synchronized",
+		);
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
+			expectedHead,
 		);
 	});
 
@@ -364,6 +387,164 @@ describe("tracked push-only publication", () => {
 		assert.strictEqual(
 			git(fixture.remotePath, ["rev-parse", fixture.branch]),
 			fixture.baselineSha,
+		);
+	});
+
+	test("recognizes an uncertain push that already reached the validated HEAD", async () => {
+		const fixture = createTrackedFixture();
+		const expectedHead = addCommit(
+			fixture.repository,
+			"uncertain.ts",
+			"export const uncertain = true;\n",
+		);
+		const snapshot = captureTrackedPushSnapshot(fixture.repository.dir);
+		assert.ok(snapshot);
+		// Make the exact object durable in the destination store before removing the
+		// temporary ref. A rejected push discards its quarantine, and a ref left
+		// pointing at a discarded object is not advertised asynchronously by older
+		// supported Git versions.
+		git(fixture.repository.dir, [
+			"push",
+			fixture.remotePath,
+			`${expectedHead}:refs/tmp/uncertain-publication`,
+		]);
+		git(fixture.repository.dir, [
+			"push",
+			fixture.remotePath,
+			"--delete",
+			"refs/tmp/uncertain-publication",
+		]);
+		const hookPath = path.join(fixture.remotePath, "hooks", "pre-receive");
+		// Simulates a server that durably accepted the ref update and then failed
+		// during the exchange: the push reports an error while the destination
+		// already carries the validated HEAD. Git forbids `update-ref` inside the
+		// quarantine environment, so the destination ref is written directly.
+		// The absolute remote path keeps this independent of the hook working
+		// directory, which older supported Git versions do not normalize.
+		const remoteRoot = fixture.remotePath.replaceAll("'", "'\\''");
+		fs.writeFileSync(
+			hookPath,
+			[
+				"#!/bin/sh",
+				"while read -r _old new ref; do",
+				`  printf "%s\\n" "$new" > '${remoteRoot}/'"$ref" || exit 1`,
+				"done",
+				"exit 1",
+				"",
+			].join("\n"),
+		);
+		fs.chmodSync(hookPath, 0o755);
+
+		const publication = await validateAndPushTrackedSnapshot(
+			{ id: "repo", path: fixture.repository.dir },
+			snapshot,
+			SETTINGS,
+			passingScanner,
+		);
+
+		assert.strictEqual(publication.publishedSha, expectedHead);
+		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"synchronized",
+		);
+		assert.strictEqual(
+			git(fixture.remotePath, ["rev-parse", fixture.branch]),
+			expectedHead,
+		);
+		assert.strictEqual(
+			git(fixture.repository.dir, ["rev-parse", "@{upstream}"]),
+			expectedHead,
+		);
+	});
+
+	test("keeps a genuinely failed push as a failure", async () => {
+		const fixture = createTrackedFixture();
+		addCommit(
+			fixture.repository,
+			"rejected.ts",
+			"export const rejected = true;\n",
+		);
+		const snapshot = captureTrackedPushSnapshot(fixture.repository.dir);
+		assert.ok(snapshot);
+		const hookPath = path.join(fixture.remotePath, "hooks", "pre-receive");
+		fs.writeFileSync(hookPath, "#!/bin/sh\nexit 1\n");
+		fs.chmodSync(hookPath, 0o755);
+
+		await assert.rejects(
+			validateAndPushTrackedSnapshot(
+				{ id: "repo", path: fixture.repository.dir },
+				snapshot,
+				SETTINGS,
+				passingScanner,
+			),
+			/Push-only publication failed/u,
+		);
+		assert.strictEqual(
+			git(fixture.remotePath, ["rev-parse", fixture.branch]),
+			fixture.baselineSha,
+		);
+	});
+});
+
+describe("uncertain push-only publication recovery", () => {
+	const snapshot = {
+		destinationRef: "refs/heads/master",
+		destinationBaselineSha: "a".repeat(40),
+		validatedHeadSha: "b".repeat(40),
+	};
+	const endpointReading = (read: () => string | null) => ({
+		readOptionalDestinationSha: () => read(),
+	});
+
+	test("confirms publication when the destination already carries the validated HEAD", () => {
+		const observed = resolveUncertainPushOnlyPublication(
+			endpointReading(() => snapshot.validatedHeadSha),
+			snapshot,
+			new PushError("transport failed", true),
+		);
+
+		assert.strictEqual(observed, snapshot.validatedHeadSha);
+	});
+
+	test("keeps the original failure when the destination is unchanged", () => {
+		const failure = new PushError("transport failed", true);
+
+		assert.throws(
+			() =>
+				resolveUncertainPushOnlyPublication(
+					endpointReading(() => snapshot.destinationBaselineSha),
+					snapshot,
+					failure,
+				),
+			(error: unknown) => error === failure,
+		);
+	});
+
+	test("keeps the original failure when the destination cannot be read", () => {
+		const failure = new PushError("transport failed", true);
+
+		assert.throws(
+			() =>
+				resolveUncertainPushOnlyPublication(
+					endpointReading(() => {
+						throw new Error("network down");
+					}),
+					snapshot,
+					failure,
+				),
+			(error: unknown) => error === failure,
+		);
+	});
+
+	test("refuses to retry when the destination moved elsewhere", () => {
+		assert.throws(
+			() =>
+				resolveUncertainPushOnlyPublication(
+					endpointReading(() => "c".repeat(40)),
+					snapshot,
+					new PushError("transport failed", true),
+				),
+			/refusing automatic retry/u,
 		);
 	});
 });

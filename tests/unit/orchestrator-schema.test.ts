@@ -33,6 +33,8 @@ describe("production state schema", () => {
 						pushUrlFingerprint: "a".repeat(64),
 					},
 					pushedShas: ["d".repeat(40), "c".repeat(40)],
+					publishedSha: "c".repeat(40),
+					remoteTrackingRefSynchronization: "synchronized",
 				},
 			},
 		} as const;
@@ -42,6 +44,49 @@ describe("production state schema", () => {
 		if (!result.success) return;
 		assert.deepStrictEqual(result.data, input);
 		assert.ok(!JSON.stringify(result.data).includes("https://"));
+	});
+
+	test("rejects tracking-ref synchronization evidence without publication", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "SUCCESS",
+			remoteTrackingRefSynchronization: "synchronized",
+		});
+
+		assert.strictEqual(result.success, false);
+	});
+
+	test("rejects an unknown tracking-ref synchronization outcome", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "SUCCESS",
+			publishedSha: "c".repeat(40),
+			remoteTrackingRefSynchronization: "invented",
+		});
+
+		assert.strictEqual(result.success, false);
+	});
+
+	test("rejects a published SHA that differs from the checkpointed head", () => {
+		const result = parseStateWithRepo({
+			repository: "/path/to/repo",
+			status: "SUCCESS",
+			operation: "push-only",
+			pushSnapshot: {
+				sourceBranch: "main",
+				validatedHeadSha: "c".repeat(40),
+				upstreamRef: "origin/main",
+				remote: "origin",
+				destinationRef: "refs/heads/main",
+				destinationBaselineSha: "b".repeat(40),
+				outgoingShas: ["c".repeat(40)],
+				pushUrlFingerprint: "a".repeat(64),
+			},
+			pushedShas: ["c".repeat(40)],
+			publishedSha: "d".repeat(40),
+		});
+
+		assert.strictEqual(result.success, false);
 	});
 
 	test("rejects a push snapshot without its endpoint fingerprint", () => {

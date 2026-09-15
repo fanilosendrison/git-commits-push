@@ -22,6 +22,43 @@ afterEach(() => {
 });
 
 describe("push destination resolution", () => {
+	test("does not create a fetch projection for a distinct first-push endpoint", () => {
+		const remoteRoot = fs.mkdtempSync(
+			path.join(os.tmpdir(), "push-first-distinct-endpoint-"),
+		);
+		const fetchPath = path.join(remoteRoot, "fetch.git");
+		const pushPath = path.join(remoteRoot, "push.git");
+		initializeBareRemote(fetchPath);
+		initializeBareRemote(pushPath);
+		const repository = GitRepoFixture.create();
+		cleanup.push(() => {
+			repository.dispose();
+			fs.rmSync(remoteRoot, { recursive: true, force: true });
+		});
+		repository.commit("baseline");
+		repository.setRemote("origin", fetchPath);
+		git(repository.dir, ["remote", "set-url", "--push", "origin", pushPath]);
+		const branch = git(repository.dir, [
+			"symbolic-ref",
+			"--quiet",
+			"--short",
+			"HEAD",
+		]);
+		const expectedHead = git(repository.dir, ["rev-parse", "HEAD"]);
+
+		const publication = executePush(repository.dir, true);
+
+		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"not-applicable",
+		);
+		assert.strictEqual(git(pushPath, ["rev-parse", branch]), expectedHead);
+		assert.throws(() => git(fetchPath, ["rev-parse", branch]));
+		assert.throws(() =>
+			git(repository.dir, ["rev-parse", "--verify", "@{upstream}"]),
+		);
+	});
+
 	test("pushes the current branch name in a triangular workflow", () => {
 		const remoteRoot = fs.mkdtempSync(
 			path.join(os.tmpdir(), "push-triangular-"),
@@ -56,8 +93,12 @@ describe("push destination resolution", () => {
 		repository.commit("add triangular change");
 		const expectedHead = git(repository.dir, ["rev-parse", "HEAD"]);
 
-		executePush(repository.dir, true);
+		const publication = executePush(repository.dir, true);
 
+		assert.strictEqual(
+			publication.remoteTrackingRefSynchronization,
+			"not-applicable",
+		);
 		assert.strictEqual(
 			git(publishPath, ["rev-parse", "refs/heads/topic"]),
 			expectedHead,
@@ -68,6 +109,10 @@ describe("push destination resolution", () => {
 		);
 		assert.strictEqual(
 			git(originPath, ["rev-parse", "refs/heads/main"]),
+			baselineSha,
+		);
+		assert.strictEqual(
+			git(repository.dir, ["rev-parse", "@{upstream}"]),
 			baselineSha,
 		);
 	});

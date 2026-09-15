@@ -106,8 +106,23 @@ describe("A6 — clean tracked push-only recovery", () => {
 		);
 		const remoteHead = runGit(remotePath, ["rev-parse", branch]);
 		assert.strictEqual(remoteHead, expectedHead);
+		assert.strictEqual(
+			runGit(repository.dir, ["rev-parse", "@{upstream}"]),
+			expectedHead,
+		);
 		assert.ok(
 			String(execution.stderr).includes("=== TURNLOCK EXECUTION REPORT ==="),
+		);
+		assert.match(
+			String(execution.stderr),
+			new RegExp(
+				`Exact remote publication verified: ${expectedHead.slice(0, 7)}`,
+				"u",
+			),
+		);
+		assert.match(
+			String(execution.stderr),
+			/Local remote-tracking ref synchronized/u,
 		);
 		assert.ok(!String(execution.stdout).includes("Invoking LLM"));
 
