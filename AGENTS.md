@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.0.0"
+version: "3.0.1"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -144,6 +144,11 @@ registered and exact pre-admission file evidence is revalidated.
 - Resolve exactly one effective push URL. Fingerprint both that URL and ambient
   URL-rewrite configuration. Preflight, exact-SHA push, and postflight
   verification MUST target the same resolved endpoint.
+- Treat verified remote publication and its local remote-tracking projection as
+  separate outcomes. Synchronize only an unambiguously matching branch, ref,
+  and effective fetch/push endpoint with an expected-old-value guard; never
+  overwrite concurrent local ref changes or reinterpret projection failure as
+  remote push failure.
 - Process-scoped Git configuration MUST remain compatible with Git 2.17 and use
   correctly quoted `GIT_CONFIG_PARAMETERS` rather than repository mutation.
 - On Darwin kernel 17 and older, resolve and validate Apple toolchain Git through

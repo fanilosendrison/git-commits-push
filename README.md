@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.0.0"
+version: "3.0.1"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -147,6 +147,15 @@ placed in process arguments, and push diagnostics are sanitized before they are
 reported. If the push fails with a network error, it's retried automatically. If
 it fails with a non-network error (for example, a remote rejection), the error is
 reported and the skill moves on to the next repo.
+
+After exact publication is verified, the CLI synchronizes the applicable local
+remote-tracking ref when the tracked branch, destination ref, and effective
+fetch and push endpoints all match. The update uses the previously observed ref
+value as an atomic guard, so a concurrent fetch or other local update is never
+overwritten. Triangular workflows and split fetch/push endpoints remain
+independent. The report records remote publication separately from this local
+projection; a skipped, concurrent, or failed local synchronization does not turn
+a verified remote publication into a push failure.
 
 ### Retry model
 
