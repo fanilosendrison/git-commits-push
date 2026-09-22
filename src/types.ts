@@ -58,23 +58,69 @@ export const REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES = [
 export type RemoteTrackingRefSynchronization =
 	(typeof REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES)[number];
 
-export interface TrackedPushSnapshot {
-	sourceBranch: string;
-	validatedHeadSha: string;
-	upstreamRef: string;
-	remote: string;
-	destinationRef: string;
-	destinationBaselineSha: string;
-	outgoingShas: string[];
-	/** SHA-256 of the single effective push URL; the URL itself is never persisted. */
-	pushUrlFingerprint: string;
+/**
+ * Explicit publication authority named by `InvocationScope.targeted`.
+ *
+ * It carries a destination only: no source branch, no upstream ref, no
+ * local-tracking projection, and no upstream-establishment intent.
+ */
+export interface ExplicitPushDestination {
+	readonly remote: string;
+	readonly destinationRef: string;
 }
+
+/**
+ * Observation of the explicit destination frozen before any commit or push
+ * effect exists for this invocation.
+ *
+ * `InvocationScope` is the caller's durable intention; this snapshot is the
+ * remotely observed baseline that later publication must still match. The raw
+ * push URL is never stored, only its fingerprint.
+ */
+export interface ExplicitPushTargetSnapshot {
+	readonly remote: string;
+	readonly destinationRef: string;
+	readonly destinationBaselineSha: string;
+	readonly pushUrlFingerprint: string;
+}
+
+/** Publication snapshot for a branch whose upstream identity is significant. */
+export interface TrackedPushSnapshot {
+	readonly kind: "tracked";
+	readonly sourceBranch: string;
+	readonly validatedHeadSha: string;
+	readonly upstreamRef: string;
+	readonly remote: string;
+	readonly destinationRef: string;
+	readonly destinationBaselineSha: string;
+	readonly outgoingShas: string[];
+	/** SHA-256 of the single effective push URL; the URL itself is never persisted. */
+	readonly pushUrlFingerprint: string;
+}
+
+/**
+ * Publication snapshot for an explicit destination. It deliberately has no
+ * `sourceBranch` and no `upstreamRef`: a detached-HEAD publication has neither.
+ */
+export interface ExplicitPushSnapshot {
+	readonly kind: "explicit";
+	readonly validatedHeadSha: string;
+	readonly remote: string;
+	readonly destinationRef: string;
+	readonly destinationBaselineSha: string;
+	readonly outgoingShas: string[];
+	/** SHA-256 of the single effective push URL; the URL itself is never persisted. */
+	readonly pushUrlFingerprint: string;
+}
+
+export type PushSnapshot = TrackedPushSnapshot | ExplicitPushSnapshot;
 
 export interface RepositoryInfo {
 	id: string;
 	path: string;
 	operation?: RepositoryOperation;
-	pushSnapshot?: TrackedPushSnapshot;
+	pushSnapshot?: PushSnapshot;
+	explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot;
 }
 
 export interface CommitMessage {
@@ -227,7 +273,8 @@ export interface RepoState {
 	repository: string;
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
 	operation?: RepositoryOperation | undefined;
-	pushSnapshot?: TrackedPushSnapshot | undefined;
+	pushSnapshot?: PushSnapshot | undefined;
+	explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot | undefined;
 	pushedShas?: string[] | undefined;
 	/** Exact source SHA observed at the frozen remote after publication. */
 	publishedSha?: string | undefined;

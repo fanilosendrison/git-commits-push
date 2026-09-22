@@ -4,12 +4,21 @@ import type {
 	AttemptsByKind,
 	CommitJobResult,
 	CommitPlan,
+	ExplicitPushTargetSnapshot,
 	GlobalState,
 	InvocationScope,
+	PushSnapshot,
 } from "../types.ts";
 import { REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES } from "../types.ts";
 
 const BRANCH_REF_PREFIX = "refs/heads/";
+
+const destinationRefSchema = z
+	.string()
+	.startsWith(BRANCH_REF_PREFIX)
+	.refine((value) => value.length > BRANCH_REF_PREFIX.length, {
+		message: "push destination must name a branch",
+	});
 
 /**
  * Structural validation only: no filesystem access and no Git subprocess.
@@ -130,16 +139,62 @@ const attemptsSchema = attemptsRuntimeSchema as z.ZodSchema<
 	AttemptsByKind | undefined
 >;
 const gitObjectIdSchema = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u);
+const pushUrlFingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 
-const pushSnapshotSchema = z.object({
+const trackedPushSnapshotSchema = z.object({
+	kind: z.literal("tracked"),
 	sourceBranch: z.string(),
 	validatedHeadSha: gitObjectIdSchema,
 	upstreamRef: z.string(),
 	remote: z.string(),
-	destinationRef: z.string(),
+	destinationRef: destinationRefSchema,
 	destinationBaselineSha: gitObjectIdSchema,
 	outgoingShas: z.array(gitObjectIdSchema).min(1),
-	pushUrlFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+	pushUrlFingerprint: pushUrlFingerprintSchema,
+});
+
+const explicitPushSnapshotSchema = z.object({
+	kind: z.literal("explicit"),
+	validatedHeadSha: gitObjectIdSchema,
+	remote: z.string(),
+	destinationRef: destinationRefSchema,
+	destinationBaselineSha: gitObjectIdSchema,
+	outgoingShas: z.array(gitObjectIdSchema).min(1),
+	pushUrlFingerprint: pushUrlFingerprintSchema,
+});
+
+// Historical valid Turnlock state predates explicit publication: a structurally
+// valid tracked snapshot without a discriminant normalizes to `tracked`. No
+// historical state can be an explicit snapshot, so a missing discriminant is
+// never interpreted as one, and a present but invalid discriminant fails.
+const pushSnapshotRuntimeSchema = z.preprocess(
+	(value) => {
+		if (
+			typeof value === "object" &&
+			value !== null &&
+			!("kind" in value) &&
+			"sourceBranch" in value &&
+			"upstreamRef" in value
+		) {
+			return { ...(value as Record<string, unknown>), kind: "tracked" };
+		}
+		return value;
+	},
+	z.discriminatedUnion("kind", [
+		trackedPushSnapshotSchema,
+		explicitPushSnapshotSchema,
+	]),
+);
+
+const pushSnapshotSchema = pushSnapshotRuntimeSchema as z.ZodSchema<
+	PushSnapshot | undefined
+>;
+
+const explicitPushTargetSnapshotSchema = z.object({
+	remote: z.string(),
+	destinationRef: destinationRefSchema,
+	destinationBaselineSha: gitObjectIdSchema,
+	pushUrlFingerprint: pushUrlFingerprintSchema,
 });
 
 const repoStateSchema = z
@@ -148,6 +203,7 @@ const repoStateSchema = z
 		status: z.enum(["PENDING", "RUNNING", "SUCCESS", "FAILED"]),
 		operation: z.enum(["commit-and-push", "push-only"]).optional(),
 		pushSnapshot: pushSnapshotSchema.optional(),
+		explicitPushTargetSnapshot: explicitPushTargetSnapshotSchema.optional(),
 		pushedShas: z.array(gitObjectIdSchema).optional(),
 		publishedSha: gitObjectIdSchema.optional(),
 		remoteTrackingRefSynchronization: z
@@ -181,6 +237,14 @@ const repoStateSchema = z
 			});
 		}
 		if (repoState.operation === "push-only") {
+			if (repoState.explicitPushTargetSnapshot) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					message:
+						"push-only evidence must not carry a frozen commit-and-push target",
+					path: ["explicitPushTargetSnapshot"],
+				});
+			}
 			if (!repoState.pushSnapshot) {
 				context.addIssue({
 					code: z.ZodIssueCode.custom,
@@ -224,8 +288,93 @@ const repoStateSchema = z
 			});
 		}
 	});
+export const stateSchema: z.ZodSchema<GlobalState> = z
+	.object({
+		invocationScope: invocationScopeWithGlobalDefault,
+		repos: z.record(z.string(), repoStateSchema),
+	})
+	.superRefine((state, context) => {
+		const scope = state.invocationScope;
+		for (const [repoId, repoState] of Object.entries(state.repos)) {
+			const path = ["repos", repoId] as const;
+			if (scope.kind === "global") {
+				if (repoState.explicitPushTargetSnapshot) {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						message:
+							"a global invocation must not carry a frozen explicit push target",
+						path: [...path, "explicitPushTargetSnapshot"],
+					});
+				}
+				if (repoState.pushSnapshot?.kind === "explicit") {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						message:
+							"a global invocation must not carry an explicit push snapshot",
+						path: [...path, "pushSnapshot"],
+					});
+				}
+				continue;
+			}
 
-export const stateSchema: z.ZodSchema<GlobalState> = z.object({
-	invocationScope: invocationScopeWithGlobalDefault,
-	repos: z.record(z.string(), repoStateSchema),
-});
+			if (repoState.repository !== scope.repository) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					message:
+						"a targeted invocation may only persist state for its exact worktree",
+					path: [...path, "repository"],
+				});
+			}
+			if (repoState.operation === "commit-and-push") {
+				if (!repoState.explicitPushTargetSnapshot) {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						message:
+							"targeted commit-and-push state requires a frozen explicit push target",
+						path: [...path, "explicitPushTargetSnapshot"],
+					});
+				}
+			}
+			for (const [field, snapshot] of explicitDestinationFields(repoState)) {
+				if (
+					snapshot.remote !== scope.pushRemote ||
+					snapshot.destinationRef !== scope.pushRef
+				) {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						message:
+							"frozen explicit destination must match the targeted invocation scope",
+						path: [...path, field],
+					});
+				}
+			}
+		}
+	});
+
+/** Every field of one repo that names an explicit publication destination. */
+function explicitDestinationFields(repoState: {
+	readonly explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot | undefined;
+	readonly pushSnapshot?: PushSnapshot | undefined;
+}): ReadonlyArray<
+	readonly [
+		string,
+		{ readonly remote: string; readonly destinationRef: string },
+	]
+> {
+	const fields: Array<
+		readonly [
+			string,
+			{ readonly remote: string; readonly destinationRef: string },
+		]
+	> = [];
+	if (repoState.explicitPushTargetSnapshot) {
+		fields.push([
+			"explicitPushTargetSnapshot",
+			repoState.explicitPushTargetSnapshot,
+		]);
+	}
+	if (repoState.pushSnapshot?.kind === "explicit") {
+		fields.push(["pushSnapshot", repoState.pushSnapshot]);
+	}
+	return fields;
+}
