@@ -31,6 +31,12 @@ The stable harness command resolves through the selected immutable XDG release:
 Production MUST NOT depend on a source checkout, package manager, or runtime
 build.
 
+InvocationScope is Turnlock-run state, not reconciler-v3 durable authority.
+Reconciler v3 continues to implement the existing global generation/coalescing
+contract and stores no repository, remote, ref, or targeted request payload.
+The targeted source-level scope foundation therefore does not change this
+specification's admission or coalescing rules.
+
 ## Normative invariant
 
 ### SINGLE_LIVE_GIT_EXECUTION

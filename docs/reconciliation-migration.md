@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "3.0.0"
+version: "3.0.1"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -38,6 +38,16 @@ The following names remain temporarily for compatibility:
   migration residue.
 
 No compatibility field re-enables queue semantics.
+
+## Turnlock invocation-scope compatibility
+
+- GlobalState now persists InvocationScope.
+- Historical valid Turnlock state with no invocationScope normalizes to `{kind:"global"}`.
+- This is valid because targeted mode did not exist when those states were written.
+- A malformed present invocationScope still fails state validation.
+- This is not a reconciler SQLite migration.
+- PRAGMA user_version remains 3.
+- No target repository, remote, or ref is added to the reconciler singleton.
 
 ## Safety changes
 

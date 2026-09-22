@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.0.1"
+version: "3.1.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -94,6 +94,27 @@ Responsibilities MUST remain separated:
 
 JavaScript entrypoints are narrow bootstrap or compatibility shims only. New
 runtime behavior belongs in TypeScript modules.
+
+## Invocation scope
+
+- Each Turnlock run carries one durable `InvocationScope`.
+- Global scope preserves `searchPaths`-based repository discovery and excludes
+  detached HEAD repositories.
+- Targeted scope names one exact canonical worktree plus explicit remote/ref
+  publication intent.
+- Targeted scope never widens into recursive, sibling, linked-worktree, or
+  common-dir discovery.
+- The three targeted CLI flags are atomic and are consumed before Turnlock
+  parses argv.
+- Resume recovers scope from durable Turnlock state and may not redefine it
+  through targeted CLI flags.
+- Persisted targeted worktrees are revalidated before resumed work.
+- `autoPush` is a global-discovery policy; targeted remote/ref arguments are
+  explicit publication authority.
+- Targeted clean push-only and detached explicit publication are not defined by
+  this layer.
+- Reconciler schema v3 still stores no target payload and its coalescing
+  semantics are unchanged by this change.
 
 ## Reconciliation contract
 
@@ -261,7 +282,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 69 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 72 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 

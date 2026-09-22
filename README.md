@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.0.1"
+version: "3.0.2"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -73,6 +73,17 @@ uses `~/Developper`; an omitted or empty value falls back to
 `~/Developper/Projects`) and identifies Git repositories that have uncommitted changes — staged,
 unstaged, or both. Repos on a detached HEAD are skipped (there's no branch to
 push to).
+
+#### Unreleased targeted-scope foundation
+
+- the stable installed 0.6.1 workflow remains the documented global workflow;
+- current source contains the targeted invocation-scope and exact-worktree
+  discovery foundation for the forthcoming integrated targeted capability;
+- targeted source mode names one exact worktree with `--repository`,
+  `--push-remote` and `--push-ref`;
+- it does not widen into `searchPaths` or sibling worktrees;
+- detached explicit publication, targeted concurrency semantics, release
+  qualification, and installed support are not yet claimed here.
 
 ### 2. Validation
 
