@@ -1,4 +1,7 @@
+import type { ExplicitPushDestination } from "../../types.ts";
 import { gitExecArgs } from "./git-exec.ts";
+
+const BRANCH_REF_PREFIX = "refs/heads/";
 
 export interface LocalTrackingRefCandidate {
 	readonly ref: string;
@@ -206,6 +209,44 @@ export function resolveTrackedPushDestination(
 			upstreamDestinationRef,
 			destinationRef,
 		),
+	};
+}
+
+/**
+ * Resolve an explicitly named publication destination.
+ *
+ * Explicit-target resolution never consults the current branch, `@{upstream}`,
+ * `branch.*.remote`, `branch.*.merge`, `branch.*.pushRemote`,
+ * `remote.pushDefault`, or `push.default`: the caller's named remote and ref are
+ * the whole authority. The destination ref is revalidated here so a persisted
+ * or resumed invocation cannot publish to a ref Git would reject.
+ */
+export function resolveExplicitPushDestination(
+	repository: string,
+	destination: ExplicitPushDestination,
+): ExplicitPushDestination {
+	const configuredRemotes = readConfiguredRemotes(repository);
+	if (
+		!destination.remote ||
+		destination.remote === "." ||
+		!configuredRemotes.includes(destination.remote)
+	) {
+		throw new Error(
+			`Explicit push remote ${JSON.stringify(destination.remote)} is not a configured Git remote in ${repository}.`,
+		);
+	}
+	if (
+		!destination.destinationRef.startsWith(BRANCH_REF_PREFIX) ||
+		destination.destinationRef.length === BRANCH_REF_PREFIX.length
+	) {
+		throw new Error(
+			`Explicit push destination must be a fully qualified refs/heads/* branch ref: ${destination.destinationRef}.`,
+		);
+	}
+	gitExecArgs(["check-ref-format", destination.destinationRef], repository);
+	return {
+		remote: destination.remote,
+		destinationRef: destination.destinationRef,
 	};
 }
 

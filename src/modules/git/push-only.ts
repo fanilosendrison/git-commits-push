@@ -11,6 +11,12 @@ import {
 	validateDiffForSecrets,
 } from "../core/validators/pre-commit-validators.ts";
 import { gitExecArgs } from "./git-exec.ts";
+import {
+	assertOutgoingCommitsMatch,
+	isAncestor,
+	readCommitPatches,
+	readOrderedOutgoingShas,
+} from "./outgoing-commits.ts";
 import { classifyTransient } from "./push.ts";
 import {
 	resolveTrackedPushDestination,
@@ -32,29 +38,6 @@ function readOptionalGit(
 		return value || null;
 	} catch {
 		return null;
-	}
-}
-
-function splitNonemptyLines(value: string): string[] {
-	return value
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean);
-}
-
-function isAncestor(
-	repoPath: string,
-	possibleAncestor: string,
-	possibleDescendant: string,
-): boolean {
-	try {
-		gitExecArgs(
-			["merge-base", "--is-ancestor", possibleAncestor, possibleDescendant],
-			repoPath,
-		);
-		return true;
-	} catch {
-		return false;
 	}
 }
 
@@ -90,19 +73,15 @@ export function captureTrackedPushSnapshot(
 			`Tracked branch has diverged from ${destination.destinationRef}; refusing automatic push.`,
 		);
 	}
-	const outgoingShas = splitNonemptyLines(
-		gitExecArgs(
-			[
-				"rev-list",
-				"--reverse",
-				`${destinationBaselineSha}..${validatedHeadSha}`,
-			],
-			repoPath,
-		),
+	const outgoingShas = readOrderedOutgoingShas(
+		repoPath,
+		destinationBaselineSha,
+		validatedHeadSha,
 	);
 	if (outgoingShas.length === 0) return null;
 
 	return {
+		kind: "tracked",
 		sourceBranch,
 		validatedHeadSha,
 		upstreamRef: destination.upstreamRef,
@@ -112,63 +91,6 @@ export function captureTrackedPushSnapshot(
 		outgoingShas,
 		pushUrlFingerprint: pushEndpoint.fingerprint,
 	};
-}
-
-function assertOutgoingShasMatchSnapshot(
-	repoPath: string,
-	snapshot: TrackedPushSnapshot,
-): void {
-	try {
-		gitExecArgs(
-			[
-				"merge-base",
-				"--is-ancestor",
-				snapshot.destinationBaselineSha,
-				snapshot.validatedHeadSha,
-			],
-			repoPath,
-		);
-	} catch {
-		throw new PushError(
-			"Push-only baseline is not an ancestor of the validated HEAD.",
-			false,
-		);
-	}
-	const currentOutgoingShas = splitNonemptyLines(
-		gitExecArgs(
-			[
-				"rev-list",
-				"--reverse",
-				`${snapshot.destinationBaselineSha}..${snapshot.validatedHeadSha}`,
-			],
-			repoPath,
-		),
-	);
-	if (
-		currentOutgoingShas.length !== snapshot.outgoingShas.length ||
-		currentOutgoingShas.some(
-			(sha, index) => sha !== snapshot.outgoingShas[index],
-		)
-	) {
-		throw new PushError(
-			"Push-only outgoing commit list no longer matches the validated snapshot.",
-			false,
-		);
-	}
-}
-
-function readCommitPatches(
-	repoPath: string,
-	outgoingShas: readonly string[],
-): string {
-	return outgoingShas
-		.map((sha) =>
-			gitExecArgs(
-				["show", "--format=", "--binary", "--no-ext-diff", sha],
-				repoPath,
-			),
-		)
-		.join("\n");
 }
 
 function readRemoteDestinationSha(
@@ -300,7 +222,7 @@ export async function validateAndPushTrackedSnapshot(
 	}
 	if (!settings.skipTests) await runTestCascade(repository.path);
 
-	assertOutgoingShasMatchSnapshot(repository.path, snapshot);
+	assertOutgoingCommitsMatch(repository.path, snapshot, "Push-only");
 	const patches = readCommitPatches(repository.path, snapshot.outgoingShas);
 	await validateDiffForSecrets(repository, patches, scanner);
 	let pushEndpoint: ResolvedPushEndpoint;

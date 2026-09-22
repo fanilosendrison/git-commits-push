@@ -91,9 +91,7 @@ export async function runDiscoveryAndValidationPhase(
 			const t0 = Date.now();
 			if (repo.operation === "push-only") {
 				if (!repo.pushSnapshot) {
-					throw new Error(
-						"Push-only repository is missing its tracked snapshot.",
-					);
+					throw new Error("Push-only repository is missing its push snapshot.");
 				}
 				nextRepos[repo.id] = {
 					repository: repo.path,
@@ -120,6 +118,11 @@ export async function runDiscoveryAndValidationPhase(
 					status: "PENDING" as const,
 					operation: "commit-and-push",
 					diffHash,
+					...(repo.explicitPushTargetSnapshot
+						? {
+								explicitPushTargetSnapshot: repo.explicitPushTargetSnapshot,
+							}
+						: {}),
 				};
 			}
 			process.stderr.write(
@@ -136,6 +139,11 @@ export async function runDiscoveryAndValidationPhase(
 				status: "FAILED" as const,
 				operation: repo.operation ?? "commit-and-push",
 				...(repo.pushSnapshot ? { pushSnapshot: repo.pushSnapshot } : {}),
+				...(repo.explicitPushTargetSnapshot
+					? {
+							explicitPushTargetSnapshot: repo.explicitPushTargetSnapshot,
+						}
+					: {}),
 				error: msg,
 			};
 			skillLog.logRepoOutcome({

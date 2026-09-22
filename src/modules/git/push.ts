@@ -143,7 +143,11 @@ export function publishWithFrozenEndpoint(
 	return retryCount;
 }
 
-function assertFastForwardPublication(
+/**
+ * Prove that publishing `sourceSha` fast-forwards the observed destination.
+ * Shared by the tracked and explicit publication paths.
+ */
+export function assertFastForwardPublication(
 	repository: string,
 	destinationBaselineSha: string | null,
 	sourceSha: string,

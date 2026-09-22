@@ -3,7 +3,12 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { CommitPlan, CommittedSha, Settings } from "../../types.ts";
+import type {
+	CommitPlan,
+	CommittedSha,
+	ExplicitPushTargetSnapshot,
+	Settings,
+} from "../../types.ts";
 import {
 	CommitPlanError,
 	DiffHashMismatchError,
@@ -14,6 +19,8 @@ import {
 } from "../core/errors.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
+import { publishExplicitTargetSnapshot } from "./explicit-push.ts";
+import { assertExplicitPushTargetCurrent } from "./explicit-push-target.ts";
 import { gitExec, gitExecArgs } from "./git-exec.ts";
 import { executePush, type PushExecutionResult } from "./push.ts";
 
@@ -40,8 +47,13 @@ function collectPendingFiles(
 }
 
 /**
- * Execute multiple commits (one per CommitPlan) then push once.
- * Returns the list of landed SHAs with their files and the original HEAD.
+ * Execute multiple commits (one per CommitPlan) then publish once.
+ *
+ * Without a frozen explicit target this runs the existing global/tracked
+ * publication path, where `autoPush` still decides whether a push happens. With
+ * a frozen explicit target it proves the destination is still at the frozen
+ * baseline before the first commit, then publishes the exact resulting HEAD to
+ * that destination; `autoPush` is not consulted.
  *
  * @throws CommitPlanError — structural plan errors (empty, duplicate, missing, nonexistent)
  * @throws DiffHashMismatchError — staged diff changed during inference
@@ -53,6 +65,7 @@ export async function executeMultiCommitAndPush(
 	plans: CommitPlan[],
 	expectedDiffHash: string,
 	settings: Settings,
+	explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot,
 ): Promise<{
 	committedShas: CommittedSha[];
 	originalHead: string;
@@ -109,16 +122,23 @@ export async function executeMultiCommitAndPush(
 		}
 	}
 
-	// 4. Capture original HEAD
+	// 4. Proving the frozen explicit destination is untouched must happen before
+	//    the first history effect, so a remote that advanced during validation can
+	//    never receive a commit built on a stale baseline.
+	if (explicitPushTargetSnapshot) {
+		assertExplicitPushTargetCurrent(repoPath, explicitPushTargetSnapshot);
+	}
+
+	// 5. Capture original HEAD
 	const originalHead = execSync("git rev-parse HEAD", {
 		cwd: repoPath,
 		encoding: "utf-8",
 	}).trim();
 
-	// 5. Unstage everything so we can re-stage file-by-file
+	// 6. Unstage everything so we can re-stage file-by-file
 	gitExec("reset HEAD", repoPath);
 
-	// 6. Commit loop (inter-commit reset after each commit)
+	// 7. Commit loop (inter-commit reset after each commit)
 	const committedShas: CommittedSha[] = [];
 
 	try {
@@ -238,16 +258,28 @@ export async function executeMultiCommitAndPush(
 		);
 	}
 
-	// 7. Push. Never send landed commits back through LLM planning on failure.
+	// 8. Publish. Never send landed commits back through LLM planning on failure.
 	let pushRetryCount: number;
 	let publishedSha: string | null;
 	let remoteTrackingRefSynchronization: PushExecutionResult["remoteTrackingRefSynchronization"];
 	try {
-		({
-			retryCount: pushRetryCount,
-			publishedSha,
-			remoteTrackingRefSynchronization,
-		} = executePush(repoPath, !!settings.autoPush));
+		if (explicitPushTargetSnapshot) {
+			const publication = publishExplicitTargetSnapshot(
+				repoPath,
+				explicitPushTargetSnapshot,
+				gitExecArgs(["rev-parse", "HEAD"], repoPath),
+			);
+			pushRetryCount = publication.retryCount;
+			publishedSha = publication.publishedSha;
+			// Explicit publication owns no local remote-tracking projection.
+			remoteTrackingRefSynchronization = "not-applicable";
+		} else {
+			({
+				retryCount: pushRetryCount,
+				publishedSha,
+				remoteTrackingRefSynchronization,
+			} = executePush(repoPath, !!settings.autoPush));
+		}
 	} catch (error) {
 		if (error instanceof PushError) {
 			throw new PostCommitPushError(error, {

@@ -17,6 +17,7 @@ import {
 } from "../modules/core/queue-retry.ts";
 import { loadSystemPrompt } from "../modules/core/system-prompt-loader.ts";
 import { handleValidationRetry } from "../modules/core/validation-retry-handler.ts";
+import { resolveFrozenExplicitTarget } from "../modules/git/explicit-push-target.ts";
 import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
 import { handlePushOnlyCheckpointResult } from "../modules/git/push-only-checkpoint.ts";
 import { resetIndexForRetry } from "../modules/git/reset-index.ts";
@@ -141,6 +142,11 @@ export async function runCommitAndPushPhase(
 		}
 
 		try {
+			const frozenExplicitTarget = resolveFrozenExplicitTarget(
+				state.invocationScope,
+				repoState.repository,
+				repoState.explicitPushTargetSnapshot,
+			);
 			const {
 				committedShas,
 				originalHead,
@@ -152,6 +158,7 @@ export async function runCommitAndPushPhase(
 				result.commits,
 				repoState.diffHash,
 				settings,
+				frozenExplicitTarget,
 			);
 			// Merge with anything that landed in prior retries.
 			repoState = {
