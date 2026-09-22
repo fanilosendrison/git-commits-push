@@ -15,7 +15,9 @@ import { buildResumeCommand } from "../utils/runtime-launch.ts";
 
 if (isDirectExecution(import.meta.url)) {
 	// 1. Run bootstrap synchronously to set process.argv before Turnlock is imported
-	bootstrapOrchestratorRun(process.argv.slice(2));
+	const initialInvocationScope = bootstrapOrchestratorRun(
+		process.argv.slice(2),
+	);
 
 	// 2. Dynamically import Turnlock so it parses the mutated process.argv
 	const { definePhase, runOrchestrator } = await import("turnlock");
@@ -23,7 +25,10 @@ if (isDirectExecution(import.meta.url)) {
 	const config: OrchestratorConfig<GlobalState> = {
 		name: "git-commits-push-tl",
 		initial: "discovery-and-validation",
-		initialState: { repos: {} },
+		initialState: {
+			invocationScope: initialInvocationScope,
+			repos: {},
+		},
 		resumeCommand: (runId) => buildResumeCommand(runId, import.meta.url),
 		runDirRoot: path.join(os.homedir(), ".turnlock", "runs"),
 		stateSchema,

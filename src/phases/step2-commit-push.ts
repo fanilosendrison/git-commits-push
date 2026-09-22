@@ -20,6 +20,7 @@ import { handleValidationRetry } from "../modules/core/validation-retry-handler.
 import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
 import { handlePushOnlyCheckpointResult } from "../modules/git/push-only-checkpoint.ts";
 import { resetIndexForRetry } from "../modules/git/reset-index.ts";
+import { assertInvocationScopeCurrent } from "../modules/invocation/invocation-scope.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import type { CommittedSha, GlobalState } from "../types.ts";
 
@@ -62,6 +63,8 @@ export async function runCommitAndPushPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
 ): Promise<PhaseResult<GlobalState, unknown>> {
+	assertInvocationScopeCurrent(state.invocationScope);
+
 	const settings = readSettings(path.resolve(import.meta.dirname, "../config"));
 
 	// ── Init stats vars for resume flow ────────────────────────────
@@ -340,7 +343,10 @@ export async function runCommitAndPushPhase(
 				},
 			},
 			"commit-and-push",
-			{ repos: nextRepos },
+			{
+				...state,
+				repos: nextRepos,
+			},
 		);
 	}
 

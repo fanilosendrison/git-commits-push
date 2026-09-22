@@ -1,11 +1,50 @@
+import * as path from "node:path";
 import { z } from "zod";
 import type {
 	AttemptsByKind,
 	CommitJobResult,
 	CommitPlan,
 	GlobalState,
+	InvocationScope,
 } from "../types.ts";
 import { REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES } from "../types.ts";
+
+const BRANCH_REF_PREFIX = "refs/heads/";
+
+/**
+ * Structural validation only: no filesystem access and no Git subprocess.
+ * Canonical worktree existence, configured-remote membership, and Git ref
+ * format are proven by the invocation-scope module before durable work starts.
+ */
+const invocationScopeSchema: z.ZodSchema<InvocationScope> =
+	z.discriminatedUnion("kind", [
+		z.object({ kind: z.literal("global") }),
+		z.object({
+			kind: z.literal("targeted"),
+			repository: z
+				.string()
+				.min(1)
+				.refine((value) => path.isAbsolute(value), {
+					message: "targeted repository must be an absolute path",
+				}),
+			pushRemote: z.string().min(1),
+			pushRef: z
+				.string()
+				.startsWith(BRANCH_REF_PREFIX)
+				.refine((value) => value.length > BRANCH_REF_PREFIX.length, {
+					message: "targeted push ref must name a branch",
+				}),
+		}),
+	]);
+
+// Historical valid Turnlock state predates targeted mode and is semantically
+// global; a missing invocationScope normalizes to global. A malformed present
+// value still fails validation.
+const invocationScopeWithGlobalDefault: z.ZodSchema<InvocationScope> =
+	z.preprocess(
+		(value) => (value === undefined ? { kind: "global" } : value),
+		invocationScopeSchema,
+	) as unknown as z.ZodSchema<InvocationScope>;
 
 const commitMessageStateSchema = z.object({
 	type: z.string(),
@@ -187,5 +226,6 @@ const repoStateSchema = z
 	});
 
 export const stateSchema: z.ZodSchema<GlobalState> = z.object({
+	invocationScope: invocationScopeWithGlobalDefault,
 	repos: z.record(z.string(), repoStateSchema),
 });

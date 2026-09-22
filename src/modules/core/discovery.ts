@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { RepositoryInfo, Settings } from "../../types.ts";
+import type { InvocationScope, RepositoryInfo, Settings } from "../../types.ts";
 import {
 	computeRepoId,
 	findGitDirectoriesRecursively,
@@ -10,6 +10,7 @@ import {
 	isDetachedHead,
 } from "../../utils/git-utils.ts";
 import { captureTrackedPushSnapshot } from "../git/push-only.ts";
+import { assertInvocationScopeCurrent } from "../invocation/invocation-scope.ts";
 
 function expandPath(p: string): string {
 	if (p.startsWith("~/")) {
@@ -27,6 +28,45 @@ function canonicalizePath(p: string): string {
 }
 
 export async function runDiscovery(
+	settings: Settings,
+	invocationScope: InvocationScope,
+): Promise<RepositoryInfo[]> {
+	if (invocationScope.kind === "targeted") {
+		return discoverTargetedRepository(invocationScope);
+	}
+
+	return discoverGlobalRepositories(settings);
+}
+
+/**
+ * Targeted discovery validates one exact canonical worktree and returns only
+ * that worktree. It never calls the global recursive scan, worktree
+ * enumeration, or sibling/checkout expansion.
+ */
+async function discoverTargetedRepository(
+	invocationScope: Extract<InvocationScope, { kind: "targeted" }>,
+): Promise<RepositoryInfo[]> {
+	assertInvocationScopeCurrent(invocationScope);
+
+	if (!hasLocalChanges(invocationScope.repository)) {
+		// Targeted invocation already carries explicit publication authority.
+		// Clean explicit-target push-only semantics are intentionally deferred to
+		// the explicit-target publication implementation; autoPush is a global-mode
+		// policy and is not consulted here.
+		return [];
+	}
+
+	const id = await computeRepoId(invocationScope.repository);
+	return [
+		{
+			id,
+			path: invocationScope.repository,
+			operation: "commit-and-push",
+		},
+	];
+}
+
+async function discoverGlobalRepositories(
 	settings: Settings,
 ): Promise<RepositoryInfo[]> {
 	const searchPaths =

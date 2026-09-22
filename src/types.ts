@@ -26,6 +26,25 @@ export interface Settings {
 	maxDiffChars?: number;
 }
 
+/**
+ * Durable invocation universe for one Turnlock run.
+ *
+ * `global` means the caller asked to discover work through the configured
+ * search paths. `targeted` means the caller named exactly one canonical
+ * worktree plus explicit remote/ref publication intent, and no discovery may
+ * widen beyond it.
+ */
+export type InvocationScope =
+	| {
+			readonly kind: "global";
+	  }
+	| {
+			readonly kind: "targeted";
+			readonly repository: string;
+			readonly pushRemote: string;
+			readonly pushRef: string;
+	  };
+
 export type RepositoryOperation = "commit-and-push" | "push-only";
 
 export const REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES = [
@@ -273,5 +292,6 @@ export interface RepoReport {
 }
 
 export interface GlobalState {
+	readonly invocationScope: InvocationScope;
 	repos: Record<string, RepoState>;
 }

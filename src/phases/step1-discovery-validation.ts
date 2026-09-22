@@ -44,7 +44,7 @@ export async function runDiscoveryAndValidationPhase(
 
 	// Phase 1: Discovery
 	process.stderr.write("[DEBUG] Starting runDiscovery...\n");
-	const repos = await runDiscovery(settings);
+	const repos = await runDiscovery(settings, state.invocationScope);
 	process.stderr.write(`[DEBUG] runDiscovery done: ${repos.length} repos\n`);
 	if (repos.length === 0) {
 		process.stderr.write(
@@ -263,6 +263,9 @@ export async function runDiscoveryAndValidationPhase(
 			retry: { maxAttempts: 1, backoffBaseMs: 1000, maxBackoffMs: 30000 },
 		},
 		"commit-and-push",
-		{ repos: nextRepos },
+		{
+			...state,
+			repos: nextRepos,
+		},
 	);
 }
