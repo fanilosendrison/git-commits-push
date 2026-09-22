@@ -1,11 +1,11 @@
-// tests/acceptance/a7-targeted-scope.test.ts — Targeted invocation-scope
-// yield/resume acceptance coverage.
+// tests/acceptance/a7-targeted-scope.test.ts — Detached-HEAD targeted
+// publication, one pass from a linked task worktree.
 //
-// Publication uses an ATTACHED target branch because explicit detached
-// publication is owned by the explicit-target publication work (#7) and is
-// intentionally not implemented by this Issue. The test proves the durable
-// scope boundary: the initial targeted invocation persists the canonical
-// InvocationScope, and resume without targeted CLI flags recovers it unchanged.
+// Fixture: a bare remote, a persistent checkout on `main`, a linked task
+// worktree detached from that exact main baseline, and an unrelated dirty
+// repository under the same broad searchPaths. The initial targeted invocation
+// freezes the destination and yields for the LLM; the resume without any
+// targeted flag commits on the detached HEAD and publishes the exact result.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -24,29 +24,51 @@ const SKILL_ENTRYPOINT = path.resolve(
 interface PersistedRunState {
 	readonly data: {
 		readonly invocationScope?: unknown;
-		readonly repos: Record<string, { readonly repository?: string }>;
+		readonly repos: Record<
+			string,
+			{
+				readonly repository?: string;
+				readonly operation?: string;
+				readonly status?: string;
+				readonly explicitPushTargetSnapshot?: unknown;
+				readonly remoteTrackingRefSynchronization?: string;
+			}
+		>;
 	};
 }
 
-let target: GitRepoFixture;
-let unrelated: GitRepoFixture;
+interface RunReceipt {
+	readonly status: number | null;
+	readonly stdout: string;
+	readonly stderr: string;
+}
+
 let env: MockTurnlockEnvironment;
 let searchRoot: string;
 let remoteRoot: string;
-let targetBranch: string;
-let initialStdout = "";
-let initialExitCode = -1;
-let resumeStdout = "";
-let resumeStderr = "";
-let resumeExitCode = -1;
+let remotePath: string;
+let persistent: GitRepoFixture;
+let unrelated: GitRepoFixture;
+let taskPath: string;
+let mainBranch: string;
+let baseline: string;
+
+let persistentBefore: Record<string, string>;
+let unrelatedBefore: Record<string, string>;
+let initial: RunReceipt;
+let resumed: RunReceipt;
+let runDirectory = "";
 let runId = "";
 let repoId = "";
 let scopeBefore: unknown;
 let scopeAfter: unknown;
-let reposBefore: Record<string, { readonly repository?: string }> = {};
+let frozenTargetBefore: unknown;
+let frozenTargetAfter: unknown;
 let delegatedPrompts: readonly string[] = [];
+let taskHeadAfter = "";
+let persistedStateText = "";
 
-function runGit(cwd: string, args: readonly string[]): string {
+function git(cwd: string, args: readonly string[]): string {
 	return execFileSync("git", [...args], {
 		cwd,
 		encoding: "utf-8",
@@ -54,26 +76,43 @@ function runGit(cwd: string, args: readonly string[]): string {
 	}).trim();
 }
 
-function readPersistedState(runDirectory: string): PersistedRunState {
-	const statePath = path.join(runDirectory, "state.json");
-	return JSON.parse(fs.readFileSync(statePath, "utf-8")) as PersistedRunState;
+/** Everything the targeted run must leave untouched in a checkout. */
+function captureCheckoutState(
+	repository: GitRepoFixture,
+): Record<string, string> {
+	const state: Record<string, string> = {
+		head: git(repository.dir, ["rev-parse", "HEAD"]),
+		status: git(repository.dir, [
+			"status",
+			"--porcelain=v1",
+			"--untracked-files=all",
+		]),
+		index: git(repository.dir, ["ls-files", "--stage"]),
+		config: git(repository.dir, ["config", "--local", "--list"]),
+	};
+	try {
+		const branch = git(repository.dir, [
+			"symbolic-ref",
+			"--quiet",
+			"--short",
+			"HEAD",
+		]);
+		state.branch = branch;
+		state.branchSha = git(repository.dir, [
+			"rev-parse",
+			`refs/heads/${branch}`,
+		]);
+	} catch {
+		state.branch = "detached";
+	}
+	return state;
 }
 
-function runOrchestrator(extraArguments: readonly string[]): {
-	readonly status: number | null;
-	readonly stdout: string;
-	readonly stderr: string;
-} {
+function runOrchestrator(extraArguments: readonly string[]): RunReceipt {
 	const result = spawnSync(
 		process.execPath,
 		[SKILL_ENTRYPOINT, ...extraArguments],
-		{
-			env: {
-				...process.env,
-				...env.env(),
-			},
-			encoding: "utf-8",
-		},
+		{ env: { ...process.env, ...env.env() }, encoding: "utf-8" },
 	);
 	return {
 		status: result.status,
@@ -82,25 +121,43 @@ function runOrchestrator(extraArguments: readonly string[]): {
 	};
 }
 
-before(async () => {
+function readPersistedState(targetRunDirectory: string): PersistedRunState {
+	return JSON.parse(
+		fs.readFileSync(path.join(targetRunDirectory, "state.json"), "utf-8"),
+	) as PersistedRunState;
+}
+
+before(() => {
 	env = MockTurnlockEnvironment.create();
 	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "a7-"));
 	remoteRoot = fs.mkdtempSync(path.join(os.tmpdir(), "a7-remote-"));
-	const remotePath = path.join(remoteRoot, "remote.git");
-	execFileSync("git", ["init", "--bare", remotePath]);
+	remotePath = path.join(remoteRoot, "remote.git");
+	execFileSync("git", ["init", "--bare", remotePath], { stdio: "pipe" });
 
-	// Target repository: normal attached branch with upstream publication.
-	target = GitRepoFixture.create({ parentDir: searchRoot });
-	target.commit("initial commit");
-	target.setRemote("origin", remotePath);
-	targetBranch = runGit(target.dir, [
+	persistent = GitRepoFixture.create({ parentDir: searchRoot });
+	persistent.commit("initial commit");
+	persistent.setRemote("origin", remotePath);
+	mainBranch = git(persistent.dir, [
 		"symbolic-ref",
 		"--quiet",
 		"--short",
 		"HEAD",
 	]);
-	runGit(target.dir, ["push", "--set-upstream", "origin", targetBranch]);
-	target.writeAndStage("change.ts", "export const change = true;\n");
+	git(persistent.dir, ["push", "--set-upstream", "origin", mainBranch]);
+	baseline = git(persistent.dir, ["rev-parse", "HEAD"]);
+	// Persistent work in progress that targeted mode must never touch.
+	fs.writeFileSync(
+		path.join(persistent.dir, "persistent-wip.ts"),
+		"export const pending = true;\n",
+	);
+
+	// Linked task worktree detached from the exact main baseline.
+	taskPath = path.join(fs.realpathSync(searchRoot), "task-worktree");
+	git(persistent.dir, ["worktree", "add", "--detach", taskPath, baseline]);
+	fs.writeFileSync(
+		path.join(taskPath, "task-change.ts"),
+		"export const taskChange = true;\n",
+	);
 
 	// Unrelated dirty repository that global discovery would also select.
 	unrelated = GitRepoFixture.create({ parentDir: searchRoot });
@@ -108,38 +165,44 @@ before(async () => {
 	unrelated.writeAndStage("unrelated.ts", "export const unrelated = true;\n");
 
 	const settings: Settings = {
-		// searchPaths deliberately include the unrelated repository root.
 		searchPaths: [searchRoot],
 		provider: "anthropic",
 		model: "claude-3-5-sonnet-20241022",
 		temperature: 0,
 		systemPromptPath: path.join(import.meta.dirname, "../../system-prompt.md"),
+		// The targeted path must publish even with autoPush disabled.
 		autoPush: false,
 		skipTests: true,
 	};
 	env.writeSettings(settings);
 
-	const initial = runOrchestrator([
+	persistentBefore = captureCheckoutState(persistent);
+	unrelatedBefore = captureCheckoutState(unrelated);
+
+	initial = runOrchestrator([
 		"--repository",
-		target.dir,
+		taskPath,
 		"--push-remote",
 		"origin",
 		"--push-ref",
-		`refs/heads/${targetBranch}`,
+		`refs/heads/${mainBranch}`,
 	]);
-	initialStdout = initial.stdout;
-	initialExitCode = initial.status ?? -1;
 
 	const runRoot = path.join(env.runDir, "runs", "git-commits-push-tl");
-	if (!fs.existsSync(runRoot)) return;
-	const runIds = fs.readdirSync(runRoot);
-	if (runIds.length !== 1) return;
+	const runIds = fs.existsSync(runRoot) ? fs.readdirSync(runRoot) : [];
 	runId = runIds[0] ?? "";
 	if (!runId) return;
-	const runDirectory = path.join(runRoot, runId);
+	runDirectory = path.join(runRoot, runId);
 	const stateBefore = readPersistedState(runDirectory);
+	persistedStateText = fs.readFileSync(
+		path.join(runDirectory, "state.json"),
+		"utf-8",
+	);
 	scopeBefore = stateBefore.data.invocationScope;
-	reposBefore = stateBefore.data.repos;
+	repoId = Object.keys(stateBefore.data.repos)[0] ?? "";
+	if (!repoId) return;
+	frozenTargetBefore =
+		stateBefore.data.repos[repoId]?.explicitPushTargetSnapshot;
 
 	const delegationPath = path.join(
 		runDirectory,
@@ -151,9 +214,6 @@ before(async () => {
 	};
 	delegatedPrompts = delegation.jobs.map((job) => job.prompt);
 
-	repoId = Object.keys(stateBefore.data.repos)[0] ?? "";
-	if (!repoId) return;
-
 	const llmResult: CommitJobResultSuccess = {
 		success: true,
 		id: repoId,
@@ -162,85 +222,143 @@ before(async () => {
 				commit: {
 					type: "feat",
 					scope: "targeted",
-					description: "publish targeted change",
+					description: "publish detached task change",
 					isBreaking: false,
 				},
-				files: ["change.ts"],
+				files: ["task-change.ts"],
 			},
 		],
 	};
 	env.writeLLMResult(repoId, llmResult, runId);
 
-	// Resume WITHOUT any targeted flags: persisted Turnlock state supplies the
-	// scope and attached-branch publication flows through the current path.
-	const resumed = runOrchestrator(["--resume", "--run-id", runId]);
-	resumeStdout = resumed.stdout;
-	resumeStderr = resumed.stderr;
-	resumeExitCode = resumed.status ?? -1;
+	// Resume WITHOUT targeted flags: durable state supplies scope and target.
+	resumed = runOrchestrator(["--resume", "--run-id", runId]);
 
 	const stateAfter = readPersistedState(runDirectory);
 	scopeAfter = stateAfter.data.invocationScope;
+	frozenTargetAfter = stateAfter.data.repos[repoId]?.explicitPushTargetSnapshot;
+	taskHeadAfter = git(taskPath, ["rev-parse", "HEAD"]);
 });
 
 after(() => {
-	target.dispose();
+	persistent.dispose();
 	unrelated.dispose();
 	env.dispose();
 	fs.rmSync(searchRoot, { recursive: true, force: true });
 	fs.rmSync(remoteRoot, { recursive: true, force: true });
 });
 
-describe("A7 — targeted invocation scope yield/resume", () => {
-	test("A7-01 | initial targeted invocation exits 0", () => {
-		assert.strictEqual(initialExitCode, 0);
+describe("A7 — detached-HEAD targeted publication", () => {
+	test("A7-01 | the initial targeted invocation exits 0 and delegates", () => {
+		assert.strictEqual(initial.status, 0);
+		assert.ok(initial.stdout.includes("action: DELEGATE"));
 	});
 
-	test("A7-02 | initial invocation delegates only the targeted repository", () => {
-		assert.ok(initialStdout.includes("@@TURNLOCK@@"));
-		assert.ok(initialStdout.includes("action: DELEGATE"));
+	test("A7-02 | only the targeted worktree is discovered and delegated", () => {
 		assert.strictEqual(delegatedPrompts.length, 1);
 		const payload = JSON.parse(delegatedPrompts[0] ?? "{}") as {
 			repository?: string;
 		};
-		assert.strictEqual(payload.repository, fs.realpathSync(target.dir));
+		assert.strictEqual(payload.repository, taskPath);
 		assert.strictEqual(
 			delegatedPrompts.some((prompt) => prompt.includes(unrelated.dir)),
 			false,
 		);
 	});
 
-	test("A7-03 | fresh targeted state persists the canonical InvocationScope", () => {
+	test("A7-03 | durable state carries the canonical scope and frozen target", () => {
+		const state = readPersistedState(runDirectory);
 		assert.deepStrictEqual(scopeBefore, {
 			kind: "targeted",
-			repository: fs.realpathSync(target.dir),
+			repository: taskPath,
 			pushRemote: "origin",
-			pushRef: `refs/heads/${targetBranch}`,
+			pushRef: `refs/heads/${mainBranch}`,
 		});
-		assert.deepStrictEqual(Object.keys(reposBefore), [repoId]);
+		assert.deepStrictEqual(Object.keys(state.data.repos), [repoId]);
+		const repoState = state.data.repos[repoId];
+		assert.strictEqual(repoState?.repository, taskPath);
+		assert.strictEqual(repoState?.operation, "commit-and-push");
+		const frozen = frozenTargetBefore as
+			| {
+					remote?: string;
+					destinationRef?: string;
+					destinationBaselineSha?: string;
+					pushUrlFingerprint?: string;
+			  }
+			| undefined;
+		assert.strictEqual(frozen?.remote, "origin");
+		assert.strictEqual(frozen?.destinationRef, `refs/heads/${mainBranch}`);
+		assert.strictEqual(frozen?.destinationBaselineSha, baseline);
+		assert.match(frozen?.pushUrlFingerprint ?? "", /^[a-f0-9]{64}$/u);
+	});
+
+	test("A7-04 | persisted state never contains the raw push URL", () => {
+		assert.ok(!persistedStateText.includes("https://"));
+		assert.ok(!persistedStateText.includes(remotePath));
+	});
+
+	test("A7-05 | the resume without targeted flags exits 0", () => {
+		assert.strictEqual(resumed.status, 0);
+		assert.ok(resumed.stdout.includes("action: DONE"));
+		assert.ok(resumed.stderr.includes("=== TURNLOCK EXECUTION REPORT ==="));
+	});
+
+	test("A7-06 | the remote destination equals the exact task HEAD", () => {
 		assert.strictEqual(
-			reposBefore[repoId]?.repository,
-			fs.realpathSync(target.dir),
+			git(remotePath, ["rev-parse", `refs/heads/${mainBranch}`]),
+			taskHeadAfter,
+		);
+		assert.notStrictEqual(taskHeadAfter, baseline);
+	});
+
+	test("A7-07 | the task worktree stays detached with the planned commit", () => {
+		assert.throws(() => git(taskPath, ["symbolic-ref", "--quiet", "HEAD"]));
+		assert.match(
+			git(taskPath, ["log", "--oneline", "-1"]),
+			/feat\(targeted\): publish detached task change/u,
 		);
 	});
 
-	test("A7-04 | resume without targeted CLI flags exits 0", () => {
-		assert.strictEqual(resumeExitCode, 0);
-		assert.ok(resumeStdout.includes("action: DONE"));
-		assert.ok(resumeStderr.includes("=== TURNLOCK EXECUTION REPORT ==="));
+	test("A7-08 | explicit publication reports no tracking projection", () => {
+		// Turnlock persists state at delegation points only, so the terminal
+		// outcome is observed through the execution report and the live refs.
+		assert.match(
+			resumed.stderr,
+			new RegExp(
+				`Exact remote publication verified: ${taskHeadAfter.slice(0, 7)}`,
+			),
+		);
+		assert.match(
+			resumed.stderr,
+			/Local remote-tracking ref not changed: no unambiguous matching projection/u,
+		);
+		assert.ok(
+			!resumed.stderr.includes("Local remote-tracking ref synchronized"),
+		);
+		assert.strictEqual(
+			git(taskPath, ["rev-parse", `refs/remotes/origin/${mainBranch}`]),
+			baseline,
+		);
 	});
 
-	test("A7-05 | resume creates the commit through the existing publication path", () => {
-		const log = runGit(target.dir, ["log", "--oneline", "-1"]);
-		assert.ok(log.includes("feat(targeted): publish targeted change"));
+	test("A7-09 | the persistent checkout is byte-identical", () => {
+		assert.deepStrictEqual(captureCheckoutState(persistent), persistentBefore);
+		assert.strictEqual(
+			git(persistent.dir, ["rev-parse", `refs/heads/${mainBranch}`]),
+			baseline,
+		);
+		assert.strictEqual(
+			fs.readFileSync(path.join(persistent.dir, "persistent-wip.ts"), "utf-8"),
+			"export const pending = true;\n",
+		);
 	});
 
-	test("A7-06 | resumed durable state keeps the exact targeted scope", () => {
+	test("A7-10 | the unrelated repository is untouched", () => {
+		assert.deepStrictEqual(captureCheckoutState(unrelated), unrelatedBefore);
+	});
+
+	test("A7-11 | durable scope and frozen target are unchanged by the resume", () => {
 		assert.deepStrictEqual(scopeAfter, scopeBefore);
-		assert.deepStrictEqual(scopeAfter, {
-			kind: "targeted",
-			repository: fs.realpathSync(target.dir),
-			pushRemote: "origin",
-			pushRef: `refs/heads/${targetBranch}`,
-		});
+		assert.deepStrictEqual(frozenTargetAfter, frozenTargetBefore);
 	});
 });
