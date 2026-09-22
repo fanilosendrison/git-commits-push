@@ -44,6 +44,7 @@ before(async () => {
 	// State records a STALE diffHash — this simulates user modifying the repo
 	// between Phase 2 and Phase 4.
 	computeStateJson(env.runDir, {
+		invocationScope: { kind: "global" },
 		repos: {
 			[repoId]: {
 				repository: repoDirty.dir,

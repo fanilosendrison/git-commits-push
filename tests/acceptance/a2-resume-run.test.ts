@@ -49,6 +49,7 @@ before(async () => {
 	computeStateJson(
 		env.runDir,
 		{
+			invocationScope: { kind: "global" },
 			repos: {
 				[repoId]: {
 					repository: repoDirty.dir,

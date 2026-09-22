@@ -141,6 +141,7 @@ describe("A3 — Fallback model escalation", () => {
 		computeStateJson(
 			env.runDir,
 			{
+				invocationScope: { kind: "global" },
 				repos: {
 					[repoId]: {
 						repository: repo.dir,
@@ -266,6 +267,7 @@ describe("A3 — Fallback model escalation", () => {
 		computeStateJson(
 			env.runDir,
 			{
+				invocationScope: { kind: "global" },
 				repos: {
 					[repoId]: {
 						repository: repo.dir,

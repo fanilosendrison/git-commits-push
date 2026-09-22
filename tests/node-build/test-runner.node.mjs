@@ -9,8 +9,8 @@ import {
 } from "../run-tests.mjs";
 
 test("keeps the git-commits-push Node test surface closed and sequential", () => {
-	assert.equal(EXPECTED_NODE_TEST_FILES.length, 70);
-	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 70);
+	assert.equal(EXPECTED_NODE_TEST_FILES.length, 72);
+	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 72);
 	assert.deepEqual(buildNodeTestArguments(["/tmp/example.test.ts"]), [
 		"--test",
 		"--test-concurrency=1",
@@ -20,11 +20,12 @@ test("keeps the git-commits-push Node test surface closed and sequential", () =>
 	]);
 });
 
-test("marks the closed Node suite as a telemetry test environment", () => {
+test("isolates the closed Node suite from publication settings", () => {
 	assert.deepEqual(
 		buildNodeTestEnvironment({
 			NODE_ENV: "production",
 			RETAINED_VALUE: "retained",
+			TURNLOCK_SKILL_SETTINGS_PATH: "/tmp/publication-settings.json",
 		}),
 		{
 			NODE_ENV: "test",

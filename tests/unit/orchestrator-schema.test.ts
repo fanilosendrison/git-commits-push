@@ -17,6 +17,7 @@ describe("production state schema", () => {
 
 	test("round-trips the complete push-only state without a raw endpoint", () => {
 		const input = {
+			invocationScope: { kind: "global" },
 			repos: {
 				"repo-1": {
 					repository: "/path/to/repo",
@@ -226,6 +227,84 @@ describe("production state schema", () => {
 			status: "INVALID",
 		});
 		assert.strictEqual(result.success, false);
+	});
+});
+
+describe("production invocation scope schema", () => {
+	test("normalizes a historical missing invocationScope to global", () => {
+		const result = stateSchema.safeParse({ repos: {} });
+
+		assert.strictEqual(result.success, true);
+		if (!result.success) return;
+		assert.deepStrictEqual(result.data.invocationScope, { kind: "global" });
+	});
+
+	test("round-trips explicit global scope", () => {
+		const input = {
+			invocationScope: { kind: "global" },
+			repos: {},
+		} as const;
+		const result = stateSchema.safeParse(input);
+
+		assert.strictEqual(result.success, true);
+		if (!result.success) return;
+		assert.deepStrictEqual(result.data, input);
+	});
+
+	test("round-trips a structurally valid targeted scope", () => {
+		const input = {
+			invocationScope: {
+				kind: "targeted",
+				repository: "/tmp/example-worktree",
+				pushRemote: "origin",
+				pushRef: "refs/heads/main",
+			},
+			repos: {},
+		} as const;
+		const result = stateSchema.safeParse(input);
+
+		assert.strictEqual(result.success, true);
+		if (!result.success) return;
+		assert.deepStrictEqual(result.data, input);
+	});
+
+	test("rejects malformed present invocationScope values", () => {
+		for (const invocationScope of [
+			null,
+			{
+				kind: "targeted",
+				pushRemote: "origin",
+				pushRef: "refs/heads/main",
+			},
+			{
+				kind: "targeted",
+				repository: "relative/path",
+				pushRemote: "origin",
+				pushRef: "refs/heads/main",
+			},
+			{
+				kind: "targeted",
+				repository: "/tmp/example-worktree",
+				pushRemote: "",
+				pushRef: "refs/heads/main",
+			},
+			{
+				kind: "targeted",
+				repository: "/tmp/example-worktree",
+				pushRemote: "origin",
+				pushRef: "main",
+			},
+			{
+				kind: "targeted",
+				repository: "/tmp/example-worktree",
+				pushRemote: "origin",
+				pushRef: "refs/heads/",
+			},
+			{ kind: "unknown" },
+		]) {
+			const result = stateSchema.safeParse({ invocationScope, repos: {} });
+			assert.strictEqual(result.success, false);
+		}
 	});
 });
 

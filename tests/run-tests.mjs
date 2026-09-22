@@ -13,6 +13,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"acceptance/a4-reconciliation-admission.test.ts",
 	"acceptance/a5-v3-full-pipeline.test.ts",
 	"acceptance/a6-push-only-recovery.test.ts",
+	"acceptance/a7-targeted-scope.test.ts",
 	"concurrency/c1-cold-start-contention.test.ts",
 	"concurrency/c2-finish-request-race.test.ts",
 	"concurrency/c3-crashed-owner.test.ts",
@@ -43,6 +44,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/git-publisher.test.ts",
 	"unit/git-publisher-multi-commit.test.ts",
 	"unit/historical-turnlock-state.test.ts",
+	"unit/invocation-scope.test.ts",
 	"unit/legacy-queue-state.test.ts",
 	"unit/llm-invoker-deepseek-thinking.test.ts",
 	"unit/orchestrator-schema.test.ts",
@@ -122,10 +124,12 @@ export function buildNodeTestArguments(resolvedTestFiles) {
 }
 
 export function buildNodeTestEnvironment(environment = process.env) {
-	return {
+	const testEnvironment = {
 		...environment,
 		NODE_ENV: "test",
 	};
+	delete testEnvironment.TURNLOCK_SKILL_SETTINGS_PATH;
+	return testEnvironment;
 }
 
 export function buildFailureDiagnostic(stdout, stderr) {

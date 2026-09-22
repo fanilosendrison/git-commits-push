@@ -106,11 +106,16 @@ describe("A1 — End-to-End Initial Run", () => {
 			schemaVersion: number;
 			currentPhase: string;
 			pendingDelegation?: { kind: string; jobIds?: string[] };
+			data?: {
+				invocationScope?: unknown;
+			};
 		};
 		assert.strictEqual(state.schemaVersion, 4);
 		assert.strictEqual(state.currentPhase, "discovery-and-validation");
 		assert.strictEqual(state.pendingDelegation?.kind, "batch");
 		assert.ok((state.pendingDelegation?.jobIds?.length ?? 0) > 0);
+		// A normal invocation without targeted flags persists explicit global scope.
+		assert.deepStrictEqual(state.data?.invocationScope, { kind: "global" });
 	});
 
 	test("A1-07 | delegation manifest contains prompt with diff payload", () => {
