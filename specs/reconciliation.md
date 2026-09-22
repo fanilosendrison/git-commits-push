@@ -37,6 +37,10 @@ contract and stores no repository, remote, ref, or targeted request payload.
 The targeted source-level scope foundation therefore does not change this
 specification's admission or coalescing rules.
 
+Explicit-target publication, when a targeted run performs it, stays inside one
+Turnlock execution pass and therefore also leaves schema-v3 admission and
+coalescing semantics unchanged.
+
 ## Normative invariant
 
 ### SINGLE_LIVE_GIT_EXECUTION

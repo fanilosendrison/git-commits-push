@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "3.0.1"
+version: "3.1.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -48,6 +48,23 @@ No compatibility field re-enables queue semantics.
 - This is not a reconciler SQLite migration.
 - PRAGMA user_version remains 3.
 - No target repository, remote, or ref is added to the reconciler singleton.
+
+## Turnlock push-state compatibility
+
+- TrackedPushSnapshot now carries the discriminant `kind:"tracked"`.
+- A legacy valid tracked snapshot without a discriminant normalizes to
+  `kind:"tracked"`; a present but unknown or malformed discriminant fails.
+- ExplicitPushSnapshot and ExplicitPushTargetSnapshot have no historical
+  migration: no explicit publication state existed before this change, so a
+  snapshot without a discriminant is never reinterpreted as explicit.
+- A legacy in-progress targeted run that requires publication but has no frozen
+  explicit target fails closed. Its historical remote baseline is unknown, and
+  substituting a current baseline would silently redefine the publication
+  authority, so the state is rejected instead of repaired.
+- Raw push URLs are never persisted; explicit state stores only a SHA-256
+  fingerprint of the single effective push URL.
+- This is Turnlock state compatibility, not a reconciler SQLite migration.
+- PRAGMA user_version remains 3.
 
 ## Safety changes
 

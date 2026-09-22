@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.0.2"
+version: "3.1.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -76,14 +76,24 @@ push to).
 
 #### Unreleased targeted-scope foundation
 
-- the stable installed 0.6.1 workflow remains the documented global workflow;
+- the stable installed 0.6.1 workflow remains the current installed global
+  workflow;
 - current source contains the targeted invocation-scope and exact-worktree
-  discovery foundation for the forthcoming integrated targeted capability;
+  discovery foundation plus explicit-target publication;
 - targeted source mode names one exact worktree with `--repository`,
   `--push-remote` and `--push-ref`;
-- it does not widen into `searchPaths` or sibling worktrees;
-- detached explicit publication, targeted concurrency semantics, release
-  qualification, and installed support are not yet claimed here.
+- it does not scan sibling worktrees or `searchPaths`;
+- source targeted mode supports exact detached commit-and-publish: commits are
+  created directly on the detached HEAD and the exact result is published to the
+  named remote branch;
+- source targeted mode supports clean explicit push-only publication;
+- the targeted destination branch must already exist — it is never created;
+- targeted publication never creates branches, upstreams, or persistent Git
+  configuration;
+- a stale or diverged destination fails closed: the caller or harness must
+  handle fetch, rebase, merge, and conflicts, then retry;
+- targeted reconciliation serialization (#8) is still not implemented;
+- the 0.7.0 installed release (#9) is still not qualified.
 
 ### 2. Validation
 

@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.1.0"
+version: "3.2.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -109,10 +109,19 @@ runtime behavior belongs in TypeScript modules.
 - Resume recovers scope from durable Turnlock state and may not redefine it
   through targeted CLI flags.
 - Persisted targeted worktrees are revalidated before resumed work.
-- `autoPush` is a global-discovery policy; targeted remote/ref arguments are
-  explicit publication authority.
-- Targeted clean push-only and detached explicit publication are not defined by
-  this layer.
+- `autoPush` is a global-discovery policy and never gates targeted publication.
+- Targeted remote/ref arguments are explicit publication authority, and the
+  observed destination baseline is frozen before any commit effect.
+- Targeted dirty detached worktrees commit directly on the detached HEAD.
+- Targeted clean ahead worktrees publish through explicit push-only snapshots.
+- Explicit publication never creates or changes a branch, an upstream, or any
+  persistent Git configuration, and its remote-tracking synchronization outcome
+  is `not-applicable`.
+- A destination that moved away from the frozen baseline fails closed: no
+  merge, rebase, or automatic recovery is attempted.
+- Targeted publication never advances or mutates a persistent checkout.
+- git-commits-push detects stale concurrent publication; the caller or harness
+  owns any fetch, rebase, and conflict resolution before retrying.
 - Reconciler schema v3 still stores no target payload and its coalescing
   semantics are unchanged by this change.
 
@@ -282,7 +291,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 72 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 73 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 
