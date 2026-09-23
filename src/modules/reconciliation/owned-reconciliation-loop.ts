@@ -16,6 +16,7 @@ import {
 } from "./reconciler.ts";
 import {
 	POSIX_EXECUTION_BOUNDARY_KIND,
+	type ReconciliationInvocationMode,
 	readReconcilerState,
 } from "./reconciler-db.ts";
 import {
@@ -32,6 +33,7 @@ export interface RunOwnedReconciliationOptions {
 	readonly db: DatabaseSync;
 	readonly ownerToken: string;
 	readonly initialGeneration: number;
+	readonly mode: ReconciliationInvocationMode;
 	readonly compiledApplicationDirectory: string;
 	readonly passthroughArguments: readonly string[];
 	readonly cancellation: LauncherCancellation;
@@ -61,7 +63,12 @@ function ownerFence(ownerToken: string, executionToken: string) {
 	};
 }
 
-async function recoverPriorExecution(
+/**
+ * Resolve any prior active execution before this owner may start new work.
+ * Returns only after the old boundary is proven dead and its exact descriptor
+ * has been token-cleared under the current recovery owner authority.
+ */
+export async function recoverPriorExecutionForOwner(
 	db: DatabaseSync,
 	ownerToken: string,
 ): Promise<void> {
@@ -209,7 +216,7 @@ async function runOnePass(
 export async function runOwnedReconciliation(
 	options: RunOwnedReconciliationOptions,
 ): Promise<OwnedReconciliationResult> {
-	await recoverPriorExecution(options.db, options.ownerToken);
+	await recoverPriorExecutionForOwner(options.db, options.ownerToken);
 	if (options.cancellation.signal.aborted) {
 		return { cancelled: true, exitCode: 2 };
 	}
@@ -226,6 +233,7 @@ export async function runOwnedReconciliation(
 			if (preparation.exitCode === 0) break;
 			const finish = finishReconciliationPass(options.db, {
 				generation,
+				mode: options.mode,
 				nowEpochMs: Date.now(),
 				pid: process.pid,
 				success: false,
@@ -251,6 +259,7 @@ export async function runOwnedReconciliation(
 		const success = passSucceeded(pass);
 		const finish = finishReconciliationPass(options.db, {
 			generation,
+			mode: options.mode,
 			nowEpochMs: Date.now(),
 			pid: process.pid,
 			success,

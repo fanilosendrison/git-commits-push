@@ -1,10 +1,15 @@
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
+import { parseInvocationArguments } from "../invocation/invocation-scope.ts";
 import { resolveRequestIdentity } from "../orders/request-identity.ts";
 import {
 	createSkillStatsLog,
 	type SkillStatsLog,
 } from "../telemetry/stats-logger.ts";
+import {
+	admitReconciliationRequest,
+	type NonWaitRegistration,
+} from "./admission-wait.ts";
 import { createLauncherCancellation } from "./launcher-cancellation.ts";
 import {
 	failClosed,
@@ -18,20 +23,21 @@ import {
 } from "./legacy-queue-state.ts";
 import { assertLegacyApplicationStateMigrated } from "./legacy-state-cutover.ts";
 import {
+	type OwnedReconciliationResult,
 	type RuntimePreparationResult,
+	recoverPriorExecutionForOwner,
 	runOwnedReconciliation,
 } from "./owned-reconciliation-loop.ts";
+import { createOwnerTenure } from "./owner-tenure.ts";
 import {
-	currentBootEpochMs,
 	establishCurrentProcessIdentity,
-	heartbeatReconciler,
-	registerReconciliationRequest,
 	releaseReconciliationOwnership,
 } from "./reconciler.ts";
 import {
 	openReconcilerDb,
 	ReconcilerInvariantError,
 	ReconcilerOpenError,
+	type ReconciliationInvocationMode,
 	resolveApplicationStateDirectory,
 	resolveReconcilerDbPath,
 	resolveReconcilerStateDirectory,
@@ -40,8 +46,6 @@ import {
 	acquireStateCutoverLock,
 	releaseStateCutoverLock,
 } from "./state-cutover-lock.ts";
-
-const HEARTBEAT_INTERVAL_MS = 10_000;
 
 export type { RuntimePreparationResult } from "./owned-reconciliation-loop.ts";
 
@@ -52,6 +56,15 @@ export interface RunPublicLauncherOptions {
 		abortSignal: AbortSignal,
 	) => Promise<RuntimePreparationResult>;
 }
+
+type AdmissionResult =
+	| {
+			readonly kind: "admitted";
+			readonly registration: NonWaitRegistration;
+			readonly token: string;
+	  }
+	| { readonly kind: "failed" }
+	| { readonly kind: "interrupted" };
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -73,6 +86,15 @@ function logTelemetry(operation: (log: SkillStatsLog) => void): void {
 export async function runPublicLauncher(
 	options: RunPublicLauncherOptions,
 ): Promise<number> {
+	const externalArguments = options.passthroughArguments ?? [];
+	let invocationMode: ReconciliationInvocationMode;
+	try {
+		invocationMode = parseInvocationArguments(externalArguments).request.kind;
+	} catch (error) {
+		failClosed(`invalid invocation arguments: ${errorMessage(error)}`);
+		return 2;
+	}
+
 	const identity = resolveRequestIdentity();
 	let stateCutoverLockPath: string | null = null;
 	const releaseStateCutoverLockBeforeReturn = (): void => {
@@ -136,163 +158,61 @@ export async function runPublicLauncher(
 		throw error;
 	}
 
-	const ownerToken = randomBytes(16).toString("hex");
-	const ownerProcessIdentity = establishCurrentProcessIdentity(ownerToken);
+	const processMarkerNonce = randomBytes(16).toString("hex");
+	const ownerProcessIdentity =
+		establishCurrentProcessIdentity(processMarkerNonce);
 	if (!ownerProcessIdentity) {
 		releaseStateCutoverLockBeforeReturn();
 		failClosed("cannot read the launcher process start identity");
 		db.close();
 		return 2;
 	}
-	let ownerActive = false;
 	const cancellation = createLauncherCancellation();
-	let registration: ReturnType<typeof registerReconciliationRequest>;
-	try {
-		registration = registerReconciliationRequest(db, {
-			bootEpochMs: currentBootEpochMs(),
+	const tenure = createOwnerTenure({ cancellation, db });
+
+	const terminateForInterruptedWait = (): number => {
+		cancellation.removeSignalHandlers();
+		db.close();
+		const interruptedSignal = cancellation.interruptedSignal;
+		if (interruptedSignal !== null) {
+			process.kill(process.pid, interruptedSignal);
+		}
+		return 2;
+	};
+
+	/** Admit one request, polling process-locally while an incompatible owner runs. */
+	const admitRequest = async (): Promise<AdmissionResult> => {
+		const outcome = await admitReconciliationRequest({
 			callerName: identity.callerName,
-			nowEpochMs: Date.now(),
-			originAgent: identity.originAgent,
+			db,
+			isInterrupted: () => cancellation.interruptedSignal !== null,
+			mode: invocationMode,
+			onAttempt: releaseStateCutoverLockBeforeReturn,
 			...(identity.originSessionId === undefined
 				? {}
 				: { originSessionId: identity.originSessionId }),
-			pid: process.pid,
+			originAgent: identity.originAgent,
 			processIdentity: ownerProcessIdentity,
-			token: ownerToken,
 		});
-	} catch (error) {
-		releaseStateCutoverLockBeforeReturn();
-		cancellation.removeSignalHandlers();
-		failClosed(`reconciliation admission failed: ${errorMessage(error)}`);
-		db.close();
-		return 2;
-	}
-	ownerActive = registration.kind === "OWNER";
-	const releaseOwnershipBestEffort = (): void => {
-		if (!ownerActive) return;
-		try {
-			releaseReconciliationOwnership(db, {
-				pid: process.pid,
-				token: ownerToken,
-			});
-		} catch {
-			// Fencing prevents stale finalization if best-effort release fails.
-		}
-	};
-
-	releaseStateCutoverLockBeforeReturn();
-	await new Promise((resolve) => setImmediate(resolve));
-	if (cancellation.interruptedSignal !== null) {
-		releaseOwnershipBestEffort();
-		cancellation.removeSignalHandlers();
-		db.close();
-		process.kill(process.pid, cancellation.interruptedSignal);
-	}
-
-	logTelemetry((log) =>
-		log.logReconciliationRequested({
-			callerName: identity.callerName,
-			generation: registration.generation,
-			originAgent: identity.originAgent,
-			...(identity.originSessionId === undefined
-				? {}
-				: { originSessionId: identity.originSessionId }),
-			outcome: registration.kind === "OWNER" ? "owner" : "coalesced",
-			...(registration.kind === "OWNER"
-				? { recovered: registration.recovered }
-				: {}),
-		}),
-	);
-	if (registration.kind === "COALESCED") {
-		logTelemetry((log) =>
-			log.logReconciliationCoalesced({
-				generation: registration.generation,
-				ownerCallerName: registration.ownerCallerName,
-				ownerPid: registration.ownerPid,
-			}),
-		);
-		writeCoalescedMessage(registration.generation);
-		cancellation.removeSignalHandlers();
-		db.close();
-		return 0;
-	}
-
-	let heartbeat: NodeJS.Timeout | null = null;
-	let uncaughtExceptionHandler: ((error: Error) => void) | null = null;
-	let unhandledRejectionHandler: ((reason: unknown) => void) | null = null;
-	const closeOwnerResources = (): void => {
-		ownerActive = false;
-		if (heartbeat !== null) clearInterval(heartbeat);
-		if (uncaughtExceptionHandler !== null) {
-			process.removeListener("uncaughtException", uncaughtExceptionHandler);
-		}
-		if (unhandledRejectionHandler !== null) {
-			process.removeListener("unhandledRejection", unhandledRejectionHandler);
-		}
-		cancellation.removeSignalHandlers();
-		db.close();
-	};
-	const crashWithoutFalseIdle = (reason: unknown): void => {
-		process.stderr.write(
-			`git-commits-push launcher crashed: ${errorMessage(reason)}\n`,
-		);
-		// Release succeeds only when no active execution is durably recorded.
-		releaseOwnershipBestEffort();
-		try {
-			db.close();
-		} catch {
-			// Connection may already be unusable.
-		}
-		process.exit(1);
-	};
-	uncaughtExceptionHandler = crashWithoutFalseIdle;
-	unhandledRejectionHandler = crashWithoutFalseIdle;
-	process.on("uncaughtException", uncaughtExceptionHandler);
-	process.on("unhandledRejection", unhandledRejectionHandler);
-
-	try {
-		deleteLegacyQueueArtifacts(stateDirectory, legacyInspection);
-	} catch (error) {
-		releaseOwnershipBestEffort();
-		closeOwnerResources();
-		failClosed(`legacy queue migration failed: ${errorMessage(error)}`);
-		return 2;
-	}
-	if (registration.recovered) {
-		process.stderr.write(
-			`git-commits-push: recovered reconciliation state from a previous owner ` +
-				`(pid ${registration.previousOwnerPid}). Performing a fresh global rescan.\n`,
-		);
-		logTelemetry((log) =>
-			log.logReconciliationRecovered({
-				generation: registration.generation,
-				previousOwnerPid: registration.previousOwnerPid,
-			}),
-		);
-	}
-
-	heartbeat = setInterval(() => {
-		try {
-			const retained = heartbeatReconciler(db, {
-				nowEpochMs: Date.now(),
-				pid: process.pid,
-				token: ownerToken,
-			});
-			if (!retained) {
-				cancellation.abortForOwnershipFailure(
-					"reconciliation ownership was lost; active work was terminated",
-				);
-			}
-		} catch (error) {
-			cancellation.abortForOwnershipFailure(
-				`reconciliation ownership was lost because heartbeat validation failed: ${errorMessage(error)}`,
+		if (outcome.kind === "failed") {
+			cancellation.removeSignalHandlers();
+			failClosed(
+				`reconciliation admission failed: ${errorMessage(outcome.error)}`,
 			);
+			db.close();
+			return { kind: "failed" };
 		}
-	}, HEARTBEAT_INTERVAL_MS);
+		if (outcome.kind === "interrupted") return { kind: "interrupted" };
+		return {
+			kind: "admitted",
+			registration: outcome.registration,
+			token: outcome.token,
+		};
+	};
 
 	const terminateAfterCancellation = (): number => {
-		releaseOwnershipBestEffort();
-		closeOwnerResources();
+		tenure.releaseBestEffort();
+		tenure.close();
 		if (cancellation.interruptedSignal !== null) {
 			process.kill(process.pid, cancellation.interruptedSignal);
 		}
@@ -301,29 +221,168 @@ export async function runPublicLauncher(
 		);
 		return 2;
 	};
-
-	try {
-		const result = await runOwnedReconciliation({
-			cancellation,
-			compiledApplicationDirectory: options.compiledApplicationDirectory,
-			db,
-			initialGeneration: registration.generation,
-			ownerToken,
-			passthroughArguments: options.passthroughArguments ?? [],
-			...(options.prepareRuntime === undefined
-				? {}
-				: { prepareRuntime: options.prepareRuntime }),
-		});
-		if (result.cancelled) return terminateAfterCancellation();
-		closeOwnerResources();
-		return result.exitCode;
-	} catch (error) {
-		releaseOwnershipBestEffort();
-		closeOwnerResources();
+	const failTenure = (message: string, error: unknown): number => {
+		tenure.releaseBestEffort();
+		tenure.close();
 		failClosed(
-			cancellation.ownershipFailure ??
-				`reconciliation execution failed: ${errorMessage(error)}`,
+			cancellation.ownershipFailure ?? `${message}: ${errorMessage(error)}`,
 		);
 		return 2;
+	};
+
+	let admission = await admitRequest();
+	if (admission.kind === "failed") return 2;
+	if (admission.kind === "interrupted") return terminateForInterruptedWait();
+	let registration = admission.registration;
+	let registrationToken = admission.token;
+	let legacyArtifactsDeleted = false;
+
+	for (;;) {
+		if (registration.kind === "COALESCED") {
+			const coalesced = registration;
+			logTelemetry((log) =>
+				log.logReconciliationRequested({
+					callerName: identity.callerName,
+					generation: coalesced.generation,
+					originAgent: identity.originAgent,
+					...(identity.originSessionId === undefined
+						? {}
+						: { originSessionId: identity.originSessionId }),
+					outcome: "coalesced",
+				}),
+			);
+			logTelemetry((log) =>
+				log.logReconciliationCoalesced({
+					generation: coalesced.generation,
+					ownerCallerName: coalesced.ownerCallerName,
+					ownerPid: coalesced.ownerPid,
+				}),
+			);
+			writeCoalescedMessage(coalesced.generation);
+			tenure.close();
+			return 0;
+		}
+
+		tenure.start(
+			registrationToken,
+			registration.kind === "OWNER"
+				? registration.mode
+				: registration.recoveryMode,
+		);
+		await new Promise((resolve) => setImmediate(resolve));
+		if (cancellation.interruptedSignal !== null) {
+			tenure.releaseBestEffort();
+			tenure.close();
+			process.kill(process.pid, cancellation.interruptedSignal);
+			return 2;
+		}
+
+		logTelemetry((log) =>
+			log.logReconciliationRequested({
+				callerName: identity.callerName,
+				generation: registration.generation,
+				originAgent: identity.originAgent,
+				...(identity.originSessionId === undefined
+					? {}
+					: { originSessionId: identity.originSessionId }),
+				outcome: "owner",
+				recovered: registration.kind === "RECOVERY_OWNER",
+			}),
+		);
+		if (registration.kind === "RECOVERY_OWNER") {
+			const recovered = registration;
+			process.stderr.write(
+				`git-commits-push: recovered ${recovered.recoveryMode} reconciliation state from a previous owner ` +
+					`(pid ${recovered.previousOwnerPid ?? "none"}).\n`,
+			);
+			logTelemetry((log) =>
+				log.logReconciliationRecovered({
+					generation: recovered.generation,
+					previousOwnerPid: recovered.previousOwnerPid,
+				}),
+			);
+		}
+
+		if (!legacyArtifactsDeleted) {
+			try {
+				deleteLegacyQueueArtifacts(stateDirectory, legacyInspection);
+				legacyArtifactsDeleted = true;
+			} catch (error) {
+				return failTenure("legacy queue migration failed", error);
+			}
+		}
+
+		if (registration.kind === "OWNER") {
+			let result: OwnedReconciliationResult;
+			try {
+				result = await runOwnedReconciliation({
+					cancellation,
+					compiledApplicationDirectory: options.compiledApplicationDirectory,
+					db,
+					initialGeneration: registration.generation,
+					mode: registration.mode,
+					ownerToken: registrationToken,
+					passthroughArguments: externalArguments,
+					...(options.prepareRuntime === undefined
+						? {}
+						: { prepareRuntime: options.prepareRuntime }),
+				});
+			} catch (error) {
+				return failTenure("reconciliation execution failed", error);
+			}
+			if (result.cancelled) return terminateAfterCancellation();
+			tenure.close();
+			return result.exitCode;
+		}
+
+		if (registration.recoveryMode === "global") {
+			const requestSatisfied = registration.requestSatisfiedByRecovery;
+			let result: OwnedReconciliationResult;
+			try {
+				result = await runOwnedReconciliation({
+					cancellation,
+					compiledApplicationDirectory: options.compiledApplicationDirectory,
+					db,
+					initialGeneration: registration.generation,
+					mode: "global",
+					ownerToken: registrationToken,
+					passthroughArguments: requestSatisfied ? externalArguments : [],
+					...(options.prepareRuntime === undefined
+						? {}
+						: { prepareRuntime: options.prepareRuntime }),
+				});
+			} catch (error) {
+				return failTenure("reconciliation recovery failed", error);
+			}
+			if (result.cancelled) return terminateAfterCancellation();
+			if (requestSatisfied || result.exitCode !== 0) {
+				tenure.close();
+				return result.exitCode;
+			}
+			tenure.end();
+		} else {
+			try {
+				await recoverPriorExecutionForOwner(db, registrationToken);
+				const settled = releaseReconciliationOwnership(db, {
+					mode: "targeted",
+					pid: process.pid,
+					token: registrationToken,
+				});
+				if (!settled) {
+					throw new Error(
+						"targeted recovery could not durably settle the coordinator generation",
+					);
+				}
+			} catch (error) {
+				return failTenure("targeted recovery failed", error);
+			}
+			tenure.end();
+		}
+
+		admission = await admitRequest();
+		if (admission.kind === "failed") return 2;
+		if (admission.kind === "interrupted") return terminateForInterruptedWait();
+		registration = admission.registration;
+		registrationToken = admission.token;
 	}
 }

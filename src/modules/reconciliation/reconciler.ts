@@ -6,7 +6,9 @@ import {
 } from "./process-identity.ts";
 import { ReconcilerFencedError } from "./reconciler-errors.ts";
 import {
+	ReconcilerInvariantError,
 	type ReconcilerStateRecord,
+	type ReconciliationInvocationMode,
 	readReconcilerState,
 } from "./reconciler-state.ts";
 import { runReconcilerTransaction } from "./reconciler-transaction.ts";
@@ -27,6 +29,7 @@ export {
 export { ReconcilerFencedError } from "./reconciler-errors.ts";
 
 export interface RegisterReconciliationOptions {
+	readonly mode: ReconciliationInvocationMode;
 	readonly token: string;
 	readonly pid: number;
 	readonly bootEpochMs: number;
@@ -40,20 +43,38 @@ export interface RegisterReconciliationOptions {
 export type RegisterReconciliationResult =
 	| {
 			readonly kind: "OWNER";
+			readonly mode: ReconciliationInvocationMode;
 			readonly generation: number;
 			readonly completedGeneration: number;
-			readonly recovered: boolean;
-			readonly previousOwnerPid: number | null;
-			readonly requiresExecutionRecovery: boolean;
+			readonly recovered: false;
 	  }
 	| {
 			readonly kind: "COALESCED";
+			readonly mode: "global";
 			readonly generation: number;
 			readonly ownerPid: number | null;
 			readonly ownerCallerName: string | null;
+	  }
+	| {
+			readonly kind: "WAIT";
+			readonly ownerMode: ReconciliationInvocationMode;
+			readonly ownerPid: number | null;
+			readonly ownerCallerName: string | null;
+			readonly runningGeneration: number;
+	  }
+	| {
+			readonly kind: "RECOVERY_OWNER";
+			readonly recoveryMode: ReconciliationInvocationMode;
+			readonly generation: number;
+			readonly completedGeneration: number;
+			readonly previousOwnerPid: number | null;
+			readonly requiresExecutionRecovery: boolean;
+			readonly requestSatisfiedByRecovery: boolean;
+			readonly recovered: true;
 	  };
 
 export interface FinishReconciliationPassOptions {
+	readonly mode: ReconciliationInvocationMode;
 	readonly token: string;
 	readonly pid: number;
 	readonly generation: number;
@@ -84,6 +105,7 @@ export interface HeartbeatOptions {
 }
 
 export interface ReleaseOwnershipOptions {
+	readonly mode: ReconciliationInvocationMode;
 	readonly token: string;
 	readonly pid: number;
 }
@@ -107,6 +129,9 @@ function ownerIsAlive(state: ReconcilerStateRecord): boolean {
 function assertRegistrationOptions(
 	options: RegisterReconciliationOptions,
 ): void {
+	if (options.mode !== "global" && options.mode !== "targeted") {
+		throw new TypeError("owner invocation mode must be global or targeted");
+	}
 	if (!options.token.trim())
 		throw new TypeError("owner token must not be empty");
 	if (!Number.isSafeInteger(options.pid) || options.pid <= 0) {
@@ -159,6 +184,7 @@ function ownerMatchesObservation(
 		current.ownerToken === observed.ownerToken &&
 		current.ownerPid === observed.ownerPid &&
 		current.ownerProcessIdentity === observed.ownerProcessIdentity &&
+		current.ownerInvocationMode === observed.ownerInvocationMode &&
 		current.runningGeneration === observed.runningGeneration &&
 		executionMatchesObservation(
 			current.activeExecution,
@@ -183,28 +209,48 @@ export function registerReconciliationRequest(
 					throw new ReconciliationOwnerChanged();
 				}
 				const nextRequested = state.requestedGeneration + 1;
+
 				if (observedOwnerIsAlive) {
-					db.prepare(
-						"UPDATE reconciler_state SET requested_generation = ? WHERE singleton_id = 1",
-					).run(nextRequested);
+					if (
+						state.ownerInvocationMode === "global" &&
+						options.mode === "global"
+					) {
+						db.prepare(
+							"UPDATE reconciler_state SET requested_generation = ? WHERE singleton_id = 1",
+						).run(nextRequested);
+						return {
+							kind: "COALESCED",
+							mode: "global",
+							generation: nextRequested,
+							ownerPid: state.ownerPid,
+							ownerCallerName: state.ownerCallerName,
+						};
+					}
+					if (
+						state.ownerInvocationMode === null ||
+						state.runningGeneration === null
+					) {
+						throw new ReconcilerInvariantError(
+							"a live owner must carry an invocation mode and a running generation",
+						);
+					}
 					return {
-						kind: "COALESCED",
-						generation: nextRequested,
+						kind: "WAIT",
+						ownerMode: state.ownerInvocationMode,
 						ownerPid: state.ownerPid,
 						ownerCallerName: state.ownerCallerName,
+						runningGeneration: state.runningGeneration,
 					};
 				}
 
-				const recovered = state.ownerToken !== null;
 				const previousOwnerPid = state.ownerPid;
-				db.prepare(
-					`UPDATE reconciler_state SET
-						requested_generation = ?, running_generation = ?, owner_token = ?,
-						owner_pid = ?, owner_boot_epoch_ms = ?, owner_process_identity = ?,
-						owner_caller_name = ?, owner_origin_agent = ?, owner_session_id = ?,
-						heartbeat_at_epoch_ms = ?
-					 WHERE singleton_id = 1`,
-				).run(
+				const ownerColumnsSql = `requested_generation = ?, running_generation = ?,
+					owner_token = ?, owner_pid = ?, owner_boot_epoch_ms = ?,
+					owner_process_identity = ?, owner_caller_name = ?, owner_origin_agent = ?,
+					owner_session_id = ?, owner_invocation_mode = ?, heartbeat_at_epoch_ms = ?`;
+				const ownerColumnValues = (
+					mode: ReconciliationInvocationMode,
+				): Array<string | number | null> => [
 					nextRequested,
 					nextRequested,
 					options.token,
@@ -214,15 +260,66 @@ export function registerReconciliationRequest(
 					options.callerName,
 					options.originAgent,
 					options.originSessionId ?? null,
+					mode,
 					options.nowEpochMs,
-				);
+				];
+
+				if (state.ownerToken !== null) {
+					const previousOwnerMode = state.ownerInvocationMode;
+					if (previousOwnerMode === null || state.runningGeneration === null) {
+						throw new ReconcilerInvariantError(
+							"a recorded owner must carry an invocation mode and a running generation",
+						);
+					}
+					if (
+						previousOwnerMode === "targeted" &&
+						state.requestedGeneration !== state.runningGeneration
+					) {
+						throw new ReconcilerInvariantError(
+							"a targeted owner cannot legally own coalesced newer generations; refusing recovery",
+						);
+					}
+					db.prepare(
+						`UPDATE reconciler_state SET ${ownerColumnsSql} WHERE singleton_id = 1`,
+					).run(...ownerColumnValues(previousOwnerMode));
+					return {
+						kind: "RECOVERY_OWNER",
+						recoveryMode: previousOwnerMode,
+						generation: nextRequested,
+						completedGeneration: state.completedGeneration,
+						previousOwnerPid,
+						requiresExecutionRecovery: state.activeExecution !== null,
+						requestSatisfiedByRecovery:
+							previousOwnerMode === "global" && options.mode === "global",
+						recovered: true,
+					};
+				}
+
+				if (state.requestedGeneration > state.completedGeneration) {
+					db.prepare(
+						`UPDATE reconciler_state SET ${ownerColumnsSql} WHERE singleton_id = 1`,
+					).run(...ownerColumnValues("global"));
+					return {
+						kind: "RECOVERY_OWNER",
+						recoveryMode: "global",
+						generation: nextRequested,
+						completedGeneration: state.completedGeneration,
+						previousOwnerPid: null,
+						requiresExecutionRecovery: state.activeExecution !== null,
+						requestSatisfiedByRecovery: options.mode === "global",
+						recovered: true,
+					};
+				}
+
+				db.prepare(
+					`UPDATE reconciler_state SET ${ownerColumnsSql} WHERE singleton_id = 1`,
+				).run(...ownerColumnValues(options.mode));
 				return {
 					kind: "OWNER",
+					mode: options.mode,
 					generation: nextRequested,
 					completedGeneration: state.completedGeneration,
-					recovered,
-					previousOwnerPid,
-					requiresExecutionRecovery: state.activeExecution !== null,
+					recovered: false,
 				};
 			});
 		} catch (error) {
@@ -247,6 +344,11 @@ export function finishReconciliationPass(
 				"The reconciler owner token no longer matches; refusing to finalize another owner's pass.",
 			);
 		}
+		if (state.ownerInvocationMode !== options.mode) {
+			throw new ReconcilerFencedError(
+				"The reconciler owner invocation mode no longer matches; refusing to finalize another mode's pass.",
+			);
+		}
 		if (state.activeExecution !== null) {
 			throw new ReconcilerFencedError(
 				"An active execution remains registered; refusing false pass completion.",
@@ -256,6 +358,32 @@ export function finishReconciliationPass(
 			throw new ReconcilerFencedError(
 				`running_generation ${String(state.runningGeneration)} does not match pass generation ${options.generation}; refusing to finalize.`,
 			);
+		}
+
+		if (options.mode === "targeted") {
+			if (state.requestedGeneration !== state.runningGeneration) {
+				throw new ReconcilerFencedError(
+					"A targeted owner must never have coalesced newer work; refusing to finalize.",
+				);
+			}
+			const targetedCompletedGeneration = options.generation;
+			db.prepare(
+				`UPDATE reconciler_state SET completed_generation = ?, running_generation = NULL,
+					owner_token = NULL, owner_pid = NULL, owner_boot_epoch_ms = NULL,
+					owner_process_identity = NULL, owner_caller_name = NULL,
+					owner_origin_agent = NULL, owner_session_id = NULL,
+					owner_invocation_mode = NULL, heartbeat_at_epoch_ms = NULL
+				 WHERE singleton_id = 1`,
+			).run(targetedCompletedGeneration);
+			return options.success
+				? {
+						decision: "STOP_SUCCESS",
+						completedGeneration: targetedCompletedGeneration,
+					}
+				: {
+						decision: "STOP_FAILED",
+						completedGeneration: targetedCompletedGeneration,
+					};
 		}
 
 		const completedGeneration = options.success
@@ -281,7 +409,7 @@ export function finishReconciliationPass(
 				owner_token = NULL, owner_pid = NULL, owner_boot_epoch_ms = NULL,
 				owner_process_identity = NULL, owner_caller_name = NULL,
 				owner_origin_agent = NULL, owner_session_id = NULL,
-				heartbeat_at_epoch_ms = NULL
+				owner_invocation_mode = NULL, heartbeat_at_epoch_ms = NULL
 			 WHERE singleton_id = 1`,
 		).run(completedGeneration);
 		return options.success
@@ -318,14 +446,29 @@ export function releaseReconciliationOwnership(
 		if (state.ownerToken !== options.token || state.ownerPid !== options.pid) {
 			return false;
 		}
+		if (state.ownerInvocationMode !== options.mode) return false;
 		if (state.activeExecution !== null) return false;
+		if (options.mode === "targeted") {
+			const targetedResult = db
+				.prepare(
+					`UPDATE reconciler_state SET completed_generation = requested_generation,
+						running_generation = NULL, owner_token = NULL,
+						owner_pid = NULL, owner_boot_epoch_ms = NULL,
+						owner_process_identity = NULL, owner_caller_name = NULL,
+						owner_origin_agent = NULL, owner_session_id = NULL,
+						owner_invocation_mode = NULL, heartbeat_at_epoch_ms = NULL
+					 WHERE singleton_id = 1 AND owner_token = ? AND owner_pid = ?`,
+				)
+				.run(options.token, options.pid);
+			return targetedResult.changes === 1;
+		}
 		const result = db
 			.prepare(
 				`UPDATE reconciler_state SET running_generation = NULL, owner_token = NULL,
 					owner_pid = NULL, owner_boot_epoch_ms = NULL,
 					owner_process_identity = NULL, owner_caller_name = NULL,
 					owner_origin_agent = NULL, owner_session_id = NULL,
-					heartbeat_at_epoch_ms = NULL
+					owner_invocation_mode = NULL, heartbeat_at_epoch_ms = NULL
 				 WHERE singleton_id = 1 AND owner_token = ? AND owner_pid = ?`,
 			)
 			.run(options.token, options.pid);

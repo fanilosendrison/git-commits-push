@@ -2,6 +2,12 @@ import type { DatabaseSync } from "node:sqlite";
 
 export const POSIX_EXECUTION_BOUNDARY_KIND = "posix-session-process-group-v1";
 
+/** The two public reconciliation invocation modes. */
+export const RECONCILIATION_INVOCATION_MODES = ["global", "targeted"] as const;
+
+export type ReconciliationInvocationMode =
+	(typeof RECONCILIATION_INVOCATION_MODES)[number];
+
 export type ActiveExecutionState = "REGISTERED" | "START_AUTHORIZED";
 
 export interface ActiveExecutionRecord {
@@ -27,6 +33,7 @@ export interface ReconcilerStateRecord {
 	readonly ownerCallerName: string | null;
 	readonly ownerOriginAgent: string | null;
 	readonly ownerSessionId: string | null;
+	readonly ownerInvocationMode: ReconciliationInvocationMode | null;
 	readonly heartbeatAtEpochMs: number | null;
 	readonly activeExecution: ActiveExecutionRecord | null;
 }
@@ -50,6 +57,7 @@ interface RawStateRow {
 	readonly owner_caller_name: string | null;
 	readonly owner_origin_agent: string | null;
 	readonly owner_session_id: string | null;
+	readonly owner_invocation_mode: string | null;
 	readonly heartbeat_at_epoch_ms: number | null;
 	readonly execution_token: string | null;
 	readonly execution_generation: number | null;
@@ -71,6 +79,15 @@ function isPositiveInteger(value: number | null): value is number {
 
 function isNonEmpty(value: string | null): value is string {
 	return value !== null && value.trim().length > 0;
+}
+
+function isInvocationMode(
+	value: string | null,
+): value is ReconciliationInvocationMode {
+	return (
+		value !== null &&
+		(RECONCILIATION_INVOCATION_MODES as readonly string[]).includes(value)
+	);
 }
 
 function readActiveExecution(
@@ -203,10 +220,11 @@ export function readReconcilerState(db: DatabaseSync): ReconcilerStateRecord {
 		row.owner_process_identity,
 		row.owner_caller_name,
 		row.owner_origin_agent,
+		row.owner_invocation_mode,
 	];
 	if (ownerFields.some((value) => (value !== null) !== hasRunning)) {
 		throw new ReconcilerInvariantError(
-			"owner token, pid, boot epoch, process identity, caller, origin and running generation must be set and cleared together",
+			"owner token, pid, boot epoch, process identity, caller, origin, invocation mode and running generation must be set and cleared together",
 		);
 	}
 	if (!hasRunning && row.owner_session_id !== null) {
@@ -232,10 +250,11 @@ export function readReconcilerState(db: DatabaseSync): ReconcilerStateRecord {
 			!isNonEmpty(row.owner_process_identity) ||
 			!isNonEmpty(row.owner_caller_name) ||
 			!isNonEmpty(row.owner_origin_agent) ||
+			!isInvocationMode(row.owner_invocation_mode) ||
 			(row.owner_session_id !== null && !isNonEmpty(row.owner_session_id))
 		) {
 			throw new ReconcilerInvariantError(
-				"active owner metadata must contain a heartbeat and valid non-empty identity fields",
+				"active owner metadata must contain a heartbeat, an invocation mode, and valid non-empty identity fields",
 			);
 		}
 	} else if (row.heartbeat_at_epoch_ms !== null) {
@@ -256,6 +275,9 @@ export function readReconcilerState(db: DatabaseSync): ReconcilerStateRecord {
 		ownerBootEpochMs: row.owner_boot_epoch_ms,
 		ownerCallerName: row.owner_caller_name,
 		ownerOriginAgent: row.owner_origin_agent,
+		ownerInvocationMode: isInvocationMode(row.owner_invocation_mode)
+			? row.owner_invocation_mode
+			: null,
 		ownerPid: row.owner_pid,
 		ownerProcessIdentity: row.owner_process_identity,
 		ownerSessionId: row.owner_session_id,
