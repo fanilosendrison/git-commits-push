@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.1.0"
+version: "3.1.1"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -76,7 +76,7 @@ push to).
 
 #### Unreleased targeted-scope foundation
 
-- the stable installed 0.6.1 workflow remains the current installed global
+- the stable installed 0.6.2 workflow remains the current installed global
   workflow;
 - current source contains the targeted invocation-scope and exact-worktree
   discovery foundation plus explicit-target publication;
@@ -160,6 +160,10 @@ staged something else), the repo is re-validated from scratch.
 **Partial failure handling.** If one commit succeeds and the next one fails,
 the already-created commits are preserved. The skill reports which commits
 landed and which didn't, then retries the remainder.
+
+**Initial commits.** A dirty repository with a proven unborn branch is supported.
+The CLI records the absence of a prior commit, builds the initial commit from the
+exact plan, and can publish it to an empty remote branch.
 
 **Push.** After all commits for a repo succeed, `git push` runs against the
 single effective push URL. Preflight, exact-SHA publication, and postflight
