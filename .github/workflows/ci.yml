@@ -31,16 +31,22 @@ jobs:
       - name: Configure Turnlock deploy key
         shell: bash
         env:
-          TURNLOCK_DEPLOY_KEY: ${{ secrets.TURNLOCK_DEPLOY_KEY }}
+          TURNLOCK_DEPLOY_KEY_B64: ${{ secrets.TURNLOCK_DEPLOY_KEY_B64 }}
         run: |
           set -euo pipefail
+          test -n "$TURNLOCK_DEPLOY_KEY_B64"
           mkdir -p "$HOME/.ssh"
           chmod 0700 "$HOME/.ssh"
-          printf '%s' "$TURNLOCK_DEPLOY_KEY" > "$HOME/.ssh/turnlock_ci"
+          printf '%s' "$TURNLOCK_DEPLOY_KEY_B64" \
+            | base64 --decode \
+            > "$HOME/.ssh/turnlock_ci"
           chmod 0600 "$HOME/.ssh/turnlock_ci"
+          ssh-keygen -y -f "$HOME/.ssh/turnlock_ci" >/dev/null
           ssh-keyscan -t ed25519 github.com > "$HOME/.ssh/known_hosts"
           chmod 0644 "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
           git config --global core.sshCommand "ssh -i $HOME/.ssh/turnlock_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes"
+          git config --global --get core.sshCommand >/dev/null
 
       - name: Turnlock SSH access smoke
         shell: bash
