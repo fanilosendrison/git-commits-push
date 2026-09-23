@@ -7,7 +7,7 @@ autoInstallPeers: false
 injectWorkspacePackages: true
 
 allowBuilds:
-  'turnlock@https://codeload.github.com/fanilosendrison/turnlock/tar.gz/a519ee6a31fb243921d0b2f6c2379d8f0c919801': true
+  'turnlock@git+ssh://git@github.com/fanilosendrison/turnlock.git#a519ee6a31fb243921d0b2f6c2379d8f0c919801': true
 
 minimumReleaseAgeExclude:
   - '@fanilosendrison/event-sink@0.1.0'
