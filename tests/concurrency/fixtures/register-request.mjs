@@ -7,8 +7,9 @@
  *   RECONCILER_READY_FILE     written before waiting at the barrier (optional)
  *   RECONCILER_BARRIER_FILE   wait for this file before registering (optional)
  *   RECONCILER_RESULT_FILE    append one JSON result line (required)
- *   RECONCILER_KEEP_ALIVE_FILE  if OWNER, stay alive until this exists (optional)
+ *   RECONCILER_KEEP_ALIVE_FILE  if owned, stay alive until this exists (optional)
  *   RECONCILER_CALLER_NAME    caller identity recorded in the state row
+ *   RECONCILER_MODE           "global" (default) or "targeted"
  */
 
 import { randomBytes } from "node:crypto";
@@ -70,6 +71,11 @@ if (!stateDirectory || !resultFile) {
 }
 
 mkdirSync(stateDirectory, { recursive: true });
+const mode = process.env.RECONCILER_MODE ?? "global";
+if (mode !== "global" && mode !== "targeted") {
+	process.stderr.write("RECONCILER_MODE must be global or targeted\n");
+	process.exit(2);
+}
 const token = randomBytes(16).toString("hex");
 const processIdentity = reconciler.readProcessStartIdentity(process.pid);
 if (!processIdentity) throw new Error("cannot read fixture process identity");
@@ -88,26 +94,70 @@ try {
 		pid: process.pid,
 		bootEpochMs: reconciler.currentBootEpochMs(),
 		processIdentity,
+		mode,
 		callerName: process.env.RECONCILER_CALLER_NAME ?? "Concurrency Fixture",
 		originAgent: "test",
 		nowEpochMs: Date.now(),
 	});
 	const state = reconcilerDb.readReconcilerState(db);
-	appendFileSync(
-		resultFile,
-		`${JSON.stringify({
+	let serialized;
+	if (registration.kind === "OWNER") {
+		serialized = {
 			pid: process.pid,
 			token,
 			kind: registration.kind,
+			mode: registration.mode,
 			generation: registration.generation,
-			recovered: registration.kind === "OWNER" ? registration.recovered : false,
-			completedGeneration:
-				registration.kind === "OWNER" ? registration.completedGeneration : null,
+			recovered: false,
+			completedGeneration: registration.completedGeneration,
 			observedRequested: state.requestedGeneration,
 			observedOwnerToken: state.ownerToken,
-		})}\n`,
-	);
-	if (registration.kind === "OWNER" && keepAliveFile) {
+		};
+	} else if (registration.kind === "COALESCED") {
+		serialized = {
+			pid: process.pid,
+			token,
+			kind: registration.kind,
+			mode: registration.mode,
+			generation: registration.generation,
+			recovered: false,
+			completedGeneration: null,
+			observedRequested: state.requestedGeneration,
+			observedOwnerToken: state.ownerToken,
+		};
+	} else if (registration.kind === "WAIT") {
+		serialized = {
+			pid: process.pid,
+			token,
+			kind: registration.kind,
+			ownerMode: registration.ownerMode,
+			ownerPid: registration.ownerPid,
+			ownerCallerName: registration.ownerCallerName,
+			runningGeneration: registration.runningGeneration,
+			observedRequested: state.requestedGeneration,
+			observedOwnerToken: state.ownerToken,
+		};
+	} else {
+		serialized = {
+			pid: process.pid,
+			token,
+			kind: registration.kind,
+			recoveryMode: registration.recoveryMode,
+			generation: registration.generation,
+			recovered: true,
+			completedGeneration: registration.completedGeneration,
+			previousOwnerPid: registration.previousOwnerPid,
+			requiresExecutionRecovery: registration.requiresExecutionRecovery,
+			requestSatisfiedByRecovery: registration.requestSatisfiedByRecovery,
+			observedRequested: state.requestedGeneration,
+			observedOwnerToken: state.ownerToken,
+		};
+	}
+	appendFileSync(resultFile, `${JSON.stringify(serialized)}\n`);
+	if (
+		(registration.kind === "OWNER" || registration.kind === "RECOVERY_OWNER") &&
+		keepAliveFile
+	) {
 		waitForFile(keepAliveFile);
 	}
 } finally {

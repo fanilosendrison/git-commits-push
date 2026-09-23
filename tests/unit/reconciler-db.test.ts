@@ -97,6 +97,7 @@ describe("reconciler-db", () => {
 			assert.strictEqual(state.ownerCallerName, null);
 			assert.strictEqual(state.ownerOriginAgent, null);
 			assert.strictEqual(state.ownerSessionId, null);
+			assert.strictEqual(state.ownerInvocationMode, null);
 			assert.strictEqual(state.heartbeatAtEpochMs, null);
 			assert.strictEqual(state.activeExecution, null);
 			assert.strictEqual(countReconcilerStateRows(db), 1);
@@ -168,6 +169,170 @@ describe("reconciler-db", () => {
 		);
 	});
 
+	const V3_SCHEMA_SQL = `
+CREATE TABLE reconciler_state (
+	singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+	requested_generation INTEGER NOT NULL,
+	completed_generation INTEGER NOT NULL,
+	running_generation INTEGER,
+	owner_token TEXT,
+	owner_pid INTEGER,
+	owner_boot_epoch_ms INTEGER,
+	owner_process_identity TEXT,
+	owner_caller_name TEXT,
+	owner_origin_agent TEXT,
+	owner_session_id TEXT,
+	heartbeat_at_epoch_ms INTEGER,
+	execution_token TEXT,
+	execution_generation INTEGER,
+	execution_pid INTEGER,
+	execution_process_identity TEXT,
+	execution_group_id INTEGER,
+	execution_boundary_kind TEXT,
+	execution_owner_token TEXT,
+	execution_state TEXT,
+	CHECK (requested_generation >= completed_generation)
+) STRICT;
+PRAGMA user_version = 3;
+`;
+
+	function createV3Database(
+		requireIdle: boolean,
+		requestedGeneration = 7,
+		completedGeneration = 7,
+	): void {
+		const raw = new DatabaseSync(dbPath);
+		try {
+			raw.exec(V3_SCHEMA_SQL);
+			raw
+				.prepare(
+					"INSERT INTO reconciler_state (singleton_id, requested_generation, completed_generation) VALUES (1, ?, ?)",
+				)
+				.run(requestedGeneration, completedGeneration);
+			if (!requireIdle) {
+				raw.exec(
+					"UPDATE reconciler_state SET running_generation = 2, owner_token = 'v3-owner', owner_pid = 4242, owner_boot_epoch_ms = 1, owner_process_identity = 'v3-identity', owner_caller_name = 'v3', owner_origin_agent = 'v3', heartbeat_at_epoch_ms = 1, execution_token = 'v3-execution', execution_generation = 1, execution_pid = 4343, execution_process_identity = 'v3-execution-identity', execution_group_id = 4343, execution_boundary_kind = 'posix-session-process-group-v1', execution_owner_token = 'v3-owner', execution_state = 'START_AUTHORIZED' WHERE singleton_id = 1",
+				);
+			}
+		} finally {
+			raw.close();
+		}
+	}
+
+	function userVersionOf(targetPath: string): number {
+		const raw = new DatabaseSync(targetPath);
+		try {
+			const row = raw.prepare("PRAGMA user_version").get() as {
+				user_version?: number;
+			};
+			return Number(row?.user_version ?? 0);
+		} finally {
+			raw.close();
+		}
+	}
+
+	function tableColumns(targetPath: string): string[] {
+		const raw = new DatabaseSync(targetPath);
+		try {
+			return (
+				raw.prepare("PRAGMA table_info(reconciler_state)").all() as Array<{
+					name: string;
+				}>
+			).map((column) => column.name);
+		} finally {
+			raw.close();
+		}
+	}
+
+	test("U13 | an idle converged schema-v3 singleton migrates atomically to v4", () => {
+		createV3Database(true, 7, 7);
+		const db = openReconcilerDb(dbPath);
+		try {
+			const state = readReconcilerState(db);
+			assert.strictEqual(state.requestedGeneration, 7);
+			assert.strictEqual(state.completedGeneration, 7);
+			assert.strictEqual(state.runningGeneration, null);
+			assert.strictEqual(state.ownerToken, null);
+			assert.strictEqual(state.ownerInvocationMode, null);
+			assert.strictEqual(countReconcilerStateRows(db), 1);
+			assert.deepStrictEqual(listReconcilerTables(db), ["reconciler_state"]);
+		} finally {
+			db.close();
+		}
+		assert.strictEqual(userVersionOf(dbPath), RECONCILER_SCHEMA_VERSION);
+		assert.ok(tableColumns(dbPath).includes("owner_invocation_mode"));
+	});
+
+	test("U14 | read-only open of schema v3 never migrates", () => {
+		createV3Database(true, 7, 7);
+		assert.throws(
+			() => openReconcilerDb(dbPath, { readOnly: true }),
+			(error) => {
+				assert.ok(error instanceof ReconcilerOpenError);
+				assert.strictEqual(
+					(error as ReconcilerOpenError).kind,
+					"incompatible-schema",
+				);
+				return true;
+			},
+		);
+		assert.strictEqual(userVersionOf(dbPath), 3);
+		assert.strictEqual(
+			tableColumns(dbPath).includes("owner_invocation_mode"),
+			false,
+		);
+	});
+
+	test("U15 | non-idle schema v3 fails closed and is preserved", () => {
+		const assertRefused = (): void => {
+			assert.throws(
+				() => openReconcilerDb(dbPath),
+				(error) => {
+					assert.ok(error instanceof ReconcilerOpenError);
+					assert.strictEqual(
+						(error as ReconcilerOpenError).kind,
+						"incompatible-schema",
+					);
+					return true;
+				},
+			);
+			assert.strictEqual(userVersionOf(dbPath), 3);
+			assert.strictEqual(
+				tableColumns(dbPath).includes("owner_invocation_mode"),
+				false,
+			);
+		};
+
+		// Pending generations: requested > completed with no owner.
+		createV3Database(true, 3, 1);
+		assertRefused();
+
+		// Running owner without execution.
+		fs.rmSync(dbPath, { force: true });
+		fs.rmSync(`${dbPath}-wal`, { force: true });
+		fs.rmSync(`${dbPath}-shm`, { force: true });
+		const rawOwner = new DatabaseSync(dbPath);
+		try {
+			rawOwner.exec(V3_SCHEMA_SQL);
+			rawOwner.exec(
+				"INSERT INTO reconciler_state (singleton_id, requested_generation, completed_generation) VALUES (1, 2, 0)",
+			);
+			rawOwner.exec(
+				"UPDATE reconciler_state SET running_generation = 2, owner_token = 'v3-owner', owner_pid = 4242, owner_boot_epoch_ms = 1, owner_process_identity = 'v3-identity', owner_caller_name = 'v3', owner_origin_agent = 'v3', heartbeat_at_epoch_ms = 1 WHERE singleton_id = 1",
+			);
+		} finally {
+			rawOwner.close();
+		}
+		assertRefused();
+
+		// Active execution under a running owner.
+		fs.rmSync(dbPath, { force: true });
+		fs.rmSync(`${dbPath}-wal`, { force: true });
+		fs.rmSync(`${dbPath}-shm`, { force: true });
+		createV3Database(false, 2, 0);
+		assertRefused();
+	});
+
 	test("U12c | impossible invariant state fails closed on read", () => {
 		const db = openReconcilerDb(dbPath);
 		db.close();
@@ -177,7 +342,7 @@ describe("reconciler-db", () => {
 			// CHECKs but violates the reconciliation invariant (no pass may run
 			// for a generation nobody requested).
 			raw.exec(
-				"UPDATE reconciler_state SET running_generation = 999, owner_token = 't', owner_pid = 1, owner_boot_epoch_ms = 0, owner_process_identity = 'test-process', owner_caller_name = 'test', owner_origin_agent = 'test', heartbeat_at_epoch_ms = 0 WHERE singleton_id = 1",
+				"UPDATE reconciler_state SET running_generation = 999, owner_token = 't', owner_pid = 1, owner_boot_epoch_ms = 0, owner_process_identity = 'test-process', owner_caller_name = 'test', owner_origin_agent = 'test', owner_invocation_mode = 'global', heartbeat_at_epoch_ms = 0 WHERE singleton_id = 1",
 			);
 		} finally {
 			raw.close();

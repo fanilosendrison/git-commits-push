@@ -23,9 +23,10 @@ const CONTENDER_COUNT = 16;
 interface RegisterResultLine {
 	readonly pid: number;
 	readonly token: string;
-	readonly kind: "OWNER" | "COALESCED";
+	readonly kind: "OWNER" | "COALESCED" | "WAIT" | "RECOVERY_OWNER";
 	readonly generation: number;
 	readonly recovered: boolean;
+	readonly recoveryMode?: "global" | "targeted";
 }
 
 describe("C4 — orphan execution recovery contention", () => {
@@ -107,6 +108,7 @@ describe("C4 — orphan execution recovery contention", () => {
 						owner_token = 'dead-owner', owner_pid = ?, owner_boot_epoch_ms = 1,
 						owner_process_identity = 'dead-owner-identity',
 						owner_caller_name = 'dead', owner_origin_agent = 'test',
+						owner_invocation_mode = 'global',
 						heartbeat_at_epoch_ms = 1,
 						execution_token = 'execution-a', execution_generation = 1,
 						execution_pid = ?, execution_process_identity = ?,
@@ -160,16 +162,18 @@ describe("C4 — orphan execution recovery contention", () => {
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line) as RegisterResultLine);
+		assert.strictEqual(results.filter(({ kind }) => kind === "WAIT").length, 0);
 		assert.strictEqual(
-			results.filter(({ kind }) => kind === "OWNER").length,
+			results.filter(({ kind }) => kind === "RECOVERY_OWNER").length,
 			1,
 		);
 		assert.strictEqual(
 			results.filter(({ kind }) => kind === "COALESCED").length,
 			CONTENDER_COUNT - 1,
 		);
-		const winner = results.find(({ kind }) => kind === "OWNER");
+		const winner = results.find(({ kind }) => kind === "RECOVERY_OWNER");
 		assert.strictEqual(winner?.recovered, true);
+		assert.strictEqual(winner?.recoveryMode, "global");
 		const db = openReconcilerDb(dbPath);
 		try {
 			const state = readReconcilerState(db);

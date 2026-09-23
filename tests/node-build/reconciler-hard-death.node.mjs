@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -275,6 +283,292 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 			}
 			if (ownerB && ownerB.exitCode === null && ownerB.signalCode === null) {
 				ownerB.kill("SIGKILL");
+			}
+			await llmServer.close();
+		}
+	});
+});
+
+async function createDetachedTarget(root, environment, name) {
+	const canonicalRoot = realpathSync(root);
+	const searchRoot = path.join(canonicalRoot, `${name} search`);
+	await mkdir(searchRoot, { recursive: true });
+	const repositoryPath = path.join(searchRoot, "repository");
+	const bareRemotePath = path.join(canonicalRoot, `${name}.git`);
+	await createRepoWithBareRemote(repositoryPath, bareRemotePath, environment);
+	const baseline = runGit(repositoryPath, ["rev-parse", "HEAD"], environment);
+	const branch = runGit(
+		repositoryPath,
+		["symbolic-ref", "--quiet", "--short", "HEAD"],
+		environment,
+	);
+	const taskPath = path.join(searchRoot, "task-worktree");
+	runGit(
+		repositoryPath,
+		["worktree", "add", "--detach", taskPath, baseline],
+		environment,
+	);
+	await writeFile(
+		path.join(taskPath, `${name}-task.ts`),
+		`export const ${name.replaceAll("-", "_")} = true;\n`,
+	);
+	return {
+		bareRemotePath,
+		baseline,
+		branch,
+		pushRef: `refs/heads/${branch}`,
+		taskPath,
+	};
+}
+
+function targetedLauncherArguments(target) {
+	return [
+		"--repository",
+		target.taskPath,
+		"--push-remote",
+		"origin",
+		"--push-ref",
+		target.pushRef,
+	];
+}
+
+test("EXEC-INV-4/8/10 | a dead targeted owner is fenced and never replayed", {
+	skip: process.platform !== "darwin" && process.platform !== "linux",
+}, async () => {
+	await withTemporaryDirectory(async (root) => {
+		const llmServer = await startLlmOverlapServer();
+		let ownerA;
+		let ownerB;
+		let fixtureRoot = null;
+		try {
+			const environment = isolatedEnvironment(root);
+			await mkdir(environment.HOME, { recursive: true });
+			await mkdir(environment.XDG_CONFIG_HOME, { recursive: true });
+			// The shared temporary root contains a non-ASCII character whose path
+			// normalization differs between Node realpath and Git getcwd. This
+			// targeted worktree comparison needs an ASCII-only ancestor chain.
+			fixtureRoot = await mkdtemp(path.join(tmpdir(), "targeted-hard-death-"));
+			const targetA = await createDetachedTarget(fixtureRoot, environment, "a");
+			const targetB = await createDetachedTarget(fixtureRoot, environment, "b");
+			const orderStateDirectory = path.join(root, "reconciler state");
+			const turnlockRunRoot = path.join(root, "turnlock runs");
+			const executionEventsPath = path.join(root, "execution-events.jsonl");
+			const settingsPath = path.join(root, "settings.json");
+			for (const directory of [
+				orderStateDirectory,
+				turnlockRunRoot,
+				path.join(root, "telemetry"),
+				path.join(root, "scanner telemetry"),
+			]) {
+				await mkdir(directory, { recursive: true });
+			}
+			await writeFile(executionEventsPath, "");
+			await writeFile(
+				settingsPath,
+				JSON.stringify({
+					autoPush: false,
+					model: "gpt-5.4-mini",
+					provider: "openai",
+					searchPaths: [],
+					skipTests: true,
+					systemPromptPath: path.join(
+						compiledSkillDirectory,
+						"system-prompt.md",
+					),
+					temperature: 0,
+				}),
+			);
+			const baseEnvironment = {
+				...environment,
+				GCP_TEST_EXECUTION_EVENTS_PATH: executionEventsPath,
+				GCP_TEST_LLM_SERVER_URL: llmServer.url,
+				NODE_ENV: "test",
+				NODE_OPTIONS: `--import=${pathToFileURL(overlapPreloadPath).href}`,
+				OPENAI_API_KEY: "sk-test",
+				ORDER_STATE_DIR: orderStateDirectory,
+				PI_SESSION_ID: "targeted-hard-death-a",
+				PI_SKILL_STATS_DIR: path.join(root, "telemetry"),
+				SECRET_SCANNER_STATS_DIR: path.join(root, "scanner telemetry"),
+				TURNLOCK_RUN_DIR_ROOT: turnlockRunRoot,
+				TURNLOCK_SKILL_SETTINGS_PATH: settingsPath,
+			};
+			const reconcilerDb = await import(
+				pathToFileURL(
+					path.join(
+						compiledSkillDirectory,
+						"src/modules/reconciliation/reconciler-db.js",
+					),
+				).href
+			);
+			const dbPath = reconcilerDb.resolveReconcilerDbPath(orderStateDirectory);
+
+			ownerA = spawn(
+				process.execPath,
+				[publicLauncherPath, ...targetedLauncherArguments(targetA)],
+				{
+					cwd: skillDirectory,
+					env: baseEnvironment,
+					shell: false,
+					stdio: "ignore",
+				},
+			);
+			await waitForCondition(
+				() =>
+					llmServer.events.some(
+						(event) =>
+							event.type === "request_opened" &&
+							(event.payload?.files ?? []).includes("a-task.ts"),
+					),
+				"targeted owner A did not reach the LLM barrier",
+			);
+			const duringA = reconcilerDb.openReconcilerDb(dbPath);
+			let executionA;
+			try {
+				const state = reconcilerDb.readReconcilerState(duringA);
+				assert.strictEqual(state.ownerPid, ownerA.pid);
+				assert.strictEqual(state.ownerInvocationMode, "targeted");
+				assert.strictEqual(state.activeExecution?.state, "START_AUTHORIZED");
+				executionA = state.activeExecution;
+			} finally {
+				duringA.close();
+			}
+			assert.ok(executionA);
+			assert.strictEqual(processGroupExists(executionA.groupId), true);
+
+			const ownerAClosed = waitForClose(ownerA);
+			ownerA.kill("SIGKILL");
+			await ownerAClosed;
+			assert.strictEqual(processGroupExists(executionA.groupId), true);
+
+			ownerB = spawn(
+				process.execPath,
+				[publicLauncherPath, ...targetedLauncherArguments(targetB)],
+				{
+					cwd: skillDirectory,
+					env: { ...baseEnvironment, PI_SESSION_ID: "targeted-recovery-owner" },
+					shell: false,
+					stdio: ["ignore", "pipe", "pipe"],
+				},
+			);
+			const ownerBOutput = collectOutput(ownerB);
+			const ownerBClosed = waitForClose(ownerB);
+			await waitForCondition(
+				() =>
+					llmServer.events.some(
+						(event) =>
+							event.type === "request_opened" &&
+							(event.payload?.files ?? []).includes("b-task.ts"),
+					),
+				"recovery owner did not start its own targeted LLM request",
+			);
+
+			// The abandoned boundary is fully resolved before the new owner runs.
+			assert.strictEqual(processExists(executionA.pid), false);
+			assert.strictEqual(processGroupExists(executionA.groupId), false);
+			assert.strictEqual(llmServer.overlapDetected(), false);
+			assert.strictEqual(llmServer.maximumActiveExecutions(), 1);
+
+			const opened = llmServer.events.filter(
+				({ type }) => type === "request_opened",
+			);
+			assert.strictEqual(opened.length, 2);
+			assert.notStrictEqual(opened[0].token, opened[1].token);
+			const lifecycle = await readEvents(executionEventsPath);
+			assert.strictEqual(
+				lifecycle.filter(({ type }) => type === "supervisor_started").length,
+				2,
+			);
+			const oldTerminationIndex = lifecycle.findIndex(
+				(event) =>
+					event.type === "boundary_termination_started" &&
+					event.executionToken === opened[0].token,
+			);
+			const newSupervisorIndex = lifecycle.findIndex(
+				(event) =>
+					event.type === "supervisor_started" &&
+					event.executionToken === opened[1].token,
+			);
+			assert.ok(
+				oldTerminationIndex >= 0 && oldTerminationIndex < newSupervisorIndex,
+			);
+
+			// Recovery settled generation 2 before the new request claimed 3, and
+			// the dead target was never replayed.
+			const settlingDb = reconcilerDb.openReconcilerDb(dbPath);
+			try {
+				const state = reconcilerDb.readReconcilerState(settlingDb);
+				assert.strictEqual(state.requestedGeneration, 3);
+				assert.strictEqual(state.completedGeneration, 2);
+				assert.strictEqual(state.runningGeneration, 3);
+				assert.strictEqual(state.ownerInvocationMode, "targeted");
+			} finally {
+				settlingDb.close();
+			}
+			assert.strictEqual(
+				runGit(targetA.taskPath, ["rev-parse", "HEAD"], environment),
+				targetA.baseline,
+			);
+			assert.strictEqual(
+				runGit(
+					targetA.bareRemotePath,
+					["rev-parse", targetA.pushRef],
+					environment,
+				),
+				targetA.baseline,
+			);
+
+			llmServer.release();
+			assert.strictEqual(await ownerBClosed, 0, ownerBOutput.stderr());
+
+			const finalDb = reconcilerDb.openReconcilerDb(dbPath);
+			try {
+				const state = reconcilerDb.readReconcilerState(finalDb);
+				assert.strictEqual(state.requestedGeneration, 3);
+				assert.strictEqual(state.completedGeneration, 3);
+				assert.strictEqual(state.runningGeneration, null);
+				assert.strictEqual(state.ownerToken, null);
+				assert.strictEqual(state.ownerInvocationMode, null);
+				assert.strictEqual(state.activeExecution, null);
+			} finally {
+				finalDb.close();
+			}
+			const targetBHead = runGit(
+				targetB.taskPath,
+				["rev-parse", "HEAD"],
+				environment,
+			);
+			assert.notStrictEqual(targetBHead, targetB.baseline);
+			assert.strictEqual(
+				runGit(
+					targetB.bareRemotePath,
+					["rev-parse", targetB.pushRef],
+					environment,
+				),
+				targetBHead,
+			);
+			assert.strictEqual(
+				runGit(targetA.taskPath, ["rev-parse", "HEAD"], environment),
+				targetA.baseline,
+			);
+			assert.strictEqual(
+				runGit(
+					targetA.bareRemotePath,
+					["rev-parse", targetA.pushRef],
+					environment,
+				),
+				targetA.baseline,
+			);
+			assert.strictEqual(nonProtocolBytes(ownerBOutput.stdout()), "");
+			assert.deepStrictEqual(protocolActions(ownerBOutput.stdout()), ["DONE"]);
+		} finally {
+			if (ownerA && ownerA.exitCode === null && ownerA.signalCode === null) {
+				ownerA.kill("SIGKILL");
+			}
+			if (ownerB && ownerB.exitCode === null && ownerB.signalCode === null) {
+				ownerB.kill("SIGKILL");
+			}
+			if (fixtureRoot !== null) {
+				await rm(fixtureRoot, { force: true, recursive: true });
 			}
 			await llmServer.close();
 		}

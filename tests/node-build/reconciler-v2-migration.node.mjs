@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { migrateReconcilerV2Database } from "../../scripts/reconciler-v2-migration.mjs";
 import {
 	openReconcilerDb,
+	RECONCILER_SCHEMA_VERSION,
 	readReconcilerState,
 } from "../../src/modules/reconciliation/reconciler-db.ts";
 
@@ -92,7 +93,7 @@ test("schema-v2 migration rejects active or pending durable state", async () => 
 	});
 });
 
-test("confirmed idle schema-v2 singleton migrates in place to bounded v3", async () => {
+test("confirmed idle schema-v2 singleton migrates in place to the current schema", async () => {
 	await withV2Database(async (dbPath) => {
 		assert.deepStrictEqual(
 			migrateReconcilerV2Database({
@@ -107,6 +108,14 @@ test("confirmed idle schema-v2 singleton migrates in place to bounded v3", async
 			assert.strictEqual(state.requestedGeneration, 0);
 			assert.strictEqual(state.completedGeneration, 0);
 			assert.strictEqual(state.activeExecution, null);
+			assert.strictEqual(state.ownerInvocationMode, null);
+			const versionRow = db.prepare("PRAGMA user_version").get();
+			assert.strictEqual(versionRow.user_version, RECONCILER_SCHEMA_VERSION);
+			const columnNames = db
+				.prepare("PRAGMA table_info(reconciler_state)")
+				.all()
+				.map((column) => column.name);
+			assert.ok(columnNames.includes("owner_invocation_mode"));
 			const tables = db
 				.prepare(
 					"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
@@ -115,6 +124,33 @@ test("confirmed idle schema-v2 singleton migrates in place to bounded v3", async
 			assert.deepStrictEqual(
 				tables.map(({ name }) => name),
 				["reconciler_state"],
+			);
+		} finally {
+			db.close();
+		}
+	});
+});
+
+test("a current schema database reports already-current", async () => {
+	await withV2Database(async (dbPath) => {
+		// Upgrade through the explicit path first, then prove the command is
+		// idempotent against the current schema.
+		migrateReconcilerV2Database({
+			confirmedNoLiveExecution: true,
+			dbPath,
+		});
+		assert.deepStrictEqual(
+			migrateReconcilerV2Database({
+				confirmedNoLiveExecution: true,
+				dbPath,
+			}),
+			{ outcome: "already-current" },
+		);
+		const db = openReconcilerDb(dbPath);
+		try {
+			assert.strictEqual(
+				db.prepare("PRAGMA user_version").get().user_version,
+				RECONCILER_SCHEMA_VERSION,
 			);
 		} finally {
 			db.close();

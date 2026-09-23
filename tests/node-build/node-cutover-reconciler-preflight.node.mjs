@@ -67,7 +67,7 @@ test("a stale recorded reconciler owner blocks cutover distinctly", async () => 
 		const raw = new DatabaseSync(dbPath);
 		try {
 			raw.exec(
-				"UPDATE reconciler_state SET requested_generation = 3, completed_generation = 0, running_generation = 3, owner_token = 'live-token', owner_pid = 4242, owner_boot_epoch_ms = 1800000000000, owner_process_identity = 'test-process', owner_caller_name = 'active', owner_origin_agent = 'test', heartbeat_at_epoch_ms = 1800000000000 WHERE singleton_id = 1",
+				"UPDATE reconciler_state SET requested_generation = 3, completed_generation = 0, running_generation = 3, owner_token = 'live-token', owner_pid = 4242, owner_boot_epoch_ms = 1800000000000, owner_process_identity = 'test-process', owner_caller_name = 'active', owner_origin_agent = 'test', owner_invocation_mode = 'global', heartbeat_at_epoch_ms = 1800000000000 WHERE singleton_id = 1",
 			);
 		} finally {
 			raw.close();

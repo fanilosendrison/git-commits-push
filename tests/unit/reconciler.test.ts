@@ -21,6 +21,7 @@ import {
 } from "../../src/modules/reconciliation/reconciler.ts";
 import {
 	openReconcilerDb,
+	ReconcilerInvariantError,
 	readReconcilerState,
 	resolveReconcilerDbPath,
 } from "../../src/modules/reconciliation/reconciler-db.ts";
@@ -33,6 +34,7 @@ interface FabricatedOwnerRow {
 	readonly ownerPid: number;
 	readonly ownerBootEpochMs: number;
 	readonly ownerProcessIdentity?: string;
+	readonly ownerInvocationMode?: "global" | "targeted";
 	readonly heartbeatAtEpochMs: number;
 }
 
@@ -55,6 +57,7 @@ describe("reconciler state machine", () => {
 	): RegisterReconciliationOptions {
 		return {
 			bootEpochMs: currentBootEpochMs(),
+			mode: "global",
 			processIdentity:
 				readProcessStartIdentity(process.pid) ?? "test-process-identity",
 			callerName: "Unit Test Agent",
@@ -93,6 +96,7 @@ describe("reconciler state machine", () => {
 					owner_caller_name = 'Fabricated Owner',
 					owner_origin_agent = 'test',
 					owner_session_id = NULL,
+					owner_invocation_mode = ?,
 					heartbeat_at_epoch_ms = ?
 				WHERE singleton_id = 1`,
 				)
@@ -106,8 +110,32 @@ describe("reconciler state machine", () => {
 					row.ownerProcessIdentity ??
 						readProcessStartIdentity(row.ownerPid) ??
 						"missing-process-identity",
+					row.ownerInvocationMode ?? "global",
 					row.heartbeatAtEpochMs,
 				);
+			raw.exec("COMMIT");
+		} catch (error) {
+			raw.exec("ROLLBACK");
+			throw error;
+		} finally {
+			raw.close();
+		}
+	}
+
+	/** Fabricate ownerless pending generations without an owner row. */
+	function fabricateOwnerlessDebt(
+		requestedGeneration: number,
+		completedGeneration: number,
+	): void {
+		const raw = new DatabaseSync(resolveReconcilerDbPath(stateDir));
+		try {
+			raw.exec("BEGIN IMMEDIATE");
+			raw
+				.prepare(
+					`UPDATE reconciler_state SET requested_generation = ?,
+						completed_generation = ? WHERE singleton_id = 1`,
+				)
+				.run(requestedGeneration, completedGeneration);
 			raw.exec("COMMIT");
 		} catch (error) {
 			raw.exec("ROLLBACK");
@@ -170,6 +198,7 @@ describe("reconciler state machine", () => {
 		if (registration.kind !== "OWNER") return;
 		const finish = finishReconciliationPass(db, {
 			generation: 1,
+			mode: "global",
 			nowEpochMs: Date.now(),
 			pid: process.pid,
 			success: true,
@@ -197,6 +226,7 @@ describe("reconciler state machine", () => {
 
 		const finish = finishReconciliationPass(db, {
 			generation: 1,
+			mode: "global",
 			nowEpochMs: Date.now(),
 			pid: process.pid,
 			success: true,
@@ -221,6 +251,7 @@ describe("reconciler state machine", () => {
 		if (registration.kind !== "OWNER") return;
 		const finish = finishReconciliationPass(db, {
 			generation: 1,
+			mode: "global",
 			nowEpochMs: Date.now(),
 			pid: process.pid,
 			success: false,
@@ -245,6 +276,7 @@ describe("reconciler state machine", () => {
 
 		const finish = finishReconciliationPass(db, {
 			generation: 1,
+			mode: "global",
 			nowEpochMs: Date.now(),
 			pid: process.pid,
 			success: false,
@@ -287,6 +319,7 @@ describe("reconciler state machine", () => {
 		);
 		assert.strictEqual(
 			releaseReconciliationOwnership(db, {
+				mode: "global",
 				pid: process.pid,
 				token: oldToken,
 			}),
@@ -296,6 +329,7 @@ describe("reconciler state machine", () => {
 			() =>
 				finishReconciliationPass(db, {
 					generation: 1,
+					mode: "global",
 					nowEpochMs: Date.now(),
 					pid: process.pid,
 					success: true,
@@ -328,9 +362,11 @@ describe("reconciler state machine", () => {
 			db,
 			options({ token: "recovering-token" }),
 		);
-		assert.strictEqual(registration.kind, "OWNER");
-		if (registration.kind !== "OWNER") return;
+		assert.strictEqual(registration.kind, "RECOVERY_OWNER");
+		if (registration.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(registration.recoveryMode, "global");
 		assert.strictEqual(registration.recovered, true);
+		assert.strictEqual(registration.requestSatisfiedByRecovery, true);
 		assert.strictEqual(registration.generation, previousRequested + 1);
 		assert.strictEqual(registration.completedGeneration, previousCompleted);
 
@@ -385,10 +421,367 @@ describe("reconciler state machine", () => {
 			db,
 			options({ token: "new-boot-token" }),
 		);
-		assert.strictEqual(registration.kind, "OWNER");
-		if (registration.kind !== "OWNER") return;
+		assert.strictEqual(registration.kind, "RECOVERY_OWNER");
+		if (registration.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(registration.recoveryMode, "global");
 		assert.strictEqual(registration.recovered, true);
 		const state = readReconcilerState(db);
 		assert.strictEqual(state.ownerToken, "new-boot-token");
+	});
+
+	test("A | a global owner coalesces a global requester", () => {
+		const owner = registerReconciliationRequest(
+			db,
+			options({ callerName: "Global Owner" }),
+		);
+		assert.strictEqual(owner.kind, "OWNER");
+		if (owner.kind !== "OWNER") return;
+		assert.strictEqual(owner.mode, "global");
+		const ownerToken = readReconcilerState(db).ownerToken;
+
+		const coalesced = registerReconciliationRequest(
+			db,
+			options({ token: randomUUID(), callerName: "Global Caller" }),
+		);
+		assert.strictEqual(coalesced.kind, "COALESCED");
+		if (coalesced.kind !== "COALESCED") return;
+		assert.strictEqual(coalesced.mode, "global");
+		assert.strictEqual(coalesced.generation, 2);
+
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 2);
+		assert.strictEqual(state.runningGeneration, 1);
+		assert.strictEqual(state.ownerToken, ownerToken);
+		assert.strictEqual(state.ownerInvocationMode, "global");
+	});
+
+	test("B | a global owner makes a targeted requester wait without durable mutation", () => {
+		registerReconciliationRequest(db, options({ callerName: "Global Owner" }));
+		const before = readReconcilerState(db);
+
+		const wait = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: randomUUID() }),
+		);
+		assert.strictEqual(wait.kind, "WAIT");
+		if (wait.kind !== "WAIT") return;
+		assert.strictEqual(wait.ownerMode, "global");
+		assert.strictEqual(wait.ownerPid, before.ownerPid);
+		assert.strictEqual(wait.ownerCallerName, "Global Owner");
+		assert.strictEqual(wait.runningGeneration, before.runningGeneration);
+
+		const after = readReconcilerState(db);
+		assert.strictEqual(after.requestedGeneration, before.requestedGeneration);
+		assert.strictEqual(after.completedGeneration, before.completedGeneration);
+		assert.strictEqual(after.runningGeneration, before.runningGeneration);
+		assert.strictEqual(after.ownerToken, before.ownerToken);
+		assert.strictEqual(after.ownerInvocationMode, "global");
+	});
+
+	test("C | a targeted owner makes a global requester wait without durable mutation", () => {
+		const owner = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", callerName: "Targeted Owner" }),
+		);
+		assert.strictEqual(owner.kind, "OWNER");
+		const before = readReconcilerState(db);
+
+		const wait = registerReconciliationRequest(
+			db,
+			options({ token: randomUUID() }),
+		);
+		assert.strictEqual(wait.kind, "WAIT");
+		if (wait.kind !== "WAIT") return;
+		assert.strictEqual(wait.ownerMode, "targeted");
+
+		const after = readReconcilerState(db);
+		assert.strictEqual(after.requestedGeneration, before.requestedGeneration);
+		assert.strictEqual(after.ownerToken, before.ownerToken);
+		assert.strictEqual(after.ownerInvocationMode, "targeted");
+	});
+
+	test("D | a targeted owner makes another targeted requester wait", () => {
+		const owner = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", callerName: "Targeted Owner A" }),
+		);
+		assert.strictEqual(owner.kind, "OWNER");
+		const before = readReconcilerState(db);
+
+		const wait = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: randomUUID() }),
+		);
+		assert.strictEqual(wait.kind, "WAIT");
+		if (wait.kind !== "WAIT") return;
+		assert.strictEqual(wait.ownerMode, "targeted");
+
+		const after = readReconcilerState(db);
+		assert.strictEqual(after.requestedGeneration, before.requestedGeneration);
+		assert.strictEqual(after.ownerToken, before.ownerToken);
+		assert.strictEqual(after.ownerInvocationMode, "targeted");
+	});
+
+	test("E | a successful targeted finish settles the coordinator generation", () => {
+		const registration = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "targeted-token" }),
+		);
+		assert.strictEqual(registration.kind, "OWNER");
+		if (registration.kind !== "OWNER") return;
+		assert.strictEqual(registration.mode, "targeted");
+		assert.strictEqual(registration.generation, 1);
+		const finish = finishReconciliationPass(db, {
+			generation: 1,
+			mode: "targeted",
+			nowEpochMs: Date.now(),
+			pid: process.pid,
+			success: true,
+			token: "targeted-token",
+		});
+		assert.strictEqual(finish.decision, "STOP_SUCCESS");
+		assert.strictEqual(finish.completedGeneration, 1);
+
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 1);
+		assert.strictEqual(state.completedGeneration, 1);
+		assert.strictEqual(state.runningGeneration, null);
+		assert.strictEqual(state.ownerToken, null);
+		assert.strictEqual(state.ownerInvocationMode, null);
+	});
+
+	test("F | a failed targeted finish settles without claiming application success", () => {
+		const registration = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "targeted-token" }),
+		);
+		assert.strictEqual(registration.kind, "OWNER");
+		const finish = finishReconciliationPass(db, {
+			generation: 1,
+			mode: "targeted",
+			nowEpochMs: Date.now(),
+			pid: process.pid,
+			success: false,
+			token: "targeted-token",
+		});
+		assert.strictEqual(finish.decision, "STOP_FAILED");
+		assert.strictEqual(finish.completedGeneration, 1);
+
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 1);
+		assert.strictEqual(state.completedGeneration, 1);
+		assert.strictEqual(state.runningGeneration, null);
+		assert.strictEqual(state.ownerToken, null);
+		assert.strictEqual(state.ownerInvocationMode, null);
+	});
+
+	test("G | targeted release settles the coordinator generation", () => {
+		const registration = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "targeted-token" }),
+		);
+		assert.strictEqual(registration.kind, "OWNER");
+		assert.strictEqual(
+			releaseReconciliationOwnership(db, {
+				mode: "targeted",
+				pid: process.pid,
+				token: "targeted-token",
+			}),
+			true,
+		);
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 1);
+		assert.strictEqual(state.completedGeneration, 1);
+		assert.strictEqual(state.runningGeneration, null);
+		assert.strictEqual(state.ownerToken, null);
+		assert.strictEqual(state.ownerInvocationMode, null);
+	});
+
+	test("H | global release keeps interrupted global work pending", () => {
+		const registration = registerReconciliationRequest(
+			db,
+			options({ token: "global-token" }),
+		);
+		assert.strictEqual(registration.kind, "OWNER");
+		assert.strictEqual(
+			releaseReconciliationOwnership(db, {
+				mode: "global",
+				pid: process.pid,
+				token: "global-token",
+			}),
+			true,
+		);
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 1);
+		assert.strictEqual(state.completedGeneration, 0);
+		assert.strictEqual(state.runningGeneration, null);
+		assert.strictEqual(state.ownerToken, null);
+		assert.strictEqual(state.ownerInvocationMode, null);
+	});
+
+	test("I | ownerless global debt makes a targeted requester recover globally", () => {
+		fabricateOwnerlessDebt(5, 3);
+		const registration = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "targeted-recovery" }),
+		);
+		assert.strictEqual(registration.kind, "RECOVERY_OWNER");
+		if (registration.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(registration.recoveryMode, "global");
+		assert.strictEqual(registration.requestSatisfiedByRecovery, false);
+		assert.strictEqual(registration.generation, 6);
+		assert.strictEqual(registration.completedGeneration, 3);
+
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 6);
+		assert.strictEqual(state.runningGeneration, 6);
+		assert.strictEqual(state.ownerInvocationMode, "global");
+	});
+
+	test("J | ownerless global debt satisfies a global requester through recovery", () => {
+		fabricateOwnerlessDebt(5, 3);
+		const registration = registerReconciliationRequest(
+			db,
+			options({ token: "global-recovery" }),
+		);
+		assert.strictEqual(registration.kind, "RECOVERY_OWNER");
+		if (registration.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(registration.recoveryMode, "global");
+		assert.strictEqual(registration.requestSatisfiedByRecovery, true);
+		assert.strictEqual(registration.generation, 6);
+		assert.strictEqual(readReconcilerState(db).ownerInvocationMode, "global");
+	});
+
+	test("K | a dead global owner keeps global recovery for a targeted requester", () => {
+		fabricateOwnerRow({
+			completedGeneration: 1,
+			heartbeatAtEpochMs: Date.now() - 60_000,
+			ownerBootEpochMs: currentBootEpochMs(),
+			ownerInvocationMode: "global",
+			ownerPid: deadPid(),
+			ownerToken: "dead-global-owner",
+			requestedGeneration: 4,
+			runningGeneration: 4,
+		});
+		const registration = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "targeted-caller" }),
+		);
+		assert.strictEqual(registration.kind, "RECOVERY_OWNER");
+		if (registration.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(registration.recoveryMode, "global");
+		assert.strictEqual(registration.requestSatisfiedByRecovery, false);
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.ownerInvocationMode, "global");
+		assert.strictEqual(state.requestedGeneration, 5);
+	});
+
+	test("L | a dead global owner satisfies a global requester through recovery", () => {
+		fabricateOwnerRow({
+			completedGeneration: 1,
+			heartbeatAtEpochMs: Date.now() - 60_000,
+			ownerBootEpochMs: currentBootEpochMs(),
+			ownerInvocationMode: "global",
+			ownerPid: deadPid(),
+			ownerToken: "dead-global-owner",
+			requestedGeneration: 4,
+			runningGeneration: 4,
+		});
+		const registration = registerReconciliationRequest(
+			db,
+			options({ token: "global-caller" }),
+		);
+		assert.strictEqual(registration.kind, "RECOVERY_OWNER");
+		if (registration.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(registration.recoveryMode, "global");
+		assert.strictEqual(registration.requestSatisfiedByRecovery, true);
+	});
+
+	test("M | a dead targeted owner preserves targeted recovery for either requester", () => {
+		fabricateOwnerRow({
+			completedGeneration: 0,
+			heartbeatAtEpochMs: Date.now() - 60_000,
+			ownerBootEpochMs: currentBootEpochMs(),
+			ownerInvocationMode: "targeted",
+			ownerPid: deadPid(),
+			ownerToken: "dead-targeted-owner",
+			requestedGeneration: 2,
+			runningGeneration: 2,
+		});
+		const first = registerReconciliationRequest(
+			db,
+			options({ token: "first-recovery" }),
+		);
+		assert.strictEqual(first.kind, "RECOVERY_OWNER");
+		if (first.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(first.recoveryMode, "targeted");
+		assert.strictEqual(first.requestSatisfiedByRecovery, false);
+		assert.strictEqual(readReconcilerState(db).ownerInvocationMode, "targeted");
+		assert.strictEqual(
+			releaseReconciliationOwnership(db, {
+				mode: "targeted",
+				pid: process.pid,
+				token: "first-recovery",
+			}),
+			true,
+		);
+
+		fabricateOwnerRow({
+			completedGeneration: 3,
+			heartbeatAtEpochMs: Date.now() - 60_000,
+			ownerBootEpochMs: currentBootEpochMs(),
+			ownerInvocationMode: "targeted",
+			ownerPid: deadPid(),
+			ownerToken: "dead-targeted-owner-2",
+			requestedGeneration: 4,
+			runningGeneration: 4,
+		});
+		const second = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "second-recovery" }),
+		);
+		assert.strictEqual(second.kind, "RECOVERY_OWNER");
+		if (second.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(second.recoveryMode, "targeted");
+		assert.strictEqual(second.requestSatisfiedByRecovery, false);
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.ownerInvocationMode, "targeted");
+		assert.strictEqual(state.ownerToken, "second-recovery");
+	});
+
+	test("N | impossible targeted coalesced debt fails recovery closed", () => {
+		fabricateOwnerRow({
+			completedGeneration: 1,
+			heartbeatAtEpochMs: Date.now() - 60_000,
+			ownerBootEpochMs: currentBootEpochMs(),
+			ownerInvocationMode: "targeted",
+			ownerPid: deadPid(),
+			ownerToken: "dead-targeted-owner",
+			requestedGeneration: 3,
+			runningGeneration: 2,
+		});
+		const assertFailsClosed = (mode: "global" | "targeted"): void => {
+			assert.throws(
+				() =>
+					registerReconciliationRequest(
+						db,
+						options({ mode, token: randomUUID() }),
+					),
+				(error) => {
+					assert.ok(error instanceof ReconcilerInvariantError);
+					assert.match(
+						error.message,
+						/targeted owner cannot legally own coalesced newer generations/u,
+					);
+					return true;
+				},
+			);
+		};
+		assertFailsClosed("targeted");
+		assertFailsClosed("global");
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.ownerToken, "dead-targeted-owner");
+		assert.strictEqual(state.requestedGeneration, 3);
+		assert.strictEqual(state.runningGeneration, 2);
 	});
 });

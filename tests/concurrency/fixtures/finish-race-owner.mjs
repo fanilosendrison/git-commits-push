@@ -6,6 +6,7 @@
  *   RECONCILER_OWNED_FILE  owner writes `{pid,token,generation}` here after acquiring
  *   RECONCILER_GO_FINISH   owner waits for this file before finalizing its pass
  *   RECONCILER_RESULT_FILE owner appends its finish decision here
+ *   RECONCILER_MODE        "global" (default) or "targeted"
  */
 
 import { randomBytes } from "node:crypto";
@@ -66,6 +67,11 @@ if (!stateDirectory || !ownedFile || !goFinishFile || !resultFile) {
 }
 
 const token = randomBytes(16).toString("hex");
+const mode = process.env.RECONCILER_MODE ?? "global";
+if (mode !== "global" && mode !== "targeted") {
+	process.stderr.write("RECONCILER_MODE must be global or targeted\n");
+	process.exit(2);
+}
 const processIdentity = reconciler.readProcessStartIdentity(process.pid);
 if (!processIdentity) throw new Error("cannot read fixture process identity");
 const db = reconcilerDb.openReconcilerDb(
@@ -77,6 +83,7 @@ try {
 		pid: process.pid,
 		bootEpochMs: reconciler.currentBootEpochMs(),
 		processIdentity,
+		mode,
 		callerName: "Finish Race Owner",
 		originAgent: "test",
 		nowEpochMs: Date.now(),
@@ -96,6 +103,7 @@ try {
 	waitForFile(goFinishFile);
 	const finish = reconciler.finishReconciliationPass(db, {
 		generation: registration.generation,
+		mode,
 		nowEpochMs: Date.now(),
 		pid: process.pid,
 		success: true,

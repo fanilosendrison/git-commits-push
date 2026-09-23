@@ -33,6 +33,7 @@ describe("reconciler registration validation", () => {
 			const baseOptions = {
 				bootEpochMs: currentBootEpochMs(),
 				callerName: "test caller",
+				mode: "global" as const,
 				nowEpochMs: Date.now(),
 				originAgent: "test",
 				pid: process.pid,

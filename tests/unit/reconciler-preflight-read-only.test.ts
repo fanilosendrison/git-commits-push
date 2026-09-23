@@ -79,7 +79,7 @@ describe("read-only reconciler preflight", () => {
 		try {
 			db.exec("PRAGMA wal_autocheckpoint = 0");
 			db.exec(
-				"UPDATE reconciler_state SET requested_generation = 1, running_generation = 1, owner_token = 'owner', owner_pid = 4242, owner_boot_epoch_ms = 1800000000000, owner_process_identity = 'test-process', owner_caller_name = 'test', owner_origin_agent = 'test', heartbeat_at_epoch_ms = 1800000000000 WHERE singleton_id = 1",
+				"UPDATE reconciler_state SET requested_generation = 1, running_generation = 1, owner_token = 'owner', owner_pid = 4242, owner_boot_epoch_ms = 1800000000000, owner_process_identity = 'test-process', owner_caller_name = 'test', owner_origin_agent = 'test', owner_invocation_mode = 'global', heartbeat_at_epoch_ms = 1800000000000 WHERE singleton_id = 1",
 			);
 			const before = snapshotDirectory(stateDirectory);
 			assert.ok(Object.hasOwn(before, "reconciler.sqlite-wal"));
@@ -184,6 +184,7 @@ describe("read-only reconciler preflight", () => {
 							running_generation = 1, owner_token = 'owner', owner_pid = ?,
 							owner_boot_epoch_ms = 1, owner_process_identity = ?,
 							owner_caller_name = 'test', owner_origin_agent = 'test',
+							owner_invocation_mode = 'global',
 							heartbeat_at_epoch_ms = 1, execution_token = 'execution',
 							execution_generation = 1, execution_pid = ?,
 							execution_process_identity = ?, execution_group_id = ?,

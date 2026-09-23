@@ -11,6 +11,7 @@
  *   RECONCILER_READY_FILE     written once the requester is armed at the gate
  *   RECONCILER_GO_REGISTER    the requester registers only after this file exists
  *   RECONCILER_RESULT_FILE    append the registration result here
+ *   RECONCILER_MODE           "global" (default) or "targeted"
  */
 
 import { randomBytes } from "node:crypto";
@@ -80,6 +81,11 @@ if (
 waitForFile(ownedFile);
 
 const token = randomBytes(16).toString("hex");
+const mode = process.env.RECONCILER_MODE ?? "global";
+if (mode !== "global" && mode !== "targeted") {
+	process.stderr.write("RECONCILER_MODE must be global or targeted\n");
+	process.exit(2);
+}
 const processIdentity = reconciler.readProcessStartIdentity(process.pid);
 if (!processIdentity) throw new Error("cannot read fixture process identity");
 const db = reconcilerDb.openReconcilerDb(
@@ -93,20 +99,56 @@ try {
 		pid: process.pid,
 		bootEpochMs: reconciler.currentBootEpochMs(),
 		processIdentity,
+		mode,
 		callerName: "Finish Race Requester",
 		originAgent: "test",
 		nowEpochMs: Date.now(),
 	});
-	appendFileSync(
-		resultFile,
-		`${JSON.stringify({
+	let serialized;
+	if (registration.kind === "OWNER") {
+		serialized = {
 			pid: process.pid,
 			token,
 			kind: registration.kind,
+			mode: registration.mode,
 			generation: registration.generation,
-			recovered: registration.kind === "OWNER" ? registration.recovered : false,
-		})}\n`,
-	);
+			recovered: false,
+			completedGeneration: registration.completedGeneration,
+		};
+	} else if (registration.kind === "COALESCED") {
+		serialized = {
+			pid: process.pid,
+			token,
+			kind: registration.kind,
+			mode: registration.mode,
+			generation: registration.generation,
+			recovered: false,
+		};
+	} else if (registration.kind === "WAIT") {
+		serialized = {
+			pid: process.pid,
+			token,
+			kind: registration.kind,
+			ownerMode: registration.ownerMode,
+			ownerPid: registration.ownerPid,
+			ownerCallerName: registration.ownerCallerName,
+			runningGeneration: registration.runningGeneration,
+		};
+	} else {
+		serialized = {
+			pid: process.pid,
+			token,
+			kind: registration.kind,
+			recoveryMode: registration.recoveryMode,
+			generation: registration.generation,
+			recovered: true,
+			completedGeneration: registration.completedGeneration,
+			previousOwnerPid: registration.previousOwnerPid,
+			requiresExecutionRecovery: registration.requiresExecutionRecovery,
+			requestSatisfiedByRecovery: registration.requestSatisfiedByRecovery,
+		};
+	}
+	appendFileSync(resultFile, `${JSON.stringify(serialized)}\n`);
 } finally {
 	db.close();
 }

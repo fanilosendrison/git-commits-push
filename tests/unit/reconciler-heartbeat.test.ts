@@ -40,6 +40,7 @@ describe("reconciler bounded state and heartbeat", () => {
 		return registerReconciliationRequest(db, {
 			bootEpochMs: currentBootEpochMs(),
 			callerName: "Heartbeat Test",
+			mode: "global",
 			nowEpochMs: Date.now(),
 			originAgent: "test",
 			pid: process.pid,
@@ -85,6 +86,7 @@ describe("reconciler bounded state and heartbeat", () => {
 			);
 			const finish = finishReconciliationPass(db, {
 				generation: registration.generation,
+				mode: "global",
 				nowEpochMs: Date.now(),
 				pid: process.pid,
 				success: true,

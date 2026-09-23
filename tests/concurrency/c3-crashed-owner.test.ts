@@ -21,10 +21,13 @@ const REGISTER_FIXTURE = path.join(
 interface RegisterResultLine {
 	readonly pid: number;
 	readonly token: string;
-	readonly kind: "OWNER" | "COALESCED";
+	readonly kind: "OWNER" | "COALESCED" | "WAIT" | "RECOVERY_OWNER";
 	readonly generation: number;
 	readonly recovered: boolean;
 	readonly completedGeneration: number | null;
+	readonly recoveryMode?: "global" | "targeted";
+	readonly requestSatisfiedByRecovery?: boolean;
+	readonly previousOwnerPid?: number | null;
 }
 
 describe("C3 — crashed owner recovery", () => {
@@ -119,8 +122,11 @@ describe("C3 — crashed owner recovery", () => {
 		const recoveryLines = readResultLines(recoveryResultFile);
 		assert.strictEqual(recoveryLines.length, 1);
 		const recoveryLine = recoveryLines[0] as RegisterResultLine;
-		assert.strictEqual(recoveryLine.kind, "OWNER");
+		assert.strictEqual(recoveryLine.kind, "RECOVERY_OWNER");
+		assert.strictEqual(recoveryLine.recoveryMode, "global");
 		assert.strictEqual(recoveryLine.recovered, true);
+		assert.strictEqual(recoveryLine.requestSatisfiedByRecovery, true);
+		assert.strictEqual(recoveryLine.previousOwnerPid, crashedLine.pid);
 		assert.strictEqual(recoveryLine.generation, 2);
 		assert.strictEqual(recoveryLine.completedGeneration, 0);
 		assert.notStrictEqual(recoveryLine.token, crashedLine.token);

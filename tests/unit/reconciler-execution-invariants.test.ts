@@ -22,6 +22,7 @@ const ACTIVE_OWNER_SQL = `
 	owner_process_identity = 'owner-identity',
 	owner_caller_name = 'test',
 	owner_origin_agent = 'test',
+	owner_invocation_mode = 'global',
 	heartbeat_at_epoch_ms = 1`;
 
 const ACTIVE_EXECUTION_SQL = `
@@ -110,6 +111,31 @@ describe("active execution database invariants", () => {
 			`${ACTIVE_OWNER_SQL}, ${ACTIVE_EXECUTION_SQL}, execution_group_id = 9999`,
 		);
 		assertInvariant(/pid and process-group id/u);
+	});
+
+	test("OWNER-MODE-1 | a running owner without an invocation mode fails closed", () => {
+		update(`${ACTIVE_OWNER_SQL}, owner_invocation_mode = NULL`);
+		assertInvariant(/invocation mode/u);
+	});
+
+	test("OWNER-MODE-2 | an invocation mode without a running owner fails closed", () => {
+		update("owner_invocation_mode = 'global'");
+		assertInvariant(/invocation mode/u);
+		update("owner_invocation_mode = 'targeted'");
+		assertInvariant(/invocation mode/u);
+	});
+
+	test("OWNER-MODE-3 | the durable CHECK rejects unknown invocation modes", () => {
+		assert.throws(
+			() => update("owner_invocation_mode = 'sideways'"),
+			/CHECK|constraint/iu,
+		);
+		const db = openReconcilerDb(dbPath);
+		try {
+			assert.strictEqual(readReconcilerState(db).ownerInvocationMode, null);
+		} finally {
+			db.close();
+		}
 	});
 
 	test("schema v2 is rejected rather than interpreted as no active execution", () => {

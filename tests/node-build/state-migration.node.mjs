@@ -175,6 +175,7 @@ test("refuses state with an active reconciler owner", async () => {
 			owner_process_identity = 'identity',
 			owner_caller_name = 'test',
 			owner_origin_agent = 'test',
+			owner_invocation_mode = 'global',
 			heartbeat_at_epoch_ms = 1
 			WHERE singleton_id = 1`);
 		db.close();

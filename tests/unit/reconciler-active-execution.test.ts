@@ -49,6 +49,7 @@ describe("durable active execution transitions", () => {
 		return registerReconciliationRequest(db, {
 			bootEpochMs: currentBootEpochMs(),
 			callerName: `Owner ${token}`,
+			mode: "global",
 			nowEpochMs: Date.now(),
 			originAgent: "test",
 			pid: process.pid,
@@ -106,6 +107,7 @@ describe("durable active execution transitions", () => {
 			() =>
 				finishReconciliationPass(db, {
 					generation: 1,
+					mode: "global",
 					nowEpochMs: Date.now(),
 					pid: process.pid,
 					success: true,
@@ -115,6 +117,7 @@ describe("durable active execution transitions", () => {
 		);
 		assert.strictEqual(
 			releaseReconciliationOwnership(db, {
+				mode: "global",
 				pid: process.pid,
 				token: OWNER_A,
 			}),
@@ -129,8 +132,9 @@ describe("durable active execution transitions", () => {
 		const identity =
 			readProcessStartIdentity(process.pid) ?? "owner-b-identity";
 		const recovery = registerOwner(OWNER_B, identity);
-		assert.strictEqual(recovery.kind, "OWNER");
-		if (recovery.kind !== "OWNER") return;
+		assert.strictEqual(recovery.kind, "RECOVERY_OWNER");
+		if (recovery.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(recovery.recoveryMode, "global");
 		assert.strictEqual(recovery.requiresExecutionRecovery, true);
 		assert.strictEqual(recovery.generation, 2);
 		const preserved = readReconcilerState(db).activeExecution;
@@ -212,6 +216,7 @@ describe("durable active execution transitions", () => {
 			() =>
 				finishReconciliationPass(db, {
 					generation: 2,
+					mode: "global",
 					nowEpochMs: Date.now(),
 					pid: process.pid,
 					success: true,
@@ -221,6 +226,7 @@ describe("durable active execution transitions", () => {
 		);
 		assert.strictEqual(
 			releaseReconciliationOwnership(db, {
+				mode: "global",
 				pid: process.pid,
 				token: OWNER_A,
 			}),
@@ -242,6 +248,7 @@ describe("durable active execution transitions", () => {
 			() =>
 				finishReconciliationPass(db, {
 					generation: 2,
+					mode: "global",
 					nowEpochMs: Date.now(),
 					pid: process.pid,
 					success: true,
@@ -252,6 +259,7 @@ describe("durable active execution transitions", () => {
 		assert.strictEqual(
 			finishReconciliationPass(db, {
 				generation: 2,
+				mode: "global",
 				nowEpochMs: Date.now(),
 				pid: process.pid,
 				success: true,
@@ -273,6 +281,7 @@ describe("durable active execution transitions", () => {
 				compiledApplicationDirectory: stateDirectory,
 				db,
 				initialGeneration: 1,
+				mode: "global",
 				ownerToken: OWNER_A,
 				passthroughArguments: [],
 				prepareRuntime: async () => {
@@ -290,6 +299,43 @@ describe("durable active execution transitions", () => {
 			assert.strictEqual(state.requestedGeneration, 2);
 			assert.strictEqual(state.completedGeneration, 0);
 			assert.strictEqual(state.ownerToken, null);
+		} finally {
+			cancellation.removeSignalHandlers();
+		}
+	});
+
+	test("a targeted runtime preparation failure settles its generation", async () => {
+		const identity = readProcessStartIdentity(process.pid) ?? "owner-identity";
+		const owner = registerReconciliationRequest(db, {
+			bootEpochMs: currentBootEpochMs(),
+			callerName: "targeted preparation",
+			mode: "targeted",
+			nowEpochMs: Date.now(),
+			originAgent: "test",
+			pid: process.pid,
+			processIdentity: identity,
+			token: "targeted-prep-token",
+		});
+		assert.strictEqual(owner.kind, "OWNER");
+		const cancellation = createLauncherCancellation();
+		try {
+			const result = await runOwnedReconciliation({
+				cancellation,
+				compiledApplicationDirectory: stateDirectory,
+				db,
+				initialGeneration: 1,
+				mode: "targeted",
+				ownerToken: "targeted-prep-token",
+				passthroughArguments: [],
+				prepareRuntime: async () => ({ exitCode: 1 }),
+			});
+			assert.strictEqual(result.exitCode, 1);
+			const state = readReconcilerState(db);
+			assert.strictEqual(state.requestedGeneration, 1);
+			assert.strictEqual(state.completedGeneration, 1);
+			assert.strictEqual(state.runningGeneration, null);
+			assert.strictEqual(state.ownerToken, null);
+			assert.strictEqual(state.ownerInvocationMode, null);
 		} finally {
 			cancellation.removeSignalHandlers();
 		}
