@@ -246,3 +246,69 @@ describe("U-GE-10 | executeMultiCommitAndPush — no upstream → push -u fallba
 		assert.ok(log.stdout.includes("feat: push via fallback"));
 	});
 });
+
+describe("U-GE-46 | executeMultiCommitAndPush — unborn branch → initial publication", () => {
+	let repoSource: GitRepoFixture;
+	let bareRepoPath: string;
+	before(() => {
+		bareRepoPath = fs.mkdtempSync(path.join(os.tmpdir(), "git-unborn-bare-"));
+		spawnSync("git", ["init", "--bare", bareRepoPath], { encoding: "utf-8" });
+		repoSource = GitRepoFixture.create();
+		repoSource.setRemote("origin", bareRepoPath);
+		repoSource.writeAndStage("README.md", "# Initial project\n");
+	});
+	after(() => {
+		repoSource.dispose();
+		fs.rmSync(bareRepoPath, { recursive: true, force: true });
+	});
+
+	test("creates exactly one commit and publishes it to the empty remote", async () => {
+		const { diffHash } = await extractDiff(repoSource.dir);
+		const result = await executeMultiCommitAndPush(
+			repoSource.dir,
+			[
+				{
+					commit: {
+						type: "docs",
+						description: "create initial project documentation",
+						isBreaking: false,
+					},
+					files: ["README.md"],
+				},
+			],
+			diffHash,
+			AUTO_PUSH_SETTINGS,
+		);
+		const branch = spawnSync(
+			"git",
+			["symbolic-ref", "--quiet", "--short", "HEAD"],
+			{ cwd: repoSource.dir, encoding: "utf-8" },
+		).stdout.trim();
+		const localHead = spawnSync("git", ["rev-parse", "HEAD"], {
+			cwd: repoSource.dir,
+			encoding: "utf-8",
+		}).stdout.trim();
+		const remoteHead = spawnSync("git", ["rev-parse", `refs/heads/${branch}`], {
+			cwd: bareRepoPath,
+			encoding: "utf-8",
+		}).stdout.trim();
+
+		assert.strictEqual(result.originalHead, null);
+		assert.strictEqual(result.committedShas.length, 1);
+		assert.strictEqual(localHead, remoteHead);
+		assert.strictEqual(
+			spawnSync("git", ["rev-list", "--count", "HEAD"], {
+				cwd: repoSource.dir,
+				encoding: "utf-8",
+			}).stdout.trim(),
+			"1",
+		);
+		assert.strictEqual(
+			spawnSync("git", ["status", "--porcelain"], {
+				cwd: repoSource.dir,
+				encoding: "utf-8",
+			}).stdout,
+			"",
+		);
+	});
+});

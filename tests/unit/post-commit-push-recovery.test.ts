@@ -172,6 +172,28 @@ describe("post-commit push recovery", () => {
 		assert.strictEqual(merged.attempts?.network, 3);
 	});
 
+	test("preserves a proven unborn baseline across a later retry", () => {
+		const error = new PostCommitPushError(
+			new PushError("publication failed", true, 1),
+			{
+				committedShas: [{ sha: "a".repeat(40), files: ["README.md"] }],
+				originalHead: "a".repeat(40),
+				pushRetryCount: 1,
+			},
+		);
+
+		const merged = mergePostCommitPushFailure(
+			{
+				repository: "/repository",
+				status: "RUNNING",
+				originalHead: null,
+			},
+			error,
+		);
+
+		assert.strictEqual(merged.originalHead, null);
+	});
+
 	test("non-interactive HTTPS credential failures are permanent", () => {
 		assert.strictEqual(
 			classifyTransient(
