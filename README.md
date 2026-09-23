@@ -92,7 +92,11 @@ push to).
   configuration;
 - a stale or diverged destination fails closed: the caller or harness must
   handle fetch, rebase, merge, and conflicts, then retry;
-- targeted reconciliation serialization (#8) is still not implemented;
+- source targeted invocations are serialized by the reconciliation coordinator
+  without scope coalescing: a targeted request waits process-locally for any
+  incompatible owner and then runs its own exact worktree, remote, and ref;
+- targeted execution shares the global `SINGLE_LIVE_GIT_EXECUTION` boundary, and
+  dead targeted requests are fenced and settled rather than replayed;
 - the 0.7.0 installed release (#9) is still not qualified.
 
 ### 2. Validation
@@ -458,18 +462,26 @@ responses, writes results, and resumes the orchestrator. The supervisor owns pro
 backpressure, and protocol-safe stdout routing. Full-boundary termination and
 proof remain controller/launcher responsibilities.
 
-### Reconciler schema-v2 migration
+### Reconciler schema migrations
 
-Schema v3 adds durable active-execution identity. A v2 database cannot prove that
-an old pipeline is absent, so production does not silently reinterpret it.
-After stopping all launchers and proving that no supervisor or descendant
-remains alive, migrate an idle, fully converged v2 singleton explicitly:
+Schema v4 adds `owner_invocation_mode` so the coordinator can distinguish a
+global owner from a targeted one. An idle, fully converged schema-v3 singleton
+is upgraded in place automatically by any writable open; non-idle v3 state
+fails closed and is preserved because v3 cannot say whether the missing work
+was global or targeted.
+
+Schema v2 cannot prove that an old pipeline is absent, so production does not
+silently reinterpret it. After stopping all launchers and proving that no
+supervisor or descendant remains alive, migrate an idle, fully converged v2
+singleton explicitly:
 
 ```bash
 pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
 ```
 
-Active, pending, malformed, uncheckpointed, or unconfirmed v2 state fails closed.
+The explicit path stages schema v3 and then completes the bounded v4 upgrade
+through the normal writable open. Active, pending, malformed, uncheckpointed, or
+unconfirmed v2 state fails closed.
 
 ### Compatibility with older Turnlock runs
 

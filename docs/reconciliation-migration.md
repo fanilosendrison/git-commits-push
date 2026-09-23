@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "3.1.0"
+version: "4.0.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -21,8 +21,10 @@ rescans global repository state after later wakeups.
 
 Turnlock remains responsible for one pass's durable workflow. The launcher is
 responsible for cross-invocation admission, scheduling ownership, recovery, and
-deciding whether another pass is required. Schema v3 separately records the
-concrete execution controller and process group capable of Git side effects.
+deciding whether another pass is required. Schema v3 records the concrete
+execution controller and process group capable of Git side effects; schema v4
+adds the owner's invocation mode so global and targeted admission have distinct,
+durable semantics.
 
 ## Compatibility surface
 
@@ -46,7 +48,7 @@ No compatibility field re-enables queue semantics.
 - This is valid because targeted mode did not exist when those states were written.
 - A malformed present invocationScope still fails state validation.
 - This is not a reconciler SQLite migration.
-- PRAGMA user_version remains 3.
+- PRAGMA user_version is 4.
 - No target repository, remote, or ref is added to the reconciler singleton.
 
 ## Turnlock push-state compatibility
@@ -64,11 +66,22 @@ No compatibility field re-enables queue semantics.
 - Raw push URLs are never persisted; explicit state stores only a SHA-256
   fingerprint of the single effective push URL.
 - This is Turnlock state compatibility, not a reconciler SQLite migration.
-- PRAGMA user_version remains 3.
+- PRAGMA user_version is 4.
 
 ## Safety changes
 
 - Admission is committed before build or Git work.
+- A global owner coalesces a global requester. Any pair containing a targeted
+  request performs no durable mutation: the caller waits process-locally with
+  bounded exponential polling and retries with unchanged arguments.
+- Normal targeted execution requires an idle, converged coordinator.
+- Ownerless pending generations are global debt; targeted callers are not
+  satisfied by the global recovery pass that resolves them.
+- Dead targeted owners are fenced and settled without replaying the abandoned
+  target or starting a replacement supervisor for it.
+- Targeted coordinator settlement is separate from targeted application success:
+  a terminal targeted failure still returns failure to the caller while leaving
+  the coordinator idle and converged.
 - Default-state migration and launcher admission share one atomic filesystem
   lock until SQLite registration finishes, so a migrated database cannot be
   opened while validation or rollback is still possible.
@@ -93,10 +106,16 @@ No compatibility field re-enables queue semantics.
 - Legacy residue is exactly revalidated and archived outside the legacy
   namespace only after a SQLite wakeup is durable.
 
-## Reconciler schema-v2 cutover
+## Reconciler schema migrations
 
-Schema v2 has no durable active-execution identity. Schema v3 therefore rejects
-it rather than treating missing execution columns as proof of idle state.
+Schema v4 adds `owner_invocation_mode`. An idle, fully converged schema-v3
+singleton is upgraded automatically and atomically by any writable open; the
+migration is refused, with the v3 database preserved, when any owner, running
+generation, execution descriptor, or pending generation exists. Read-only
+opens never migrate.
+
+Schema v2 has no durable active-execution identity. Production rejects it
+rather than treating missing execution columns as proof of idle state.
 
 After stopping every launcher and proving that no supervisor or descendant
 process remains alive, an operator may migrate only an idle, fully converged v2
@@ -107,8 +126,10 @@ pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
 ```
 
 The command rejects missing confirmation, active or pending state, malformed
-rows, and uncheckpointed SQLite sidecars. It adds nullable execution columns and
-bumps `PRAGMA user_version` in one transaction. It creates no history table.
+rows, and uncheckpointed SQLite sidecars. It adds the v3 nullable execution
+columns, sets `PRAGMA user_version = 3`, and then completes the bounded v4
+upgrade through the normal writable open. It creates no history table, and a
+database already at version 4 is reported as `already-current`.
 
 ## Standalone repository and executable cutover
 

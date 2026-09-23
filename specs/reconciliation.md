@@ -3,9 +3,9 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "3.0.0"
+version: "4.0.0"
 status: "Active"
-summary: "Normative contract for SQLite reconciliation ownership and durable single-live Git execution."
+summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
 severity: "strict"
 ---
@@ -17,10 +17,28 @@ severity: "strict"
 This document defines public invocation, durable coordination, active execution,
 recovery, and compatibility for `git-commits-push`.
 
-A public invocation means: **the set of dirty repositories may have changed;
-reconcile the current global state**. It is not a durable per-request work item.
+There are exactly two public invocation modes:
+
+```ts
+type ReconciliationInvocationMode = "global" | "targeted";
+```
+
+A **global invocation** means that global repository state may have changed, so
+the current dirty-repository set must be reconciled. Global requests are
+rediscoverable by a fresh global rescan, and multiple live global requests may
+coalesce by generation. An incomplete admitted global generation remains durable
+reconciliation work.
+
+A **targeted invocation** is one synchronous exact caller-owned request that
+names one exact worktree, remote, and ref. The repository, remote, and ref remain
+outside reconciler durable state, so the request must execute its own scope, must
+not coalesce into another request's execution, and is not a durable replayable
+coordinator work item.
+
 The coordinator stores generations, one reconciliation owner, and at most one
-active execution descriptor. It stores no request or execution history.
+active execution descriptor. It stores no request or execution history and no
+targeted payload. `SINGLE_LIVE_GIT_EXECUTION` spans both modes: at most one Git
+side-effect-capable execution boundary exists regardless of which mode owns it.
 
 The stable harness command resolves through the selected immutable XDG release:
 
@@ -31,15 +49,10 @@ The stable harness command resolves through the selected immutable XDG release:
 Production MUST NOT depend on a source checkout, package manager, or runtime
 build.
 
-InvocationScope is Turnlock-run state, not reconciler-v3 durable authority.
-Reconciler v3 continues to implement the existing global generation/coalescing
-contract and stores no repository, remote, ref, or targeted request payload.
-The targeted source-level scope foundation therefore does not change this
-specification's admission or coalescing rules.
-
-Explicit-target publication, when a targeted run performs it, stays inside one
-Turnlock execution pass and therefore also leaves schema-v3 admission and
-coalescing semantics unchanged.
+InvocationScope is Turnlock-run state, not reconciler durable authority. The
+reconciler stores only the owner's invocation mode; it stores no repository,
+remote, ref, or targeted request payload. Explicit-target publication stays
+inside one Turnlock execution pass.
 
 ## Normative invariant
 
@@ -63,10 +76,11 @@ is `$XDG_STATE_HOME/git-commits-push/orders/`, falling back to
 
 The database MUST:
 
-- use schema version `3` through `PRAGMA user_version`;
+- use schema version `4` through `PRAGMA user_version`;
 - contain exactly one `reconciler_state` row with `singleton_id = 1`;
 - preserve `requested_generation >= completed_generation`;
 - set and clear owner metadata with `running_generation`;
+- set and clear `owner_invocation_mode` with the owner;
 - set and clear the complete active-execution descriptor together;
 - fail closed on corruption, an incompatible schema, or impossible state;
 - contain no per-request, execution, or event history.
@@ -75,12 +89,17 @@ The database MUST:
 
 The owner schedules rescans and owns coordinator transitions. Its durable fields
 are the running generation, random owner token, PID, process-start identity,
-boot epoch, caller, origin, optional session ID, and heartbeat.
+boot epoch, caller, origin, optional session ID, invocation mode, and heartbeat.
 
-Correctness depends on owner token, PID, process-start identity, running
-generation, and SQLite transaction boundaries. Boot epoch and heartbeat are
-observability metadata. A stale heartbeat never authorizes replacement of a
-matching live owner.
+`owner_invocation_mode` is `global`, `targeted`, or null when no owner exists.
+It is part of the owner integrity set: a running owner without a mode, or a mode
+without a running owner, is impossible durable state. Ownership and mode changes
+participate in registration race observation.
+
+Correctness depends on owner token, PID, process-start identity, invocation
+mode, running generation, and SQLite transaction boundaries. Boot epoch and
+heartbeat are observability metadata. A stale heartbeat never authorizes
+replacement of a matching live owner.
 
 ### Active Git execution
 
@@ -109,16 +128,59 @@ When idle, every execution field is null. When populated:
 
 ## Admission
 
-Every public invocation MUST register before repository discovery, Git mutation,
-supervisor execution, or LLM invocation. Registration uses a short
-`BEGIN IMMEDIATE` transaction and increments `requested_generation` exactly once.
+Every public invocation MUST parse its invocation mode from a pure argv parse
+and register before repository discovery, Git mutation, supervisor execution, or
+LLM invocation. Registration uses a short `BEGIN IMMEDIATE` transaction and
+increments `requested_generation` exactly once for every admitted request.
 
-- A matching live owner causes successful coalescing.
-- No live owner causes atomic owner acquisition for the new generation.
-- A dead or identity-mismatched owner is replaced atomically.
-- A live PID with unreadable process metadata retains ownership and blocks
-  replacement.
-- Replacing an owner never clears or reinterprets active execution.
+### Global/global coalescing
+
+A matching live global owner coalesces a global requester: `requested_generation`
+increments exactly once, and the running generation, owner token, owner PID,
+owner mode, and active execution stay unchanged.
+
+### No targeted coalescing
+
+No combination containing a targeted request may coalesce:
+
+- live global owner with a targeted requester;
+- live targeted owner with a global requester;
+- live targeted owner with another targeted requester.
+
+These combinations perform zero durable mutation and return a process-local
+`WAIT`. The caller polls with bounded exponential backoff (25 ms, 50 ms, 100 ms,
+200 ms, then 250 ms maximum) and re-registers with unchanged mode and arguments.
+WAIT is never durable, creates no request row, increments no generation, and
+starts no runtime preparation, supervisor, Git, or LLM work.
+
+### Normal targeted admission
+
+A targeted request acquires normal ownership only from an idle, converged
+coordinator: no owner, no active execution, and
+`requested_generation == completed_generation`. It increments the generation
+exactly once, becomes the owner with `owner_invocation_mode = targeted`, and
+executes exactly its own scope.
+
+### Ownerless pending generations
+
+Ownerless `requested_generation > completed_generation` state is global
+reconciliation debt because targeted ownership is never released leaving
+targeted debt. For either requester mode, recovery acquires ownership with
+`owner_invocation_mode = global` and a generation strictly greater than the
+previous running generation. A global requester is satisfied by that fresh
+global pass; a targeted requester is not and must retry normal admission after
+the coordinator converges.
+
+Other admission rules remain:
+
+- a dead or identity-mismatched owner is replaced atomically, preserving the
+  prior owner's invocation mode until the old execution and reconciliation
+  obligation are safely resolved;
+- a live PID with unreadable process metadata retains ownership and blocks
+  replacement;
+- replacing an owner never clears or reinterprets active execution;
+- a dead targeted owner whose state shows `requested_generation != running_generation`
+  is impossible targeted debt and fails closed rather than being recovered.
 
 No Git, child-process, or LLM work occurs inside a coordinator transaction.
 
@@ -168,11 +230,32 @@ that signal direct inherited children.
 ## Recovery protocol
 
 After dead-owner takeover, the sole elected recovery owner MUST inspect the
-preserved active execution before runtime preparation or a new pass.
+preserved active execution before runtime preparation or a new pass. Recovery
+owned by a mode-preserving generation strictly greater than the previous running
+generation keeps an old execution descriptor representable as an older
+explicit-recovery execution under the new owner.
 
 ### No active execution
 
-Recovery may proceed with a fresh global rescan.
+Recovery may proceed according to its mode. A global recovery runs a fresh
+global rescan. A targeted recovery settles its generation and admits no new pass
+for the abandoned target.
+
+### Dead global owner
+
+A dead or replaceable global owner is recovered with a fresh global
+execution. The recovery generation is the new requested generation. A global
+requester is satisfied by that pass; a targeted requester is not, and retries
+normal admission only after global convergence.
+
+### Dead targeted owner
+
+A dead or replaceable targeted owner is recovered only to fence and settle the
+abandoned execution. Recovery MUST NOT start a supervisor, Turnlock run, or Git
+pass for the abandoned exact target, and MUST NOT infer, persist, or replay that
+target. After the old boundary is proven dead and its descriptor token-cleared,
+the targeted recovery generation settles and the caller retries normal
+admission.
 
 ### Exact live controller
 
@@ -184,7 +267,7 @@ Recovery MUST:
 4. escalate to hard termination only while exact leader identity still matches;
 5. prove the complete process group absent;
 6. token-clear the durable execution descriptor using current owner authority;
-7. only then start a fresh pass.
+7. only then start a fresh pass or admit the caller's own request.
 
 ### Dead boundary
 
@@ -217,17 +300,40 @@ pipeline result known
 ```
 
 `finishReconciliationPass()` and ownership release MUST fail while execution is
-recorded. A successful pass advances completion only after execution clearing.
-A failed pass does not claim its generation complete. A newer requested
-generation retains the owner and starts one fresh pass after the old boundary is
-dead. Intermediate generations remain coalescible.
+recorded, and MUST verify owner token, PID, invocation mode, running generation,
+and execution absence before changing completion state.
+
+A successful global pass advances completion only after execution clearing. A
+failed global pass does not claim its generation complete. A newer requested
+generation retains the global owner and starts one fresh pass after the old
+boundary is dead. Intermediate global generations remain coalescible.
+
+A targeted owner must never have coalesced newer work
+(`requested_generation == running_generation ==` pass generation), or
+finalization fails closed. Both targeted application outcomes settle coordinator
+occupancy after the execution descriptor is cleared: success sets
+`completed_generation = generation`, failure sets `completed_generation = generation`
+too, and both clear the owner. Coordinator settlement is not application success;
+a terminal targeted failure is still returned to the caller. Targeted
+finalization never returns `CONTINUE` and never leaves
+`requested_generation > completed_generation` as fake global debt.
 
 ## Fencing
 
 Owner heartbeat, finish, release, execution registration, START authorization,
-and execution clearing require current owner authority. Execution authorization
-and clearing additionally require the exact execution token. An obsolete owner
-or execution token cannot mutate a replacement execution or generation.
+and execution clearing require current owner authority. Finish and release
+also require the exact `owner_invocation_mode`. Execution authorization and
+clearing additionally require the exact execution token. An obsolete owner or
+execution token cannot mutate a replacement execution or generation.
+
+Ownership release is mode-aware. Global release preserves
+`requested_generation` and leaves interrupted global work pending. Targeted
+release, once no active execution remains, sets
+`completed_generation = requested_generation`, then clears the owner. That rule
+covers targeted cancellation, targeted fatal paths after safe boundary
+teardown, dead-targeted recovery after fencing, and release before application
+success was established. If execution death cannot be proven, the coordinator is
+not settled and durable evidence is preserved.
 
 ## Shutdown and fatal errors
 
@@ -255,10 +361,31 @@ commands that inherit the execution group. A command that deliberately calls
 `setsid()` or otherwise escapes the group is outside the supported execution
 contract. Repository-controlled runtime code MUST never do so.
 
-## Schema-v2 migration
+## Schema migrations
+
+### Schema v3 to v4 (automatic, bounded)
+
+Schema v4 adds exactly one durable coordinator field: `owner_invocation_mode`,
+with `CHECK (owner_invocation_mode IS NULL OR owner_invocation_mode IN ('global', 'targeted'))`.
+
+A writable open MAY migrate an existing schema-v3 singleton to v4 atomically and
+in place, but only when the v3 row proves: exactly one singleton row with
+`singleton_id = 1`, `running_generation = null`, every owner field null, every
+execution field null, and `requested_generation == completed_generation`. The
+migration re-reads schema, version, and state under `BEGIN IMMEDIATE`, adds the
+column, sets `PRAGMA user_version = 4`, and commits. The migrated column stays
+`NULL` because the state is idle.
+
+Any other v3 state fails closed: the transaction rolls back, the v3 database is
+preserved, and opening raises an incompatible-schema error. Schema v3 cannot say
+whether interrupted reconciliation work was global or targeted, so non-idle v3
+state is never guessed, deleted, recreated, or copied. No migration history
+table is introduced. A read-only open never migrates and never mutates.
+
+### Schema v2 (explicit, offline)
 
 Schema v2 contains no active-execution identity and MUST NOT be interpreted as
-idle by schema v3. Production opening fails closed.
+idle. Production opening fails closed.
 
 An operator may migrate only an idle, converged v2 singleton after externally
 proving that no launcher, supervisor, or descendant remains alive:
@@ -267,10 +394,13 @@ proving that no launcher, supervisor, or descendant remains alive:
 pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
 ```
 
-The migration rejects active owners, running generations, pending generations,
-SQLite sidecars, malformed state, and absent confirmation. It adds nullable
-execution columns in one transaction, preserves the singleton, and creates no
-history.
+The explicit migration adds the existing v3 execution columns, sets
+`PRAGMA user_version = 3`, closes its transaction, then opens through the normal
+writable path so the bounded idle v3-to-v4 upgrade runs before verification. It
+rejects active owners, running generations, pending generations, SQLite
+sidecars, malformed state, and absent confirmation, preserves the singleton, and
+creates no history. A database already at version 4 is reported as
+`already-current`.
 
 ## Preflight
 
@@ -315,3 +445,11 @@ credentials, prompts, diffs, or remote URLs.
 - `EXEC-INV-10`: recovery remains singleton under contention.
 - `EXEC-INV-11`: supervisor disappearance never implies completion.
 - `EXEC-INV-12`: SQLite remains one bounded singleton with no history.
+- `EXEC-INV-13`: a targeted public request is never satisfied by coalescing into
+  another request's execution scope.
+- `EXEC-INV-14`: normal targeted Git execution starts only from a coordinator
+  whose prior reconciliation debt has been resolved.
+- `EXEC-INV-15`: targeted coordinator settlement is independent from targeted
+  application success and creates no durable exact-request replay obligation.
+- `EXEC-INV-16`: dead-owner recovery preserves the prior owner's invocation mode
+  until the old execution/reconciliation obligation has been safely resolved.

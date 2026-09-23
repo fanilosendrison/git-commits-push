@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "3.0.0"
+version: "4.0.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -84,7 +84,8 @@ The preflight reports:
   mutating SQLite sidecars;
 - a corrupt SQLite database;
 - an unsupported SQLite schema version, including schema v2 until its explicit
-  offline migration is complete.
+  offline migration is complete and schema v3 until a writable open has
+  completed the bounded idle upgrade to v4.
 
 Any blocker means automated Git mutation must remain disabled until the state is
 understood.
@@ -140,7 +141,9 @@ delete the historical run directory.
    queue entries.
 7. For schema v2, stop all execution processes, require an idle converged row,
    and run `pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution` only
-   after proving that no old descendant survives.
+   after proving that no old descendant survives. An idle v3 row is upgraded to
+   v4 automatically by the next writable open; a non-idle v3 row stays preserved
+   and requires manual inspection.
 8. Review every incompatible historical Turnlock run. Add explicit closure
    evidence only after determining that it cannot contain resumable work.
 9. For legacy artifacts, confirm that no legacy worker is active. A normal

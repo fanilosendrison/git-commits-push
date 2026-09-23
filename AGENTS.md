@@ -122,27 +122,42 @@ runtime behavior belongs in TypeScript modules.
 - Targeted publication never advances or mutates a persistent checkout.
 - git-commits-push detects stale concurrent publication; the caller or harness
   owns any fetch, rebase, and conflict resolution before retrying.
-- Reconciler schema v3 still stores no target payload and its coalescing
-  semantics are unchanged by this change.
+- The reconciler stores the owner's invocation mode but no target payload.
 
 ## Reconciliation contract
 
-A public invocation means that global repository state may have changed. It is
-not a durable per-request job.
+There are exactly two public invocation modes. A **global** invocation means
+that global repository state may have changed; it is rediscoverable by a fresh
+global rescan and is not a durable per-request job. A **targeted** invocation is
+one synchronous exact caller-owned request for one worktree, remote, and ref;
+its exact scope is never persisted in the reconciler and is not a durable
+replayable work item.
 
 Before any Git, supervisor, or LLM work, every production invocation MUST
-atomically increment `requested_generation` in `reconciler.sqlite`. Production
-invocations MUST NOT build or resolve modules from the source checkout.
+classify its mode by pure argv parsing and atomically increment
+`requested_generation` in `reconciler.sqlite`. Production invocations MUST NOT
+build or resolve modules from the source checkout.
 
 - One live owner executes reconciliation passes.
-- Concurrent invocations coalesce into that owner and exit successfully.
+- A global owner coalesces a global requester, incrementing the requested
+  generation exactly once.
+- Any combination containing a targeted request does not coalesce. The
+  incompatible caller waits process-locally with bounded exponential polling,
+  registers no durable request, and retries with unchanged mode and arguments.
+- Normal targeted execution starts only from an idle, converged coordinator.
+- Ownerless pending generations are global reconciliation debt: recovery
+  acquires global ownership, and targeted callers are not satisfied by it.
 - Registration and pass finalization use short `BEGIN IMMEDIATE` transactions.
 - An owner runs another fresh pass when a newer generation was registered.
-- Ownership is fenced by random token, PID, and process-start identity.
+- Ownership is fenced by random token, PID, process-start identity, and
+  invocation mode.
 - Active execution is separately fenced by execution token, generation,
   controller PID, process-start identity, and POSIX process-group identity.
 - Recovery ownership never authorizes fresh Git execution until the previous
   execution boundary is proven dead and its record is token-cleared.
+- Dead global reconciliation is recovered globally; dead targeted requests are
+  fenced and settled, never replayed, and never run through a replacement
+  supervisor for the abandoned target.
 - A matching live process is never replaced because of heartbeat age or
   boot-clock drift.
 - A live PID with temporarily unreadable process metadata retains ownership.
@@ -151,6 +166,9 @@ invocations MUST NOT build or resolve modules from the source checkout.
   protocol; no child can become Git-capable before durable registration.
 - Pass completion and owner release are forbidden while active execution is
   recorded.
+- Targeted coordinator settlement is not publication success: a terminal
+  targeted failure still returns failure to the caller while leaving the
+  coordinator idle and converged.
 - The coordinator stores no per-request orders or historical event log.
 
 `ORDER_STATE_DIR` remains the compatibility override for the state directory
@@ -255,12 +273,19 @@ queue execution path. Telemetry failures must never block reconciliation.
 ## State and schema
 
 - Parse persisted Turnlock state through `src/config/state-schema.ts`.
-- Reconciler schema v3 stores one bounded owner and one bounded active-execution
-  descriptor in the singleton row; it stores no execution history.
+- Reconciler schema v4 stores one bounded owner, its invocation mode, and one
+  bounded active-execution descriptor in the singleton row; it stores no
+  request history, target payload, or execution history.
 - Schema changes require production-schema tests and compatibility fixtures.
+- A writable open MAY upgrade only a provably idle, converged schema-v3
+  singleton to v4 by adding `owner_invocation_mode` and setting
+  `PRAGMA user_version = 4` in one transaction. Non-idle v3 state fails closed
+  and is preserved because v3 cannot say whether missing work was global or
+  targeted. Read-only opens never migrate.
 - Schema v2 MUST fail closed in production. Its explicit offline migration is
   allowed only for an idle, converged row after the operator proves that no old
-  launcher, supervisor, or descendant remains alive.
+  launcher, supervisor, or descendant remains alive; it stages v3 and then
+  upgrades to v4 through the normal writable path.
 - Persist push URL fingerprints, never push URLs.
 - Preserve committed SHA evidence across partial failures and retries.
 - Do not silently migrate incompatible Turnlock or reconciler schema versions.
@@ -298,14 +323,20 @@ When adding or renaming a test, update that manifest and
 Concurrency and recovery changes MUST cover:
 
 - simultaneous cold-start registration;
-- coalescing during a running pass;
+- global coalescing during a running pass;
+- incompatible targeted combinations returning process-local WAIT while the
+  coordinator row and active execution stay unchanged;
+- targeted wait cancellation and waiter SIGTERM semantics;
 - registration racing with pass completion;
-- owner death and recycled-PID recovery;
+- owner death and recycled-PID recovery, including mode-preserving targeted
+  recovery that fences without replaying the abandoned target;
+- global recovery before targeted normal admission;
 - fenced heartbeat and release;
 - active-execution registration, START authorization, and token clearing;
 - launcher and supervisor hard-death recovery without execution overlap;
 - PID/process-group identity mismatch and fail-closed recovery;
-- corrupt or incompatible database handling;
+- corrupt or incompatible database handling, including bounded idle v3-to-v4
+  migration and non-idle v3 refusal;
 - legacy queue residue classification;
 - compiled launcher, execution-controller, and supervisor behavior.
 
