@@ -28,6 +28,32 @@ jobs:
           node-version: 22.19.0
           cache: pnpm
 
+      - name: Configure Turnlock deploy key
+        shell: bash
+        env:
+          TURNLOCK_DEPLOY_KEY: ${{ secrets.TURNLOCK_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.ssh"
+          chmod 0700 "$HOME/.ssh"
+          printf '%s' "$TURNLOCK_DEPLOY_KEY" > "$HOME/.ssh/turnlock_ci"
+          chmod 0600 "$HOME/.ssh/turnlock_ci"
+          ssh-keyscan -t ed25519 github.com > "$HOME/.ssh/known_hosts"
+          chmod 0644 "$HOME/.ssh/known_hosts"
+          git config --global core.sshCommand "ssh -i $HOME/.ssh/turnlock_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes"
+
+      - name: Turnlock SSH access smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='a519ee6a31fb243921d0b2f6c2379d8f0c919801'
+          smoke_dir="$(mktemp -d)"
+          trap 'rm -rf "$smoke_dir"' EXIT
+          git -C "$smoke_dir" init --quiet
+          git -C "$smoke_dir" fetch --no-tags --depth=1 git@github.com:fanilosendrison/turnlock.git "$expected"
+          actual="$(git -C "$smoke_dir" rev-parse FETCH_HEAD)"
+          test "$actual" = "$expected"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
