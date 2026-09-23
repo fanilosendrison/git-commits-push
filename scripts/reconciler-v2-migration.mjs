@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
 	openReconcilerDb,
 	RECONCILER_EXECUTION_COLUMN_DEFINITIONS,
+	RECONCILER_MIGRATABLE_SCHEMA_VERSION,
 	RECONCILER_SCHEMA_VERSION,
 	readReconcilerState,
 } from "../src/modules/reconciliation/reconciler-db.ts";
@@ -105,7 +106,9 @@ export function migrateReconcilerV2Database({
 			for (const definition of RECONCILER_EXECUTION_COLUMN_DEFINITIONS) {
 				db.exec(`ALTER TABLE reconciler_state ADD COLUMN ${definition}`);
 			}
-			db.exec(`PRAGMA user_version = ${RECONCILER_SCHEMA_VERSION}`);
+			// Stop at schema v3. The normal writable open below performs the
+			// bounded idle v3 -> v4 upgrade exactly once.
+			db.exec(`PRAGMA user_version = ${RECONCILER_MIGRATABLE_SCHEMA_VERSION}`);
 			db.exec("COMMIT");
 		} catch (error) {
 			try {
@@ -118,8 +121,14 @@ export function migrateReconcilerV2Database({
 	} finally {
 		db.close();
 	}
-	const verified = openReconcilerDb(dbPath, { readOnly: true });
+	const verified = openReconcilerDb(dbPath);
 	try {
+		const versionRow = verified.prepare("PRAGMA user_version").get();
+		if (Number(versionRow?.user_version) !== RECONCILER_SCHEMA_VERSION) {
+			throw new Error(
+				`Migrated reconciler did not reach schema version ${RECONCILER_SCHEMA_VERSION}.`,
+			);
+		}
 		const state = readReconcilerState(verified);
 		if (state.activeExecution !== null) {
 			throw new Error(
