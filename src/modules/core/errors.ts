@@ -1,4 +1,4 @@
-import type { CommittedSha } from "../../types.ts";
+import type { CommittedSha, OriginalHead } from "../../types.ts";
 
 export type CommitPlanErrorKind =
 	| "duplicate-file"
@@ -52,7 +52,7 @@ export class GitExecError extends Error {
 
 interface PartialCommitErrorContext {
 	committedShas: CommittedSha[];
-	originalHead: string;
+	originalHead: OriginalHead;
 	failedIndex: number;
 	totalCount: number;
 	pendingFiles: string[];
@@ -82,7 +82,7 @@ export class PushError extends Error {
 
 export interface PostCommitPushErrorContext {
 	readonly committedShas: CommittedSha[];
-	readonly originalHead: string;
+	readonly originalHead: OriginalHead;
 	readonly pushRetryCount: number;
 }
 

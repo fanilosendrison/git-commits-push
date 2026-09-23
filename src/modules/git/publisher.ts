@@ -7,6 +7,7 @@ import type {
 	CommitPlan,
 	CommittedSha,
 	ExplicitPushTargetSnapshot,
+	OriginalHead,
 	Settings,
 } from "../../types.ts";
 import {
@@ -21,7 +22,7 @@ import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
 import { publishExplicitTargetSnapshot } from "./explicit-push.ts";
 import { assertExplicitPushTargetCurrent } from "./explicit-push-target.ts";
-import { gitExec, gitExecArgs } from "./git-exec.ts";
+import { gitExecArgs } from "./git-exec.ts";
 import { executePush, type PushExecutionResult } from "./push.ts";
 
 /**
@@ -46,6 +47,23 @@ function collectPendingFiles(
 		});
 }
 
+function readOriginalHead(repository: string): OriginalHead {
+	try {
+		return gitExecArgs(["rev-parse", "--verify", "HEAD"], repository);
+	} catch (error) {
+		const symbolicHead = gitExecArgs(
+			["symbolic-ref", "--quiet", "HEAD"],
+			repository,
+		);
+		const referencedHead = gitExecArgs(
+			["for-each-ref", "--format=%(objectname)", "--", symbolicHead],
+			repository,
+		);
+		if (!referencedHead) return null;
+		throw error;
+	}
+}
+
 /**
  * Execute multiple commits (one per CommitPlan) then publish once.
  *
@@ -68,7 +86,7 @@ export async function executeMultiCommitAndPush(
 	explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot,
 ): Promise<{
 	committedShas: CommittedSha[];
-	originalHead: string;
+	originalHead: OriginalHead;
 	pushRetryCount: number;
 	publishedSha: string | null;
 	remoteTrackingRefSynchronization: PushExecutionResult["remoteTrackingRefSynchronization"];
@@ -129,14 +147,12 @@ export async function executeMultiCommitAndPush(
 		assertExplicitPushTargetCurrent(repoPath, explicitPushTargetSnapshot);
 	}
 
-	// 5. Capture original HEAD
-	const originalHead = execSync("git rev-parse HEAD", {
-		cwd: repoPath,
-		encoding: "utf-8",
-	}).trim();
+	// 5. Capture original HEAD, preserving a proven unborn branch as null.
+	const originalHead = readOriginalHead(repoPath);
 
-	// 6. Unstage everything so we can re-stage file-by-file
-	gitExec("reset HEAD", repoPath);
+	// 6. Unstage everything so we can re-stage file-by-file. The default mixed
+	//    reset works against both an existing HEAD and Git's empty unborn index.
+	gitExecArgs(["reset", "--mixed"], repoPath);
 
 	// 7. Commit loop (inter-commit reset after each commit)
 	const committedShas: CommittedSha[] = [];
@@ -179,7 +195,7 @@ export async function executeMultiCommitAndPush(
 				committedShas.push({ sha, files: [...plan.files] });
 			} catch (commitErr) {
 				try {
-					gitExec("reset HEAD", repoPath);
+					gitExecArgs(["reset", "--mixed"], repoPath);
 				} catch (resetErr) {
 					throw new GitExecError(
 						`reset HEAD failed during cleanup: ${resetErr instanceof Error ? resetErr.message : String(resetErr)}. ` +
@@ -228,7 +244,7 @@ export async function executeMultiCommitAndPush(
 
 				throw new PartialCommitError(
 					`Commit ${i + 1}/${plans.length} failed: ${msg}. ` +
-						`${committedShas.length} commit(s) already in history (from ${originalHead.slice(0, 7)}). ` +
+						`${committedShas.length} commit(s) already in history (from ${originalHead ? originalHead.slice(0, 7) : "unborn HEAD"}). ` +
 						`${pendingFiles.length} file(s) still pending.`,
 					{
 						committedShas,
@@ -242,7 +258,7 @@ export async function executeMultiCommitAndPush(
 
 			// Clear staging between plans
 			try {
-				gitExec("reset HEAD", repoPath);
+				gitExecArgs(["reset", "--mixed"], repoPath);
 			} catch {
 				/* best-effort */
 			}

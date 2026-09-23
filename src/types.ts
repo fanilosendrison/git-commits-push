@@ -171,6 +171,9 @@ export interface CommittedSha {
 	files: string[];
 }
 
+/** Pre-commit HEAD, or `null` when the branch was proven unborn. */
+export type OriginalHead = string | null;
+
 // ── Feedback ─────────────────────────────────────────────────────────────
 
 /**
@@ -296,8 +299,8 @@ export interface RepoState {
 	attempts?: AttemptsByKind | undefined;
 	/** NEW: cumulative across retries (Decision 3) */
 	committedShas?: CommittedSha[] | undefined;
-	/** NEW: HEAD SHA before any commit in this invocation */
-	originalHead?: string | undefined;
+	/** NEW: HEAD SHA before any commit, or null for a proven unborn branch */
+	originalHead?: OriginalHead | undefined;
 	/** NEW: rolling previous_commit history for the LLM (capped, Decision 11) */
 	feedbackHistory?: string[] | undefined;
 	/** NEW: loop detection — hash of the last plan structure (Decision 12) */

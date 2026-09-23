@@ -216,7 +216,7 @@ const repoStateSchema = z
 		committedShas: z
 			.array(z.object({ sha: z.string(), files: z.array(z.string()) }))
 			.optional(),
-		originalHead: z.string().optional(),
+		originalHead: z.string().nullable().optional(),
 		feedbackHistory: z.array(z.string()).optional(),
 		lastPlanHash: z.string().optional(),
 		loopDetected: z

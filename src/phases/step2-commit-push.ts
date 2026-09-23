@@ -23,7 +23,7 @@ import { handlePushOnlyCheckpointResult } from "../modules/git/push-only-checkpo
 import { resetIndexForRetry } from "../modules/git/reset-index.ts";
 import { assertInvocationScopeCurrent } from "../modules/invocation/invocation-scope.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
-import type { CommittedSha, GlobalState } from "../types.ts";
+import type { CommittedSha, GlobalState, OriginalHead } from "../types.ts";
 
 const skillLog = createSkillStatsLog();
 
@@ -41,6 +41,13 @@ function mergeCommittedShas(
 	return merged;
 }
 
+function preserveOriginalHead(
+	existing: OriginalHead | undefined,
+	incoming: OriginalHead,
+): OriginalHead {
+	return existing === undefined ? incoming : existing;
+}
+
 export function mergePostCommitPushFailure(
 	repoState: GlobalState["repos"][string],
 	error: PostCommitPushError,
@@ -51,7 +58,10 @@ export function mergePostCommitPushFailure(
 			repoState.committedShas ?? [],
 			error.context.committedShas,
 		),
-		originalHead: repoState.originalHead ?? error.context.originalHead,
+		originalHead: preserveOriginalHead(
+			repoState.originalHead,
+			error.context.originalHead,
+		),
 		attempts: {
 			...(repoState.attempts ?? {}),
 			network:
@@ -167,7 +177,10 @@ export async function runCommitAndPushPhase(
 					repoState.committedShas ?? [],
 					committedShas,
 				),
-				originalHead: repoState.originalHead ?? originalHead,
+				originalHead: preserveOriginalHead(
+					repoState.originalHead,
+					originalHead,
+				),
 				publishedSha: publishedSha ?? repoState.publishedSha,
 				remoteTrackingRefSynchronization:
 					remoteTrackingRefSynchronization ??
@@ -197,7 +210,10 @@ export async function runCommitAndPushPhase(
 						repoState.committedShas ?? [],
 						err.context.committedShas,
 					),
-					originalHead: repoState.originalHead ?? err.context.originalHead,
+					originalHead: preserveOriginalHead(
+						repoState.originalHead,
+						err.context.originalHead,
+					),
 				};
 				pendingFiles = err.context.pendingFiles;
 			} else if (
