@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.1.1"
+version: "3.2.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -74,30 +74,57 @@ uses `~/Developper`; an omitted or empty value falls back to
 unstaged, or both. Repos on a detached HEAD are skipped (there's no branch to
 push to).
 
-#### Unreleased targeted-scope foundation
+#### Targeted mode
 
-- the stable installed 0.6.2 workflow remains the current installed global
-  workflow;
-- current source contains the targeted invocation-scope and exact-worktree
-  discovery foundation plus explicit-target publication;
-- targeted source mode names one exact worktree with `--repository`,
-  `--push-remote` and `--push-ref`;
-- it does not scan sibling worktrees or `searchPaths`;
-- source targeted mode supports exact detached commit-and-publish: commits are
-  created directly on the detached HEAD and the exact result is published to the
-  named remote branch;
-- source targeted mode supports clean explicit push-only publication;
-- the targeted destination branch must already exist — it is never created;
-- targeted publication never creates branches, upstreams, or persistent Git
-  configuration;
-- a stale or diverged destination fails closed: the caller or harness must
-  handle fetch, rebase, merge, and conflicts, then retry;
-- source targeted invocations are serialized by the reconciliation coordinator
-  without scope coalescing: a targeted request waits process-locally for any
-  incompatible owner and then runs its own exact worktree, remote, and ref;
-- targeted execution shares the global `SINGLE_LIVE_GIT_EXECUTION` boundary, and
-  dead targeted requests are fenced and settled rather than replayed;
-- the 0.7.0 installed release (#9) is still not qualified.
+Two invocation modes are supported: global mode and targeted mode.
+
+GLOBAL MODE
+
+```bash
+git-commits-push
+```
+
+- uses `searchPaths`/global discovery;
+- discovers ordinary repository work;
+- global discovery skips detached HEAD repositories;
+- preserves the existing default workflow;
+- global/global concurrent requests may coalesce through reconciliation
+  generations.
+
+TARGETED MODE
+
+```bash
+git-commits-push \
+  --repository <absolute-exact-worktree-root> \
+  --push-remote <configured-remote-name> \
+  --push-ref refs/heads/<branch>
+```
+
+- the three flags form one atomic argument group;
+- targets exactly one canonical worktree;
+- does not scan `searchPaths`;
+- does not scan sibling worktrees;
+- does not expand through the Git common directory;
+- explicitly supports detached HEAD;
+- supports dirty detached commit-and-publish;
+- supports clean detached push-only publication;
+- requires an explicit configured remote and fully qualified `refs/heads/*`
+  destination;
+- does not create a temporary publication branch;
+- does not create or modify an upstream;
+- does not persist `push.default`;
+- does not persist `branch.*.remote`;
+- does not persist `branch.*.merge`;
+- freezes the remote destination baseline before commit/publication effects;
+- uses exact-SHA publication with lease protection;
+- verifies the remote destination after publication;
+- fails closed if the destination becomes stale/diverged;
+- does not merge, rebase, or resolve conflicts;
+- leaves convergence/correction to the caller;
+- incompatible targeted/global requests serialize rather than scope-coalescing;
+- the reconciler persists owner invocation mode but never target
+  repository/remote/ref payload;
+- `SINGLE_LIVE_GIT_EXECUTION` remains global.
 
 ### 2. Validation
 
