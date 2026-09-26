@@ -13,6 +13,10 @@ const TARGETED_SCOPE = {
 	pushRemote: "origin",
 	pushRef: "refs/heads/main",
 };
+const WORKTREE_SCOPE = {
+	kind: "worktree",
+	repository: REPO_PATH,
+};
 
 /** Current-shape tracked snapshot; override one field to build a broken variant. */
 function trackedSnapshot(overrides: Record<string, unknown> = {}) {
@@ -75,6 +79,15 @@ function pushOnlyState(snapshot: unknown, extra: Record<string, unknown> = {}) {
 function targetedState(extra: Record<string, unknown>) {
 	return stateSchema.safeParse({
 		invocationScope: TARGETED_SCOPE,
+		repos: {
+			"repo-1": { repository: REPO_PATH, status: "RUNNING", ...extra },
+		},
+	});
+}
+/** One repo state under the worktree scope, with the given fields. */
+function worktreeState(extra: Record<string, unknown>) {
+	return stateSchema.safeParse({
+		invocationScope: WORKTREE_SCOPE,
 		repos: {
 			"repo-1": { repository: REPO_PATH, status: "RUNNING", ...extra },
 		},
@@ -304,9 +317,13 @@ describe("production invocation scope schema", () => {
 		assert.deepStrictEqual(result.data.invocationScope, { kind: "global" });
 	});
 
-	test("round-trips explicit global and targeted scopes", () => {
+	test("round-trips explicit global, worktree, and targeted scopes", () => {
 		const global = stateSchema.safeParse({
 			invocationScope: { kind: "global" },
+			repos: {},
+		});
+		const worktree = stateSchema.safeParse({
+			invocationScope: WORKTREE_SCOPE,
 			repos: {},
 		});
 		const targeted = stateSchema.safeParse({
@@ -314,9 +331,13 @@ describe("production invocation scope schema", () => {
 			repos: {},
 		});
 
-		assert.strictEqual(global.success && targeted.success, true);
-		if (!global.success || !targeted.success) return;
+		assert.strictEqual(
+			global.success && worktree.success && targeted.success,
+			true,
+		);
+		if (!global.success || !worktree.success || !targeted.success) return;
 		assert.deepStrictEqual(global.data.invocationScope, { kind: "global" });
+		assert.deepStrictEqual(worktree.data.invocationScope, WORKTREE_SCOPE);
 		assert.deepStrictEqual(targeted.data.invocationScope, TARGETED_SCOPE);
 	});
 
@@ -329,11 +350,60 @@ describe("production invocation scope schema", () => {
 				{ ...TARGETED_SCOPE, pushRemote: "" },
 				{ ...TARGETED_SCOPE, pushRef: "main" },
 				{ ...TARGETED_SCOPE, pushRef: "refs/heads/" },
+				{ kind: "worktree" },
+				{ kind: "worktree", repository: "" },
+				{ kind: "worktree", repository: "relative/path" },
 				{ kind: "unknown" },
 			].map((invocationScope) =>
 				stateSchema.safeParse({ invocationScope, repos: {} }),
 			),
 		);
+	});
+});
+
+describe("production worktree invocation scope", () => {
+	test("accepts a worktree commit-and-push without any explicit target", () => {
+		assert.strictEqual(
+			worktreeState({ operation: "commit-and-push", diffHash: "abc" }).success,
+			true,
+		);
+	});
+
+	test("accepts a tracked push-only snapshot for the exact worktree", () => {
+		const result = worktreeState({
+			operation: "push-only",
+			pushSnapshot: trackedSnapshot(),
+		});
+
+		assert.strictEqual(result.success, true);
+	});
+
+	test("rejects state for another repository", () => {
+		const result = stateSchema.safeParse({
+			invocationScope: WORKTREE_SCOPE,
+			repos: {
+				"repo-1": {
+					repository: "/path/to/other",
+					status: "RUNNING",
+					operation: "commit-and-push",
+				},
+			},
+		});
+
+		assert.strictEqual(result.success, false);
+	});
+
+	test("rejects an explicit frozen target and an explicit push snapshot", () => {
+		assertRejected([
+			worktreeState({
+				operation: "commit-and-push",
+				explicitPushTargetSnapshot: frozenTarget(),
+			}),
+			worktreeState({
+				operation: "push-only",
+				pushSnapshot: explicitSnapshot(),
+			}),
+		]);
 	});
 });
 

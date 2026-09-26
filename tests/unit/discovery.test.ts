@@ -190,52 +190,129 @@ test("U-DI-07 | findGitDirectoriesRecursively — stops at first .git", (t) => {
 	assert.strictEqual(found.length, 1);
 	assert.ok(found[0]?.includes("outer-repo"));
 });
-// ─── Global discovery ────────────────────────────────────────────────────────
+// ─── Worktree discovery ──────────────────────────────────────────────────────
 
-test("U-DI-08 | runDiscovery — non-existent path does not crash", async () => {
-	await assert.deepStrictEqual(
+function worktreeScope(repo: GitRepoFixture) {
+	return resolveInvocationScope({ kind: "worktree" }, repo.dir);
+}
+
+test("U-DI-08 | runDiscovery — a dirty worktree returns exactly itself", async (t) => {
+	const fixture = createTargetFixture();
+	t.after(() => disposeTargetFixture(fixture));
+	fixture.repo.writeAndStage("dirty.ts", "export const dirty = true;\n");
+	const results = await runDiscovery(
+		settingsFor(fixture),
+		worktreeScope(fixture.repo),
+	);
+	assert.strictEqual(results.length, 1);
+	assert.strictEqual(results[0]?.path, fs.realpathSync(fixture.repo.dir));
+	assert.strictEqual(results[0]?.operation, "commit-and-push");
+	assert.strictEqual(results[0]?.pushSnapshot, undefined);
+	assert.strictEqual(results[0]?.explicitPushTargetSnapshot, undefined);
+});
+
+test("U-DI-09 | runDiscovery — a dirty linked sibling worktree is ignored", async (t) => {
+	const searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "di-09-"));
+	const fixture = createTargetFixture(searchRoot);
+	const siblingPath = path.join(searchRoot, "sibling-worktree");
+	t.after(() => {
+		disposeTargetFixture(fixture);
+		fs.rmSync(searchRoot, { recursive: true, force: true });
+	});
+	git(fixture.repo.dir, [
+		"worktree",
+		"add",
+		siblingPath,
+		"-b",
+		"sibling-branch",
+	]);
+	fs.writeFileSync(
+		path.join(siblingPath, "sibling.ts"),
+		"export const sibling = true;\n",
+	);
+	git(siblingPath, ["add", "-A"]);
+	fixture.repo.writeAndStage("current.ts", "export const current = true;\n");
+
+	const results = await runDiscovery(
+		settingsFor(fixture, { searchPaths: [searchRoot] }),
+		worktreeScope(fixture.repo),
+	);
+	assert.deepStrictEqual(
+		results.map((result) => result.path),
+		[fs.realpathSync(fixture.repo.dir)],
+	);
+	assert.strictEqual(
+		results.some((result) => result.path === fs.realpathSync(siblingPath)),
+		false,
+	);
+});
+
+test("U-DI-10 | runDiscovery — an unrelated dirty repository in searchPaths is ignored", async (t) => {
+	const searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "di-10-"));
+	const fixture = createTargetFixture(searchRoot);
+	const unrelated = GitRepoFixture.create({ parentDir: searchRoot });
+	unrelated.commit("initial");
+	unrelated.writeAndStage("unrelated.ts", "export const unrelated = true;\n");
+	t.after(() => {
+		disposeTargetFixture(fixture);
+		unrelated.dispose();
+		fs.rmSync(searchRoot, { recursive: true, force: true });
+	});
+	fixture.repo.writeAndStage("current.ts", "export const current = true;\n");
+
+	const results = await runDiscovery(
+		settingsFor(fixture, { searchPaths: [searchRoot] }),
+		worktreeScope(fixture.repo),
+	);
+	assert.deepStrictEqual(
+		results.map((result) => result.path),
+		[fs.realpathSync(fixture.repo.dir)],
+	);
+	assert.strictEqual(
+		results.some((result) => result.path === fs.realpathSync(unrelated.dir)),
+		false,
+	);
+});
+
+test("U-DI-11 | runDiscovery — a clean worktree never falls through to a dirty sibling", async (t) => {
+	const searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "di-11-"));
+	const fixture = createTargetFixture(searchRoot);
+	const siblingPath = path.join(searchRoot, "sibling-worktree");
+	t.after(() => {
+		disposeTargetFixture(fixture);
+		fs.rmSync(searchRoot, { recursive: true, force: true });
+	});
+	git(fixture.repo.dir, [
+		"worktree",
+		"add",
+		siblingPath,
+		"-b",
+		"sibling-branch",
+	]);
+	fs.writeFileSync(
+		path.join(siblingPath, "sibling.ts"),
+		"export const sibling = true;\n",
+	);
+	git(siblingPath, ["add", "-A"]);
+
+	// The current worktree is clean and fully synchronized, so it has nothing
+	// publishable even with autoPush enabled.
+	assert.deepStrictEqual(
 		await runDiscovery(
-			{
-				...BASE_SETTINGS,
-				searchPaths: ["/non/existent/path/that/does/not/exist"],
-			},
-			GLOBAL_INVOCATION_SCOPE,
+			settingsFor(fixture, { autoPush: true, searchPaths: [searchRoot] }),
+			worktreeScope(fixture.repo),
 		),
 		[],
 	);
 });
 
-test("U-DI-09 | runDiscovery — excludes detached HEAD repos", async (t) => {
-	const repo = GitRepoFixture.create();
-	t.after(() => repo.dispose());
-	repo.commit("initial");
-	repo.checkoutDetached();
-	repo.writeAndStage("file.ts", "const x = 1;\n");
-	const results = await runDiscovery(
-		{ ...BASE_SETTINGS, searchPaths: [repo.dir] },
-		GLOBAL_INVOCATION_SCOPE,
-	);
-	assert.strictEqual(
-		results.some((result) => result.path === repo.dir),
-		false,
-	);
-});
-
-test("U-DI-10 | computeRepoId — deterministic across calls", async (t) => {
-	const repo = GitRepoFixture.create();
-	t.after(() => repo.dispose());
-	const first = await computeRepoId(repo.dir);
-	assert.strictEqual(await computeRepoId(repo.dir), first);
-	assert.ok(first.length > 0);
-});
-
-test("U-DI-11 | runDiscovery — tracked push-only still follows autoPush", async (t) => {
+test("U-DI-17 | runDiscovery — worktree tracked push-only follows autoPush", async (t) => {
 	const fixture = createTargetFixture();
 	t.after(() => disposeTargetFixture(fixture));
 	commitOnHead(fixture, "ahead.ts");
 	const enabled = await runDiscovery(
 		settingsFor(fixture, { autoPush: true }),
-		GLOBAL_INVOCATION_SCOPE,
+		worktreeScope(fixture.repo),
 	);
 	assert.strictEqual(enabled.length, 1);
 	assert.strictEqual(enabled[0]?.path, fs.realpathSync(fixture.repo.dir));
@@ -246,7 +323,7 @@ test("U-DI-11 | runDiscovery — tracked push-only still follows autoPush", asyn
 	await assert.rejects(
 		runDiscovery(
 			settingsFor(fixture, { autoPush: true }),
-			GLOBAL_INVOCATION_SCOPE,
+			worktreeScope(fixture.repo),
 		),
 		/Cannot inspect tracked push destination/iu,
 	);
@@ -254,11 +331,33 @@ test("U-DI-11 | runDiscovery — tracked push-only still follows autoPush", asyn
 	assert.deepStrictEqual(
 		await runDiscovery(
 			settingsFor(fixture, { autoPush: false }),
-			GLOBAL_INVOCATION_SCOPE,
+			worktreeScope(fixture.repo),
 		),
 		[],
 	);
 });
+
+test("U-DI-18 | runDiscovery — legacy persisted global scope still discovers dirty repositories", async (t) => {
+	const fixture = createTargetFixture();
+	t.after(() => disposeTargetFixture(fixture));
+	fixture.repo.writeAndStage("legacy.ts", "export const legacy = true;\n");
+	const results = await runDiscovery(
+		settingsFor(fixture),
+		GLOBAL_INVOCATION_SCOPE,
+	);
+	assert.deepStrictEqual(
+		results.map((result) => result.path),
+		[fs.realpathSync(fixture.repo.dir)],
+	);
+});
+test("U-DI-19 | computeRepoId — deterministic across calls", async (t) => {
+	const repo = GitRepoFixture.create();
+	t.after(() => repo.dispose());
+	const first = await computeRepoId(repo.dir);
+	assert.strictEqual(await computeRepoId(repo.dir), first);
+	assert.ok(first.length > 0);
+});
+
 // ─── Targeted discovery ──────────────────────────────────────────────────────
 
 test("U-DI-12 | targeted discovery freezes the destination for a dirty detached target", async (t) => {
