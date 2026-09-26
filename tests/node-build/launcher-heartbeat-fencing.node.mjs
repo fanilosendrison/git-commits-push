@@ -64,7 +64,7 @@ test("fenced heartbeat cancels active work without completing its generation", a
 			}),
 		);
 		const launcher = spawn(process.execPath, [nodeLauncherPath], {
-			cwd: skillDirectory,
+			cwd: repositoryPath,
 			env: {
 				...environment,
 				MOCK_LLM_FIRST_CALL_MARKER: firstCallMarker,

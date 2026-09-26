@@ -23,6 +23,7 @@ import {
 	access,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	realpath,
 	rm,
@@ -190,20 +191,32 @@ function tryRunGit(cwd, args, environment) {
 	};
 }
 
-function captureRepositoryState(repositoryPath, environment) {
+function captureRepositoryState(
+	repositoryPath,
+	environment,
+	excludedBranchRefs = [],
+) {
 	const branch = tryRunGit(
 		repositoryPath,
 		["symbolic-ref", "--quiet", "--short", "HEAD"],
 		environment,
 	);
+	const branchRefs = runGit(
+		repositoryPath,
+		["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"],
+		environment,
+	);
 	return {
 		branch: branch.status === 0 ? branch.stdout : null,
 		detached: branch.status !== 0,
-		branchRefs: runGit(
-			repositoryPath,
-			["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"],
-			environment,
-		),
+		// A linked sibling worktree shares the repository ref store, so only the
+		// sibling's own branch refs are comparable across an invocation.
+		branchRefs: branchRefs
+			.split("\n")
+			.filter(
+				(line) => !excludedBranchRefs.some((ref) => line.startsWith(`${ref} `)),
+			)
+			.join("\n"),
 		head: runGit(repositoryPath, ["rev-parse", "HEAD"], environment),
 		indexDiff: runGit(repositoryPath, ["diff", "--cached"], environment),
 		localConfig: runGit(
@@ -273,9 +286,13 @@ function targetedEnvironment(root, settingsPath, extra) {
 	};
 }
 
-function spawnInstalledLauncher(environment, argumentsList = []) {
+function spawnInstalledLauncher(
+	environment,
+	argumentsList = [],
+	cwd = environment.HOME,
+) {
 	const child = spawn(qualification.publicExecutablePath, argumentsList, {
-		cwd: environment.HOME,
+		cwd,
 		env: environment,
 		shell: false,
 		stdio: ["ignore", "pipe", "pipe"],
@@ -300,6 +317,57 @@ function targetedArguments(target) {
 		"--push-ref",
 		target.pushRef,
 	];
+}
+
+/**
+ * Two attached linked worktrees of one repository, each on its own branch with
+ * the matching remote branch configured as upstream. Used for ordinary
+ * invocation isolation and serialization qualification.
+ */
+async function createLinkedWorktrees(root, environment, baseName) {
+	const canonicalRoot = realpathSync(root);
+	const searchRoot = path.join(canonicalRoot, `${baseName} search`);
+	await mkdir(searchRoot, { recursive: true });
+	const repositoryPath = path.join(searchRoot, "repository");
+	const bareRemotePath = path.join(canonicalRoot, `${baseName}.git`);
+	await createRepoWithBareRemote(repositoryPath, bareRemotePath, environment);
+	const baseline = runGit(repositoryPath, ["rev-parse", "HEAD"], environment);
+	const worktrees = [];
+	for (const name of ["a", "b"]) {
+		const branch = `${baseName}-${name}-branch`;
+		const worktreePath = path.join(searchRoot, `${name}-worktree`);
+		runGit(
+			repositoryPath,
+			["worktree", "add", worktreePath, "-b", branch, baseline],
+			environment,
+		);
+		runGit(
+			repositoryPath,
+			["push", "origin", `${branch}:${branch}`],
+			environment,
+		);
+		runGit(
+			worktreePath,
+			["branch", `--set-upstream-to=origin/${branch}`, branch],
+			environment,
+		);
+		worktrees.push({
+			baseline,
+			branch,
+			pushRef: `refs/heads/${branch}`,
+			worktreePath,
+		});
+	}
+	return { bareRemotePath, baseline, repositoryPath, searchRoot, worktrees };
+}
+
+/** Stage an ordinary-worktree change inside one linked worktree. */
+async function stageWorktreeFile(worktreePath, fileName, environment) {
+	await writeFile(
+		path.join(worktreePath, fileName),
+		`export const ${fileName.replaceAll("-", "_").replaceAll(".", "_")} = true;\n`,
+	);
+	runGit(worktreePath, ["add", fileName], environment);
 }
 
 async function createTargetFixture(root, environment, name) {
@@ -482,7 +550,7 @@ async function readReconcilerRowEventually(
 async function observeStableWait(waiter, dbPath, expected) {
 	// Observe a real interval: the waiter must stay alive, must not mutate the
 	// coordinator row, and must not start any Git-capable execution.
-	await new Promise((resolve) => setTimeout(resolve, 2_000));
+	await new Promise((resolve) => setTimeout(resolve, 1_000));
 	assert.strictEqual(waiter.child.exitCode, null, "waiter exited early");
 	assert.strictEqual(
 		waiter.child.signalCode,
@@ -526,6 +594,26 @@ function maximumSimultaneousSupervisorBoundaries(events) {
 		}
 	}
 	return maximum;
+}
+
+/** Read the single persisted Turnlock state of an ordinary run. */
+async function readPersistedRunState(root) {
+	const runsRoot = path.join(root, "turnlock runs", "git-commits-push-tl");
+	const runEntries = (await readdir(runsRoot, { withFileTypes: true })).filter(
+		(entry) => entry.isDirectory(),
+	);
+	assert.equal(runEntries.length, 1);
+	return JSON.parse(
+		await readFile(
+			path.join(runsRoot, runEntries[0].name, "state.json"),
+			"utf8",
+		),
+	);
+}
+
+/** Read the single persisted Turnlock invocation scope of an ordinary run. */
+async function readPersistedInvocationScope(root) {
+	return (await readPersistedRunState(root)).data.invocationScope;
 }
 
 function terminateLauncher(record) {
@@ -1059,6 +1147,491 @@ test("Q4 | installed targeted mode serializes incompatible requests without scop
 		} finally {
 			terminateLauncher(owner);
 			terminateLauncher(waiter);
+			await llmServer.close();
+		}
+	});
+});
+
+test("Q5 | installed ordinary invocation resolves nested cwd to its exact worktree and isolates siblings", async () => {
+	await withAsciiTemporaryDirectory(async (root) => {
+		const environment = isolatedEnvironment(root);
+		const linked = await createLinkedWorktrees(root, environment, "nested");
+		const worktreeA = linked.worktrees[0];
+		const worktreeB = linked.worktrees[1];
+		await stageWorktreeFile(worktreeA.worktreePath, "a-task.ts", environment);
+		await stageWorktreeFile(worktreeB.worktreePath, "b-task.ts", environment);
+		const unrelatedRepository = path.join(
+			realpathSync(root),
+			"unrelated search",
+			"repository",
+		);
+		await createRepoWithBareRemote(
+			unrelatedRepository,
+			path.join(realpathSync(root), "unrelated.git"),
+			environment,
+		);
+		await writeFile(
+			path.join(unrelatedRepository, "c-task.ts"),
+			"export const cTask = true;\n",
+		);
+		runGit(unrelatedRepository, ["add", "c-task.ts"], environment);
+
+		await prepareQualificationRoot(root, environment);
+		const settingsPath = await writeTargetedSettings(root, [
+			realpathSync(root),
+		]);
+		const requestLogPath = path.join(root, "llm-requests.jsonl");
+		const nestedDirectory = path.join(
+			worktreeA.worktreePath,
+			"nested",
+			"deeper",
+		);
+		await mkdir(nestedDirectory, { recursive: true });
+
+		const siblingBefore = captureRepositoryState(
+			worktreeB.worktreePath,
+			environment,
+			[worktreeA.pushRef],
+		);
+		const unrelatedBefore = captureRepositoryState(
+			unrelatedRepository,
+			environment,
+		);
+
+		// The inherited poisoned value must never override the real process cwd.
+		const launcher = spawnInstalledLauncher(
+			targetedEnvironment(root, settingsPath, {
+				GCP_INVOCATION_CWD: worktreeB.worktreePath,
+				MOCK_LLM_REQUEST_LOG: requestLogPath,
+				NODE_OPTIONS: `--import=${pathToFileURL(reconcilerPreloadPath).href}`,
+			}),
+			[],
+			nestedDirectory,
+		);
+		const exitCode = await waitForClose(launcher.child);
+		assert.equal(
+			exitCode,
+			0,
+			`installed ordinary launcher failed: ${launcher.stderr()}\n${launcher.stdout()}`,
+		);
+
+		// A published to its own tracked branch from the nested invocation cwd.
+		const headA = runGit(
+			worktreeA.worktreePath,
+			["rev-parse", "HEAD"],
+			environment,
+		);
+		assert.notEqual(headA, worktreeA.baseline);
+		assert.equal(
+			runGit(worktreeA.worktreePath, ["status", "--porcelain=v1"], environment),
+			"",
+		);
+		assert.equal(
+			runGit(
+				worktreeA.worktreePath,
+				["symbolic-ref", "--quiet", "--short", "HEAD"],
+				environment,
+			),
+			worktreeA.branch,
+		);
+		assert.equal(
+			runGit(
+				linked.bareRemotePath,
+				["rev-parse", worktreeA.pushRef],
+				environment,
+			),
+			headA,
+		);
+
+		// Only A reached the LLM boundary; no B or C file appears in A's payload.
+		const requests = await readJsonLines(requestLogPath);
+		assert.equal(requests.length, 1);
+		const persistedRunState = await readPersistedRunState(root);
+		assert.deepEqual(
+			Object.values(persistedRunState.data.repos).map(
+				(repo) => repo.repository,
+			),
+			[realpathSync(worktreeA.worktreePath)],
+		);
+		const plannedFiles = [
+			...new Set(requests.flatMap((request) => request.files ?? [])),
+		].sort();
+		assert.deepEqual(plannedFiles, ["a-task.ts"]);
+		const requestText = JSON.stringify(requests);
+		assert.equal(requestText.includes("b-task.ts"), false);
+		assert.equal(requestText.includes("c-task.ts"), false);
+
+		// B and the unrelated repository remain byte-for-byte unchanged. B's
+		// own branch and remote-tracking refs are asserted separately because
+		// the linked worktrees share the ref store with A's own branch.
+		assert.equal(
+			runGit(
+				worktreeB.worktreePath,
+				["rev-parse", worktreeB.pushRef],
+				environment,
+			),
+			worktreeB.baseline,
+		);
+		assert.equal(
+			runGit(
+				worktreeB.worktreePath,
+				["rev-parse", `refs/remotes/origin/${worktreeB.branch}`],
+				environment,
+			),
+			worktreeB.baseline,
+		);
+		assert.deepEqual(
+			captureRepositoryState(worktreeB.worktreePath, environment, [
+				worktreeA.pushRef,
+			]),
+			siblingBefore,
+		);
+		assert.deepEqual(
+			captureRepositoryState(unrelatedRepository, environment),
+			unrelatedBefore,
+		);
+
+		// The persisted scope is canonical worktree A, never the poisoned value.
+		assert.deepEqual(await readPersistedInvocationScope(root), {
+			kind: "worktree",
+			repository: realpathSync(worktreeA.worktreePath),
+		});
+	});
+});
+
+test("Q6 | installed ordinary invocation from a clean worktree does not fall through to a dirty sibling", async () => {
+	await withAsciiTemporaryDirectory(async (root) => {
+		const environment = isolatedEnvironment(root);
+		const linked = await createLinkedWorktrees(root, environment, "clean");
+		const worktreeA = linked.worktrees[0];
+		const worktreeB = linked.worktrees[1];
+		await stageWorktreeFile(worktreeB.worktreePath, "b-task.ts", environment);
+
+		await prepareQualificationRoot(root, environment);
+		const settingsPath = await writeTargetedSettings(root, [
+			realpathSync(root),
+		]);
+		const requestLogPath = path.join(root, "llm-requests.jsonl");
+		const siblingBefore = captureRepositoryState(
+			worktreeB.worktreePath,
+			environment,
+		);
+
+		const launcher = spawnInstalledLauncher(
+			targetedEnvironment(root, settingsPath, {
+				MOCK_LLM_REQUEST_LOG: requestLogPath,
+				NODE_OPTIONS: `--import=${pathToFileURL(reconcilerPreloadPath).href}`,
+			}),
+			[],
+			worktreeA.worktreePath,
+		);
+		const exitCode = await waitForClose(launcher.child);
+		assert.equal(
+			exitCode,
+			0,
+			`installed ordinary launcher failed: ${launcher.stderr()}\n${launcher.stdout()}`,
+		);
+		assert.match(launcher.stderr(), /No repositories with changes found/);
+
+		assert.deepEqual(await readJsonLines(requestLogPath), []);
+		assert.deepEqual(
+			captureRepositoryState(worktreeB.worktreePath, environment),
+			siblingBefore,
+		);
+		assert.equal(
+			runGit(
+				linked.bareRemotePath,
+				["rev-parse", worktreeB.pushRef],
+				environment,
+			),
+			worktreeB.baseline,
+		);
+		assert.deepEqual(await readPersistedInvocationScope(root), {
+			kind: "worktree",
+			repository: realpathSync(worktreeA.worktreePath),
+		});
+	});
+});
+
+test("Q7 | installed ordinary invocations from different worktrees serialize without coalescing", async () => {
+	await withAsciiTemporaryDirectory(async (root) => {
+		const llmServer = await startLlmOverlapServer();
+		let owner = null;
+		let waiter = null;
+		try {
+			const environment = isolatedEnvironment(root);
+			const linked = await createLinkedWorktrees(
+				root,
+				environment,
+				"concurrent",
+			);
+			const worktreeA = linked.worktrees[0];
+			const worktreeB = linked.worktrees[1];
+			await stageWorktreeFile(worktreeA.worktreePath, "a-task.ts", environment);
+			await stageWorktreeFile(worktreeB.worktreePath, "b-task.ts", environment);
+			await prepareQualificationRoot(root, environment);
+			const settingsPath = await writeTargetedSettings(root, [
+				realpathSync(root),
+			]);
+			const dbPath = path.join(root, "reconciler state", "reconciler.sqlite");
+			const executionEventsPath = path.join(root, "execution-events.jsonl");
+			const runtimeExtra = {
+				GCP_TEST_EXECUTION_EVENTS_PATH: executionEventsPath,
+				GCP_TEST_LLM_SERVER_URL: llmServer.url,
+				NODE_OPTIONS: `--import=${pathToFileURL(overlapPreloadPath).href}`,
+			};
+			const siblingBefore = captureRepositoryState(
+				worktreeB.worktreePath,
+				environment,
+			);
+
+			owner = spawnInstalledLauncher(
+				targetedEnvironment(root, settingsPath, {
+					...runtimeExtra,
+					PI_SESSION_ID: "installed-ordinary-owner-a",
+				}),
+				[],
+				worktreeA.worktreePath,
+			);
+			await waitForCondition(
+				() =>
+					llmServer.events.some(
+						(event) =>
+							event.type === "request_opened" &&
+							(event.payload?.files ?? []).includes("a-task.ts"),
+					),
+				"installed ordinary owner A did not reach the LLM barrier",
+			);
+			const ownerRow = await readReconcilerRowEventually(
+				dbPath,
+				(row) => row.executionState === "START_AUTHORIZED",
+			);
+			assert.equal(ownerRow.ownerInvocationMode, "targeted");
+
+			waiter = spawnInstalledLauncher(
+				targetedEnvironment(root, settingsPath, {
+					...runtimeExtra,
+					PI_SESSION_ID: "installed-ordinary-waiter-b",
+				}),
+				[],
+				worktreeB.worktreePath,
+			);
+			await observeStableWait(waiter, dbPath, ownerRow);
+			const waitingEvents = await readExecutionEvents(executionEventsPath);
+			assert.deepEqual(
+				[...registeredExecutionTokens(waitingEvents)],
+				[ownerRow.executionToken],
+			);
+			assert.equal(
+				llmServer.events.some(
+					(event) =>
+						event.type === "request_opened" &&
+						(event.payload?.files ?? []).includes("b-task.ts"),
+				),
+				false,
+				"the waiting ordinary scope must not execute",
+			);
+			// B carries no durable generation and remains unchanged while waiting.
+			assert.equal(
+				readReconcilerRow(dbPath).requestedGeneration,
+				ownerRow.requestedGeneration,
+			);
+			assert.deepEqual(
+				captureRepositoryState(worktreeB.worktreePath, environment),
+				siblingBefore,
+			);
+
+			llmServer.release();
+			assert.equal(await waitForClose(owner.child), 0, owner.stderr());
+			assert.equal(await waitForClose(waiter.child), 0, waiter.stderr());
+
+			const finalRow = readReconcilerRow(dbPath);
+			assert.equal(finalRow.requestedGeneration, 2);
+			assert.equal(finalRow.completedGeneration, 2);
+			assert.equal(finalRow.runningGeneration, null);
+			assert.equal(finalRow.ownerToken, null);
+			assert.equal(finalRow.ownerInvocationMode, null);
+			assert.equal(finalRow.executionToken, null);
+
+			const headA = runGit(
+				worktreeA.worktreePath,
+				["rev-parse", "HEAD"],
+				environment,
+			);
+			const headB = runGit(
+				worktreeB.worktreePath,
+				["rev-parse", "HEAD"],
+				environment,
+			);
+			assert.notEqual(headA, worktreeA.baseline);
+			assert.notEqual(headB, worktreeB.baseline);
+			assert.notEqual(headA, headB);
+			assert.equal(
+				runGit(
+					linked.bareRemotePath,
+					["rev-parse", worktreeA.pushRef],
+					environment,
+				),
+				headA,
+			);
+			assert.equal(
+				runGit(
+					linked.bareRemotePath,
+					["rev-parse", worktreeB.pushRef],
+					environment,
+				),
+				headB,
+			);
+
+			const treeA = runGit(
+				linked.bareRemotePath,
+				["ls-tree", "-r", "--name-only", headA],
+				environment,
+			).split("\n");
+			const treeB = runGit(
+				linked.bareRemotePath,
+				["ls-tree", "-r", "--name-only", headB],
+				environment,
+			).split("\n");
+			assert.equal(treeA.includes("a-task.ts"), true);
+			assert.equal(treeA.includes("b-task.ts"), false);
+			assert.equal(treeB.includes("b-task.ts"), true);
+			assert.equal(treeB.includes("a-task.ts"), false);
+
+			const events = await readExecutionEvents(executionEventsPath);
+			const supervisorTokens = new Set(
+				events
+					.filter(({ type }) => type === "supervisor_started")
+					.map(({ executionToken }) => executionToken),
+			);
+			assert.equal(supervisorTokens.size, 2);
+			assert.equal(maximumSimultaneousSupervisorBoundaries(events), 1);
+			assert.equal(llmServer.overlapDetected(), false);
+			assert.equal(llmServer.maximumActiveExecutions(), 1);
+		} finally {
+			terminateLauncher(owner);
+			terminateLauncher(waiter);
+			await llmServer.close();
+		}
+	});
+});
+
+test("Q8 | installed repeated ordinary invocation from the same worktree serializes safely", async () => {
+	await withAsciiTemporaryDirectory(async (root) => {
+		const llmServer = await startLlmOverlapServer();
+		let first = null;
+		let second = null;
+		try {
+			const environment = isolatedEnvironment(root);
+			const linked = await createLinkedWorktrees(root, environment, "repeated");
+			const worktreeA = linked.worktrees[0];
+			await stageWorktreeFile(worktreeA.worktreePath, "a-task.ts", environment);
+			await prepareQualificationRoot(root, environment);
+			const settingsPath = await writeTargetedSettings(root, [
+				realpathSync(root),
+			]);
+			const dbPath = path.join(root, "reconciler state", "reconciler.sqlite");
+			const executionEventsPath = path.join(root, "execution-events.jsonl");
+			const runtimeExtra = {
+				GCP_TEST_EXECUTION_EVENTS_PATH: executionEventsPath,
+				GCP_TEST_LLM_SERVER_URL: llmServer.url,
+				NODE_OPTIONS: `--import=${pathToFileURL(overlapPreloadPath).href}`,
+			};
+
+			first = spawnInstalledLauncher(
+				targetedEnvironment(root, settingsPath, {
+					...runtimeExtra,
+					PI_SESSION_ID: "installed-repeat-first",
+				}),
+				[],
+				worktreeA.worktreePath,
+			);
+			await waitForCondition(
+				() =>
+					llmServer.events.some(
+						(event) =>
+							event.type === "request_opened" &&
+							(event.payload?.files ?? []).includes("a-task.ts"),
+					),
+				"installed repeated first pass did not reach the LLM barrier",
+			);
+			const firstRow = await readReconcilerRowEventually(
+				dbPath,
+				(row) => row.executionState === "START_AUTHORIZED",
+			);
+			assert.equal(firstRow.ownerInvocationMode, "targeted");
+
+			second = spawnInstalledLauncher(
+				targetedEnvironment(root, settingsPath, {
+					...runtimeExtra,
+					PI_SESSION_ID: "installed-repeat-second",
+				}),
+				[],
+				worktreeA.worktreePath,
+			);
+			await observeStableWait(second, dbPath, firstRow);
+			const waitingEvents = await readExecutionEvents(executionEventsPath);
+			assert.deepEqual(
+				[...registeredExecutionTokens(waitingEvents)],
+				[firstRow.executionToken],
+			);
+			assert.equal(
+				readReconcilerRow(dbPath).requestedGeneration,
+				firstRow.requestedGeneration,
+			);
+
+			llmServer.release();
+			assert.equal(await waitForClose(first.child), 0, first.stderr());
+			assert.equal(await waitForClose(second.child), 0, second.stderr());
+
+			const finalRow = readReconcilerRow(dbPath);
+			assert.equal(finalRow.requestedGeneration, 2);
+			assert.equal(finalRow.completedGeneration, 2);
+			assert.equal(finalRow.runningGeneration, null);
+			assert.equal(finalRow.ownerToken, null);
+
+			const headA = runGit(
+				worktreeA.worktreePath,
+				["rev-parse", "HEAD"],
+				environment,
+			);
+			assert.notEqual(headA, worktreeA.baseline);
+			assert.equal(
+				runGit(
+					worktreeA.worktreePath,
+					["status", "--porcelain=v1"],
+					environment,
+				),
+				"",
+			);
+			assert.equal(
+				runGit(
+					linked.bareRemotePath,
+					["rev-parse", worktreeA.pushRef],
+					environment,
+				),
+				headA,
+			);
+
+			// The second exact request observed the clean worktree: no new LLM work.
+			assert.equal(
+				llmServer.events.filter(({ type }) => type === "request_opened").length,
+				1,
+			);
+
+			const events = await readExecutionEvents(executionEventsPath);
+			const supervisorTokens = new Set(
+				events
+					.filter(({ type }) => type === "supervisor_started")
+					.map(({ executionToken }) => executionToken),
+			);
+			assert.equal(supervisorTokens.size, 2);
+			assert.equal(maximumSimultaneousSupervisorBoundaries(events), 1);
+			assert.equal(llmServer.overlapDetected(), false);
+			assert.equal(llmServer.maximumActiveExecutions(), 1);
+		} finally {
+			terminateLauncher(first);
+			terminateLauncher(second);
 			await llmServer.close();
 		}
 	});

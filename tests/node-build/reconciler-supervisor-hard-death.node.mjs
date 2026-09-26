@@ -123,7 +123,7 @@ test("EXEC-INV-6/7 | supervisor SIGKILL cannot orphan descendants into a fresh p
 			const dbPath = reconcilerDb.resolveReconcilerDbPath(orderStateDirectory);
 
 			owner = spawn(process.execPath, [publicLauncherPath], {
-				cwd: skillDirectory,
+				cwd: repositoryPath,
 				env: baseEnvironment,
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
@@ -174,26 +174,22 @@ test("EXEC-INV-6/7 | supervisor SIGKILL cannot orphan descendants into a fresh p
 			assert.strictEqual(owner.exitCode, null);
 
 			const followUp = spawn(process.execPath, [publicLauncherPath], {
-				cwd: skillDirectory,
+				cwd: repositoryPath,
 				env: { ...baseEnvironment, PI_SESSION_ID: "supervisor-follow-up" },
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
 			});
-			let followUpStdout = "";
-			followUp.stdout?.on("data", (chunk) => {
-				followUpStdout += chunk.toString("utf8");
+			let followUpStderr = "";
+			followUp.stderr?.on("data", (chunk) => {
+				followUpStderr += chunk.toString("utf8");
 			});
-			assert.strictEqual(await waitForClose(followUp), 0);
-			assert.match(
-				followUpStdout,
-				/Another git-commits-push worker is active/u,
-			);
-
+			// The first exact owner resolves its dead boundary; the follow-up then
+			// starts its own pass over the interrupted worktree.
 			await waitForCondition(
 				() =>
 					llmServer.events.filter(({ type }) => type === "request_opened")
 						.length === 2,
-				"owner did not start the follow-up pass after old boundary cleanup",
+				"follow-up pass did not start after old boundary cleanup",
 			);
 			const opened = llmServer.events.filter(
 				({ type }) => type === "request_opened",
@@ -213,7 +209,10 @@ test("EXEC-INV-6/7 | supervisor SIGKILL cannot orphan descendants into a fresh p
 			assert.strictEqual(llmServer.maximumActiveExecutions(), 1);
 
 			llmServer.release();
-			assert.strictEqual(await ownerClosed, 0, ownerStderr);
+			// The interrupted first pass is a terminal failure for its exact
+			// request; the follow-up's own pass publishes the surviving work.
+			assert.notStrictEqual(await ownerClosed, 0, ownerStderr);
+			assert.strictEqual(await waitForClose(followUp), 0, followUpStderr);
 			const branch = runGit(
 				repositoryPath,
 				["symbolic-ref", "--quiet", "--short", "HEAD"],

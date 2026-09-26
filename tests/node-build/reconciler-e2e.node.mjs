@@ -28,7 +28,7 @@ const mockFetchPreloadPath = path.join(
 );
 const SYNTHETIC_API_KEY = `sk-${"N".repeat(48)}`;
 
-test("E2E | global rescan coalesces concurrent requests into one fresh pass", async () => {
+test("E2E | ordinary worktree invocations serialize without scope coalescing", async () => {
 	await withTemporaryDirectory(async (root) => {
 		const environment = isolatedEnvironment(root);
 		await mkdir(environment.HOME, { recursive: true });
@@ -42,6 +42,10 @@ test("E2E | global rescan coalesces concurrent requests into one fresh pass", as
 		await createRepoWithBareRemote(repoA, bareA, environment);
 		await writeFile(path.join(repoA, "file1.txt"), "first change\n");
 		runGit(repoA, ["add", "file1.txt"], environment);
+		await createRepoWithBareRemote(repoB, bareB, environment);
+		await writeFile(path.join(repoB, "file3.txt"), "third change\n");
+		runGit(repoB, ["add", "file3.txt"], environment);
+		const repoBBaseline = runGit(repoB, ["rev-parse", "HEAD"], environment);
 
 		const turnlockRunRoot = path.join(root, "turnlock runs é");
 		const orderStateDirectory = path.join(root, "reconciler state 漢字");
@@ -92,9 +96,22 @@ test("E2E | global rescan coalesces concurrent requests into one fresh pass", as
 			TURNLOCK_SKILL_SETTINGS_PATH: settingsPath,
 		};
 
-		// ── Pass 1: the public launcher owns reconciliation and blocks at LLM ──
+		const reconcilerDb = await import(
+			pathToFileURL(
+				path.join(
+					compiledSkillDirectory,
+					"src",
+					"modules",
+					"reconciliation",
+					"reconciler-db.js",
+				),
+			).href
+		);
+		const dbPath = reconcilerDb.resolveReconcilerDbPath(orderStateDirectory);
+
+		// ── Pass 1: the public launcher owns repo A and blocks at the LLM gate ──
 		const owner = spawn(process.execPath, [nodeLauncherPath], {
-			cwd: skillDirectory,
+			cwd: repoA,
 			env: baseEnvironment,
 			shell: false,
 			stdio: ["ignore", "pipe", "pipe"],
@@ -108,73 +125,61 @@ test("E2E | global rescan coalesces concurrent requests into one fresh pass", as
 		owner.stderr?.on("data", (chunk) => {
 			ownerStderr += chunk.toString("utf8");
 		});
-		// The barrier sits AFTER pass 1's global discovery, at the LLM boundary.
 		await waitForFile(firstCallMarker, 240_000);
 
-		// ── While pass 1 is blocked: redirty repo-a and create repo-b ────────
-		await writeFile(path.join(repoA, "file2.txt"), "second change\n");
-		await createRepoWithBareRemote(repoB, bareB, environment);
-		await writeFile(path.join(repoB, "file3.txt"), "third change\n");
+		// ── A concurrent ordinary invocation from repo B must WAIT, not coalesce ─
+		const waiter = spawn(process.execPath, [nodeLauncherPath], {
+			cwd: repoB,
+			env: {
+				...baseEnvironment,
+				PI_SESSION_ID: "reconciler-e2e-waiter",
+			},
+			shell: false,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		const waiterClosed = waitForClose(waiter);
+		let waiterStdout = "";
+		let waiterStderr = "";
+		waiter.stdout?.on("data", (chunk) => {
+			waiterStdout += chunk.toString("utf8");
+		});
+		waiter.stderr?.on("data", (chunk) => {
+			waiterStderr += chunk.toString("utf8");
+		});
+		await new Promise((resolve) => setTimeout(resolve, 2_000));
+		assert.strictEqual(waiter.exitCode, null, "waiter exited early");
+		assert.strictEqual(waiter.signalCode, null, "waiter was signalled early");
 
-		// ── Concurrent public invocations coalesce and exit before any build ──
-		const concurrentLaunchers = [];
-		for (let index = 0; index < 3; index++) {
-			const launcher = spawn(process.execPath, [nodeLauncherPath], {
-				cwd: skillDirectory,
-				env: {
-					...baseEnvironment,
-					PI_SESSION_ID: `reconciler-e2e-concurrent-${index}`,
-				},
-				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			let stdout = "";
-			launcher.stdout?.on("data", (chunk) => {
-				stdout += chunk.toString("utf8");
-			});
-			concurrentLaunchers.push({ launcher, stdout: () => stdout });
-		}
-		for (const { launcher } of concurrentLaunchers) {
-			const exitCode = await waitForClose(launcher);
-			assert.strictEqual(exitCode, 0);
-		}
-		for (const { stdout } of concurrentLaunchers) {
-			assert.ok(
-				stdout().includes("Another git-commits-push worker is active"),
-				`expected a coalesced message, got: ${stdout()}`,
-			);
-		}
-
-		// Before the release, the durable state holds all four generations.
-		const reconcilerDb = await import(
-			pathToFileURL(
-				path.join(
-					compiledSkillDirectory,
-					"src",
-					"modules",
-					"reconciliation",
-					"reconciler-db.js",
-				),
-			).href
-		);
-		const dbPath = reconcilerDb.resolveReconcilerDbPath(orderStateDirectory);
+		// Before the release, repo B is neither admitted nor executed.
 		const beforeRelease = reconcilerDb.openReconcilerDb(dbPath);
 		try {
 			const state = reconcilerDb.readReconcilerState(beforeRelease);
-			assert.strictEqual(state.requestedGeneration, 4);
+			assert.strictEqual(state.requestedGeneration, 1);
 			assert.strictEqual(state.completedGeneration, 0);
 			assert.strictEqual(state.runningGeneration, 1);
 			assert.strictEqual(state.ownerPid, owner.pid);
 		} finally {
 			beforeRelease.close();
 		}
+		assert.equal(
+			runGit(repoB, ["rev-parse", "HEAD"], environment),
+			repoBBaseline,
+		);
+		assert.equal(
+			runGit(repoB, ["status", "--porcelain"], environment).includes(
+				"file3.txt",
+			),
+			true,
+		);
 
-		// ── Release pass 1 and wait for the owner to drain every generation ──
+		// ── Release pass 1; the owner finishes repo A, then the waiter runs B ──
 		await writeFile(releaseFile, "");
 		const ownerExitCode = await ownerClosed;
 		assert.strictEqual(ownerExitCode, 0, `owner stderr: ${ownerStderr}`);
+		const waiterExitCode = await waiterClosed;
+		assert.strictEqual(waiterExitCode, 0, `waiter stderr: ${waiterStderr}`);
 
-		// ── Git assertions ─────────────────────────────────────────────────────
+		// ── Git assertions: each exact request published only its own worktree ─
 		const branchA = runGit(
 			repoA,
 			["symbolic-ref", "--quiet", "--short", "HEAD"],
@@ -197,9 +202,10 @@ test("E2E | global rescan coalesces concurrent requests into one fresh pass", as
 		);
 		const repoAHistory = runGit(repoA, ["log", "--format=%s"], environment);
 		assert.ok(repoAHistory.includes("publish file1.txt"), repoAHistory);
-		assert.ok(repoAHistory.includes("publish file2.txt"), repoAHistory);
+		assert.ok(!repoAHistory.includes("publish file3.txt"), repoAHistory);
 		const repoBHistory = runGit(repoB, ["log", "--format=%s"], environment);
 		assert.ok(repoBHistory.includes("publish file3.txt"), repoBHistory);
+		assert.ok(!repoBHistory.includes("publish file1.txt"), repoBHistory);
 
 		// ── Exactly two fresh Turnlock runs, both successful ──────────────────
 		const runsDirectory = path.join(turnlockRunRoot, "git-commits-push-tl");
@@ -209,9 +215,9 @@ test("E2E | global rescan coalesces concurrent requests into one fresh pass", as
 		).filter((entry) => entry.isDirectory());
 		assert.equal(runEntries.length, 2);
 
-		// ── Three LLM calls: one for pass 1, two for pass 2 ───────────────────
+		// ── Two LLM calls: one per exact request ──────────────────────────────
 		const requestEvents = await readJsonLines(requestLogPath);
-		assert.equal(requestEvents.length, 3, JSON.stringify(requestEvents));
+		assert.equal(requestEvents.length, 2, JSON.stringify(requestEvents));
 		assert.equal(
 			requestEvents.every(({ model }) => model === "gpt-5.4-mini"),
 			true,
@@ -221,8 +227,8 @@ test("E2E | global rescan coalesces concurrent requests into one fresh pass", as
 		const finalDb = reconcilerDb.openReconcilerDb(dbPath);
 		try {
 			const state = reconcilerDb.readReconcilerState(finalDb);
-			assert.strictEqual(state.requestedGeneration, 4);
-			assert.strictEqual(state.completedGeneration, 4);
+			assert.strictEqual(state.requestedGeneration, 2);
+			assert.strictEqual(state.completedGeneration, 2);
 			assert.strictEqual(state.runningGeneration, null);
 			assert.strictEqual(state.ownerToken, null);
 			assert.strictEqual(state.ownerPid, null);
@@ -245,14 +251,22 @@ test("E2E | global rescan coalesces concurrent requests into one fresh pass", as
 
 		// ── Turnlock stdout protocol cleanliness ───────────────────────────────
 		assert.equal(nonProtocolBytes(ownerStdout), "");
+		assert.equal(nonProtocolBytes(waiterStdout), "");
 		assert.deepEqual(
 			protocolActions(ownerStdout),
-			["DONE", "DONE"],
+			["DONE"],
 			`stdout=${ownerStdout}\nstderr=${ownerStderr}`,
+		);
+		assert.deepEqual(
+			protocolActions(waiterStdout),
+			["DONE"],
+			`stdout=${waiterStdout}\nstderr=${waiterStderr}`,
 		);
 		for (const secret of [SYNTHETIC_API_KEY]) {
 			assert.equal(ownerStdout.includes(secret), false);
 			assert.equal(ownerStderr.includes(secret), false);
+			assert.equal(waiterStdout.includes(secret), false);
+			assert.equal(waiterStderr.includes(secret), false);
 		}
 
 		// ── Secret scanning remains active ────────────────────────────────────

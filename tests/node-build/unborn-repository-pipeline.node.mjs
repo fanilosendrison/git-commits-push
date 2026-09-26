@@ -141,7 +141,7 @@ test("compiled launcher creates and publishes an initial commit", async () => {
 		);
 
 		const pipeline = spawnSync(installation.paths.publicExecutablePath, [], {
-			cwd: root,
+			cwd: repositoryPath,
 			encoding: "utf8",
 			env: {
 				...environment,

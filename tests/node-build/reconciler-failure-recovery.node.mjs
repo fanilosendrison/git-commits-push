@@ -51,7 +51,7 @@ function runGit(cwd, args, environment) {
 	return result.stdout.trim();
 }
 
-test("E2E | failed reconciliation is not acknowledged and recovers later", async () => {
+test("E2E | a failed exact reconciliation settles and a later invocation publishes", async () => {
 	await withTemporaryDirectory(async (root) => {
 		const environment = isolatedEnvironment(root);
 		await mkdir(environment.HOME, { recursive: true });
@@ -154,7 +154,7 @@ test("E2E | failed reconciliation is not acknowledged and recovers later", async
 
 		// ── Pass 1: validation fails ─────────────────────────────────────────
 		const failedRun = spawnSync(process.execPath, [nodeLauncherPath], {
-			cwd: skillDirectory,
+			cwd: repositoryPath,
 			encoding: "utf8",
 			env: baseEnvironment,
 			shell: false,
@@ -170,7 +170,9 @@ test("E2E | failed reconciliation is not acknowledged and recovers later", async
 		try {
 			const state = reconcilerDb.readReconcilerState(afterFailure);
 			assert.strictEqual(state.requestedGeneration, 1);
-			assert.strictEqual(state.completedGeneration, 0);
+			// The exact request settles its failed application outcome without
+			// creating durable replay debt or fake global work.
+			assert.strictEqual(state.completedGeneration, 1);
 			assert.strictEqual(state.ownerToken, null);
 			assert.strictEqual(state.runningGeneration, null);
 		} finally {
@@ -188,7 +190,7 @@ test("E2E | failed reconciliation is not acknowledged and recovers later", async
 			"export const recovered = true;\n",
 		);
 		const recoveryRun = spawnSync(process.execPath, [nodeLauncherPath], {
-			cwd: skillDirectory,
+			cwd: repositoryPath,
 			encoding: "utf8",
 			env: baseEnvironment,
 			shell: false,

@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { waitForCondition } from "./fixtures/execution-lifetime-helpers.mjs";
 import {
 	isolatedEnvironment,
+	runGit,
 	waitForClose,
 	withTemporaryDirectory,
 } from "./fixtures/reconciler-e2e-helpers.mjs";
@@ -88,6 +89,28 @@ async function createFixture(root) {
 	]) {
 		await mkdir(directory, { recursive: true });
 	}
+	// The ordinary invocation resolves its scope from the launcher cwd, so the
+	// fixture provides one clean attached worktree as the intended repository.
+	const repositoryPath = path.join(root, "invocation repository");
+	await mkdir(repositoryPath, { recursive: true });
+	runGit(repositoryPath, ["init", "--quiet"], environment);
+	runGit(
+		repositoryPath,
+		["config", "user.name", "Execution Startup"],
+		environment,
+	);
+	runGit(
+		repositoryPath,
+		["config", "user.email", "execution-startup@example.invalid"],
+		environment,
+	);
+	await writeFile(path.join(repositoryPath, "README.md"), "initial\n");
+	runGit(repositoryPath, ["add", "README.md"], environment);
+	runGit(
+		repositoryPath,
+		["commit", "--quiet", "--no-verify", "-m", "initial"],
+		environment,
+	);
 	await writeFile(eventsPath, "");
 	await writeFile(
 		settingsPath,
@@ -104,6 +127,7 @@ async function createFixture(root) {
 	return {
 		eventsPath,
 		orderStateDirectory,
+		repositoryPath,
 		environment: {
 			...environment,
 			GCP_TEST_EXECUTION_EVENTS_PATH: eventsPath,
@@ -130,9 +154,9 @@ async function importReconcilerDb() {
 	);
 }
 
-async function runRecovery(environment) {
+async function runRecovery(environment, invocationDirectory) {
 	const child = spawn(process.execPath, [publicLauncherPath], {
-		cwd: skillDirectory,
+		cwd: invocationDirectory,
 		env: environment,
 		shell: false,
 		stdio: "ignore",
@@ -146,8 +170,11 @@ async function assertConverged(reconcilerDb, stateDirectory) {
 	);
 	try {
 		const state = reconcilerDb.readReconcilerState(db);
-		assert.strictEqual(state.requestedGeneration, 2);
-		assert.strictEqual(state.completedGeneration, 2);
+		// Generation 1 was the killed ordinary request, generation 2 the
+		// targeted recovery settlement, and generation 3 the recovery caller's
+		// own exact request.
+		assert.strictEqual(state.requestedGeneration, 3);
+		assert.strictEqual(state.completedGeneration, 3);
 		assert.strictEqual(state.ownerToken, null);
 		assert.strictEqual(state.activeExecution, null);
 	} finally {
@@ -258,7 +285,7 @@ for (const scenario of [
 				[scenario.barrierKey]: path.join(root, "never-release"),
 			};
 			const owner = spawn(process.execPath, [publicLauncherPath], {
-				cwd: skillDirectory,
+				cwd: fixture.repositoryPath,
 				env: blockedEnvironment,
 				shell: false,
 				stdio: "ignore",
@@ -311,7 +338,7 @@ for (const scenario of [
 				false,
 			);
 
-			await runRecovery(fixture.environment);
+			await runRecovery(fixture.environment, fixture.repositoryPath);
 			await assertConverged(reconcilerDb, fixture.orderStateDirectory);
 		});
 	});

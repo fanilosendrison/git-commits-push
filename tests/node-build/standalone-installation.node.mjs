@@ -65,6 +65,21 @@ function writeExecutable(pathname, content) {
 	});
 }
 
+function runGit(cwd, args, environment) {
+	const result = spawnSync("git", args, {
+		cwd,
+		encoding: "utf8",
+		env: environment,
+		shell: false,
+	});
+	assert.equal(
+		result.status,
+		0,
+		`git ${args.join(" ")} failed: ${result.stderr}`,
+	);
+	return result.stdout.trim();
+}
+
 async function copyDeploymentSource(targetDirectory) {
 	await mkdir(targetDirectory, { recursive: true });
 	for (const entry of [
@@ -200,6 +215,26 @@ test("installs and runs a checkout-independent production deployment", async () 
 		await assert.rejects(lstat(sourceCheckout), { code: "ENOENT" });
 
 		const searchRoot = path.join(root, "empty search root");
+		const invocationRepository = path.join(root, "invocation repository");
+		await mkdir(invocationRepository, { recursive: true });
+		runGit(invocationRepository, ["init", "--quiet"], environment);
+		runGit(
+			invocationRepository,
+			["config", "user.name", "Standalone Installation"],
+			environment,
+		);
+		runGit(
+			invocationRepository,
+			["config", "user.email", "standalone@example.invalid"],
+			environment,
+		);
+		await writeFile(path.join(invocationRepository, "README.md"), "initial\n");
+		runGit(invocationRepository, ["add", "README.md"], environment);
+		runGit(
+			invocationRepository,
+			["commit", "--quiet", "--no-verify", "-m", "initial"],
+			environment,
+		);
 		const orderStateDirectory = path.join(root, "order state");
 		const turnlockRoot = path.join(root, "turnlock runs");
 		const settingsPath = path.join(root, "settings.json");
@@ -248,7 +283,7 @@ test("installs and runs a checkout-independent production deployment", async () 
 			TURNLOCK_SKILL_SETTINGS_PATH: settingsPath,
 		};
 		const run = spawnSync(firstInstall.paths.publicExecutablePath, [], {
-			cwd: root,
+			cwd: invocationRepository,
 			encoding: "utf8",
 			env: runtimeEnvironment,
 			maxBuffer: 10 * 1024 * 1024,

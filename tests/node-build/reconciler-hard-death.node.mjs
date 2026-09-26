@@ -84,27 +84,74 @@ async function readEvents(eventsPath) {
 		.map((line) => JSON.parse(line));
 }
 
-test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
+/** An attached ordinary worktree with its own branch and tracked remote. */
+async function createAttachedWorktreeFixture(root, environment, name) {
+	const canonicalRoot = realpathSync(root);
+	const searchRoot = path.join(canonicalRoot, `${name} search`);
+	await mkdir(searchRoot, { recursive: true });
+	const repositoryPath = path.join(searchRoot, "repository");
+	const bareRemotePath = path.join(canonicalRoot, `${name}.git`);
+	await createRepoWithBareRemote(repositoryPath, bareRemotePath, environment);
+	const baseline = runGit(repositoryPath, ["rev-parse", "HEAD"], environment);
+	const branch = `${name}-branch`;
+	const taskPath = path.join(searchRoot, "task-worktree");
+	runGit(
+		repositoryPath,
+		["worktree", "add", taskPath, "-b", branch, baseline],
+		environment,
+	);
+	runGit(
+		repositoryPath,
+		["push", "origin", `${branch}:${branch}`],
+		environment,
+	);
+	runGit(
+		taskPath,
+		["branch", `--set-upstream-to=origin/${branch}`, branch],
+		environment,
+	);
+	const taskFile = `${name}-task.ts`;
+	await writeFile(
+		path.join(taskPath, taskFile),
+		`export const ${name.replaceAll("-", "_")} = true;\n`,
+	);
+	runGit(taskPath, ["add", taskFile], environment);
+	return {
+		bareRemotePath,
+		baseline,
+		branch,
+		pushRef: `refs/heads/${branch}`,
+		repositoryPath,
+		taskPath,
+	};
+}
+
+test("EXEC-INV-4/8/10 | a dead ordinary worktree owner is fenced and never replayed", {
 	skip: process.platform !== "darwin" && process.platform !== "linux",
 }, async () => {
 	await withTemporaryDirectory(async (root) => {
 		const llmServer = await startLlmOverlapServer();
 		let ownerA;
 		let ownerB;
+		let fixtureRoot = null;
 		try {
 			const environment = isolatedEnvironment(root);
 			await mkdir(environment.HOME, { recursive: true });
 			await mkdir(environment.XDG_CONFIG_HOME, { recursive: true });
-			const searchRoot = path.join(root, "search root");
-			const repositoryPath = path.join(searchRoot, "repository");
-			const bareRemotePath = path.join(root, "bare.git");
-			await createRepoWithBareRemote(
-				repositoryPath,
-				bareRemotePath,
+			// The shared temporary root contains a non-ASCII character whose path
+			// normalization differs between Node realpath and Git getcwd. This
+			// comparison needs an ASCII-only ancestor chain.
+			fixtureRoot = await mkdtemp(path.join(tmpdir(), "worktree-hard-death-"));
+			const fixtureA = await createAttachedWorktreeFixture(
+				fixtureRoot,
 				environment,
+				"a",
 			);
-			await writeFile(path.join(repositoryPath, "pipeline.ts"), "recovery\n");
-			runGit(repositoryPath, ["add", "pipeline.ts"], environment);
+			const fixtureB = await createAttachedWorktreeFixture(
+				fixtureRoot,
+				environment,
+				"b",
+			);
 
 			const orderStateDirectory = path.join(root, "reconciler state");
 			const turnlockRunRoot = path.join(root, "turnlock runs");
@@ -126,7 +173,7 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 					autoPush: true,
 					model: "gpt-5.4-mini",
 					provider: "openai",
-					searchPaths: [searchRoot],
+					searchPaths: [],
 					skipTests: true,
 					systemPromptPath: path.join(
 						compiledSkillDirectory,
@@ -144,7 +191,7 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 				NODE_OPTIONS: `--import=${pathToFileURL(overlapPreloadPath).href}`,
 				OPENAI_API_KEY: "sk-test",
 				ORDER_STATE_DIR: orderStateDirectory,
-				PI_SESSION_ID: "launcher-hard-death",
+				PI_SESSION_ID: "worktree-hard-death-a",
 				PI_SKILL_STATS_DIR: path.join(root, "telemetry"),
 				SECRET_SCANNER_STATS_DIR: path.join(root, "scanner telemetry"),
 				TURNLOCK_RUN_DIR_ROOT: turnlockRunRoot,
@@ -160,21 +207,29 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 			);
 			const dbPath = reconcilerDb.resolveReconcilerDbPath(orderStateDirectory);
 
+			// ── Ordinary owner from A, no targeted flags, blocked at the LLM gate ──
 			ownerA = spawn(process.execPath, [publicLauncherPath], {
-				cwd: skillDirectory,
+				cwd: fixtureA.taskPath,
 				env: baseEnvironment,
 				shell: false,
 				stdio: "ignore",
 			});
 			await waitForCondition(
-				() => llmServer.events.some(({ type }) => type === "request_opened"),
-				"owner A did not reach the parent LLM barrier",
+				() =>
+					llmServer.events.some(
+						(event) =>
+							event.type === "request_opened" &&
+							(event.payload?.files ?? []).includes("a-task.ts"),
+					),
+				"ordinary owner A did not reach the parent LLM barrier",
 			);
 			const duringA = reconcilerDb.openReconcilerDb(dbPath);
 			let executionA;
 			try {
 				const state = reconcilerDb.readReconcilerState(duringA);
 				assert.strictEqual(state.ownerPid, ownerA.pid);
+				// An ordinary worktree request is an exact, non-coalescing request.
+				assert.strictEqual(state.ownerInvocationMode, "targeted");
 				assert.strictEqual(state.activeExecution?.state, "START_AUTHORIZED");
 				executionA = state.activeExecution;
 			} finally {
@@ -188,9 +243,10 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 			await ownerAClosed;
 			assert.strictEqual(processGroupExists(executionA.groupId), true);
 
+			// ── Ordinary owner from B recovers A's dead boundary, never replays A ─
 			ownerB = spawn(process.execPath, [publicLauncherPath], {
-				cwd: skillDirectory,
-				env: { ...baseEnvironment, PI_SESSION_ID: "recovery-owner" },
+				cwd: fixtureB.taskPath,
+				env: { ...baseEnvironment, PI_SESSION_ID: "worktree-recovery-owner" },
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
 			});
@@ -198,31 +254,30 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 			const ownerBClosed = waitForClose(ownerB);
 			await waitForCondition(
 				() =>
-					llmServer.events.filter(({ type }) => type === "request_opened")
-						.length === 2,
-				"recovery owner did not start its fresh LLM request",
+					llmServer.events.some(
+						(event) =>
+							event.type === "request_opened" &&
+							(event.payload?.files ?? []).includes("b-task.ts"),
+					),
+				"recovery owner did not start its own worktree LLM request",
 			);
 
-			const requestEvents = llmServer.events;
-			const opened = requestEvents.filter(
-				({ type }) => type === "request_opened",
-			);
-			assert.notStrictEqual(opened[0].token, opened[1].token);
-			const oldCloseIndex = requestEvents.findIndex(
-				(event) =>
-					event.type === "request_closed" && event.token === opened[0].token,
-			);
-			const newOpenIndex = requestEvents.findIndex(
-				(event) =>
-					event.type === "request_opened" && event.token === opened[1].token,
-			);
-			assert.ok(oldCloseIndex >= 0 && oldCloseIndex < newOpenIndex);
-			assert.strictEqual(llmServer.overlapDetected(), false);
-			assert.strictEqual(llmServer.maximumActiveExecutions(), 1);
+			// The abandoned boundary is fully resolved before B's supervisor runs.
 			assert.strictEqual(processExists(executionA.pid), false);
 			assert.strictEqual(processGroupExists(executionA.groupId), false);
+			assert.strictEqual(llmServer.overlapDetected(), false);
+			assert.strictEqual(llmServer.maximumActiveExecutions(), 1);
 
+			const opened = llmServer.events.filter(
+				({ type }) => type === "request_opened",
+			);
+			assert.strictEqual(opened.length, 2);
+			assert.notStrictEqual(opened[0].token, opened[1].token);
 			const lifecycle = await readEvents(executionEventsPath);
+			assert.strictEqual(
+				lifecycle.filter(({ type }) => type === "supervisor_started").length,
+				2,
+			);
 			const oldTerminationIndex = lifecycle.findIndex(
 				(event) =>
 					event.type === "boundary_termination_started" &&
@@ -237,37 +292,78 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 				oldTerminationIndex >= 0 && oldTerminationIndex < newSupervisorIndex,
 			);
 
-			llmServer.release();
-			assert.strictEqual(await ownerBClosed, 0, ownerBOutput.stderr());
-			const branch = runGit(
-				repositoryPath,
-				["symbolic-ref", "--quiet", "--short", "HEAD"],
-				environment,
+			// Generation 1 was A's abandoned request, generation 2 the recovery
+			// settlement, and generation 3 B's own exact request.
+			const settlingDb = reconcilerDb.openReconcilerDb(dbPath);
+			try {
+				const state = reconcilerDb.readReconcilerState(settlingDb);
+				assert.strictEqual(state.requestedGeneration, 3);
+				assert.strictEqual(state.completedGeneration, 2);
+				assert.strictEqual(state.runningGeneration, 3);
+				assert.strictEqual(state.ownerInvocationMode, "targeted");
+			} finally {
+				settlingDb.close();
+			}
+			// A's abandoned scope was never replayed: A stays at baseline.
+			assert.strictEqual(
+				runGit(fixtureA.taskPath, ["rev-parse", "HEAD"], environment),
+				fixtureA.baseline,
 			);
 			assert.strictEqual(
-				runGit(repositoryPath, ["status", "--porcelain"], environment),
-				"",
-			);
-			assert.strictEqual(
-				runGit(repositoryPath, ["rev-parse", "HEAD"], environment),
 				runGit(
-					bareRemotePath,
-					["rev-parse", `refs/heads/${branch}`],
+					fixtureA.bareRemotePath,
+					["rev-parse", fixtureA.pushRef],
 					environment,
 				),
+				fixtureA.baseline,
 			);
+
+			llmServer.release();
+			assert.strictEqual(await ownerBClosed, 0, ownerBOutput.stderr());
 
 			const finalDb = reconcilerDb.openReconcilerDb(dbPath);
 			try {
 				const state = reconcilerDb.readReconcilerState(finalDb);
-				assert.strictEqual(state.requestedGeneration, 2);
-				assert.strictEqual(state.completedGeneration, 2);
+				assert.strictEqual(state.requestedGeneration, 3);
+				assert.strictEqual(state.completedGeneration, 3);
 				assert.strictEqual(state.runningGeneration, null);
 				assert.strictEqual(state.ownerToken, null);
+				assert.strictEqual(state.ownerInvocationMode, null);
 				assert.strictEqual(state.activeExecution, null);
 			} finally {
 				finalDb.close();
 			}
+			// B published only B; A stays byte-identically at baseline.
+			const headB = runGit(
+				fixtureB.taskPath,
+				["rev-parse", "HEAD"],
+				environment,
+			);
+			assert.notStrictEqual(headB, fixtureB.baseline);
+			assert.strictEqual(
+				runGit(
+					fixtureB.bareRemotePath,
+					["rev-parse", fixtureB.pushRef],
+					environment,
+				),
+				headB,
+			);
+			assert.strictEqual(
+				runGit(fixtureB.taskPath, ["status", "--porcelain"], environment),
+				"",
+			);
+			assert.strictEqual(
+				runGit(fixtureA.taskPath, ["rev-parse", "HEAD"], environment),
+				fixtureA.baseline,
+			);
+			assert.strictEqual(
+				runGit(
+					fixtureA.bareRemotePath,
+					["rev-parse", fixtureA.pushRef],
+					environment,
+				),
+				fixtureA.baseline,
+			);
 			const stateEntries = await readdir(orderStateDirectory);
 			assert.strictEqual(
 				stateEntries.some(
@@ -283,6 +379,9 @@ test("EXEC-INV-4/8/10 | launcher SIGKILL resolves live EA before fresh EB", {
 			}
 			if (ownerB && ownerB.exitCode === null && ownerB.signalCode === null) {
 				ownerB.kill("SIGKILL");
+			}
+			if (fixtureRoot !== null) {
+				await rm(fixtureRoot, { force: true, recursive: true });
 			}
 			await llmServer.close();
 		}

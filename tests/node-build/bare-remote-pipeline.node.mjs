@@ -239,7 +239,7 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 			"bin/git-commits-push.mjs",
 		);
 		const pipeline = spawnSync(installation.paths.publicExecutablePath, [], {
-			cwd: root,
+			cwd: repositoryPath,
 			encoding: "utf8",
 			env: pipelineEnvironment,
 			maxBuffer: 50 * 1024 * 1024,
