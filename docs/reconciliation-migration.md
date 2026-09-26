@@ -16,8 +16,10 @@ severity: "strict"
 
 The public launcher no longer creates durable per-request order files or runs a
 file-queue worker. It now records reconciliation generations in
-`reconciler.sqlite`, coalesces concurrent invocations into one live owner, and
-rescans global repository state after later wakeups.
+`reconciler.sqlite`, serializes exact caller-owned requests under one live owner,
+and keeps legacy global generations as compatible recovery state. The ordinary
+command operates on exactly the Git worktree it was invoked from; it never scans
+`searchPaths` or sibling worktrees.
 
 Turnlock remains responsible for one pass's durable workflow. The launcher is
 responsible for cross-invocation admission, scheduling ownership, recovery, and
@@ -43,13 +45,22 @@ No compatibility field re-enables queue semantics.
 
 ## Turnlock invocation-scope compatibility
 
-- GlobalState now persists InvocationScope.
-- Historical valid Turnlock state with no invocationScope normalizes to `{kind:"global"}`.
-- This is valid because targeted mode did not exist when those states were written.
+- GlobalState persists InvocationScope.
+- Historical valid Turnlock state with no invocationScope normalizes to
+  `{kind:"global"}`. This is valid because the worktree scope did not exist when
+  those states were written.
+- New no-argument invocations persist `{kind:"worktree", repository}` with the
+  canonical Git top-level of the original invocation directory.
+- The ordinary `worktree` scope and the explicit `targeted-explicit` scope both
+  use the durable coordinator mode `targeted`: they are exact, non-coalescing
+  caller-owned requests.
 - A malformed present invocationScope still fails state validation.
-- This is not a reconciler SQLite migration.
-- PRAGMA user_version is 4.
-- No target repository, remote, or ref is added to the reconciler singleton.
+- This is not a reconciler SQLite migration. There is no schema v5.
+- `PRAGMA user_version` remains 4.
+- No target repository, remote, or ref is added to the reconciler singleton, and
+  the worktree path is never persisted there.
+- Existing global debt keeps its existing global recovery, fencing, and
+  settlement semantics; no fresh invocation creates fresh global work.
 
 ## Turnlock push-state compatibility
 
@@ -71,10 +82,13 @@ No compatibility field re-enables queue semantics.
 ## Safety changes
 
 - Admission is committed before build or Git work.
-- A global owner coalesces a global requester. Any pair containing a targeted
-  request performs no durable mutation: the caller waits process-locally with
-  bounded exponential polling and retries with unchanged arguments.
-- Normal targeted execution requires an idle, converged coordinator.
+- Legacy global owners still coalesce legacy global requesters. Every fresh
+  ordinary or explicit targeted request is exact: it performs no durable
+  mutation while another owner is live, waits process-locally with bounded
+  exponential polling, and retries with unchanged arguments.
+- Two ordinary invocations from different worktrees serialize without
+  scope-coalescing, and neither processes the other's worktree.
+- Normal exact execution requires an idle, converged coordinator.
 - Ownerless pending generations are global debt; targeted callers are not
   satisfied by the global recovery pass that resolves them.
 - Dead targeted owners are fenced and settled without replaying the abandoned
@@ -196,4 +210,4 @@ pipeline descendants; preserving `reconciler.sqlite`; proving that no active
 execution descriptor remains unresolved; and proving that no reconciliation
 generation is pending.
 The preferred recovery is to fix or restore the SQLite runtime and trigger a new
-global rescan rather than recreate per-request order files.
+exact invocation rather than recreate per-request order files.

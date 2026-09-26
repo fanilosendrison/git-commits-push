@@ -14,9 +14,10 @@ severity: "strict"
 
 ## Mission
 
-`git-commits-push` discovers dirty repositories, validates them, asks an LLM for
-Conventional Commit plans, commits exact file groups, and pushes them. Turnlock
-owns one pass's durable phase workflow. The public launcher owns global
+`git-commits-push` operates on exactly the invocation worktree, validates it,
+asks an LLM for Conventional Commit plans, commits exact file groups, and
+pushes them. Turnlock
+owns one pass's durable phase workflow. The public launcher owns reconciliation
 reconciliation across concurrent invocations.
 
 ## Repository boundary
@@ -98,8 +99,14 @@ runtime behavior belongs in TypeScript modules.
 ## Invocation scope
 
 - Each Turnlock run carries one durable `InvocationScope`.
-- Global scope preserves `searchPaths`-based repository discovery and excludes
-  detached HEAD repositories.
+- The fresh default scope is the exact current worktree: the canonical Git
+  top-level containing the original invocation directory. Nested invocation
+  directories resolve to that top-level, and the scope never widens into
+  recursive, sibling, linked-worktree, or common-dir discovery.
+- The ordinary worktree scope requires an attached symbolic branch and fails
+  closed on detached HEAD; it never falls back to `searchPaths`.
+- Legacy `global` scope exists only for persisted Turnlock-state compatibility
+  and legacy reconciliation debt. No fresh ordinary invocation produces it.
 - Targeted scope names one exact canonical worktree plus explicit remote/ref
   publication intent.
 - Targeted scope never widens into recursive, sibling, linked-worktree, or
@@ -108,8 +115,10 @@ runtime behavior belongs in TypeScript modules.
   parses argv.
 - Resume recovers scope from durable Turnlock state and may not redefine it
   through targeted CLI flags.
-- Persisted targeted worktrees are revalidated before resumed work.
-- `autoPush` is a global-discovery policy and never gates targeted publication.
+- Persisted worktree and targeted scopes are revalidated before resumed work.
+- `autoPush` gates ordinary clean-worktree tracked push-only publication; it is
+  not a discovery policy. Explicit targeted publication remains independent of
+  `autoPush`.
 - Targeted remote/ref arguments are explicit publication authority, and the
   observed destination baseline is frozen before any commit effect.
 - Targeted dirty detached worktrees commit directly on the detached HEAD.
@@ -126,12 +135,13 @@ runtime behavior belongs in TypeScript modules.
 
 ## Reconciliation contract
 
-There are exactly two public invocation modes. A **global** invocation means
-that global repository state may have changed; it is rediscoverable by a fresh
-global rescan and is not a durable per-request job. A **targeted** invocation is
-one synchronous exact caller-owned request for one worktree, remote, and ref;
-its exact scope is never persisted in the reconciler and is not a durable
-replayable work item.
+The durable coordinator keeps exactly two invocation modes. A **global** mode
+classification exists only for legacy persisted state, ownerless reconciliation
+debt, and legacy recovery compatibility; no fresh public invocation produces
+fresh global work. Every fresh ordinary (`worktree`) or explicit targeted
+request is an exact caller-owned request and uses the existing non-coalescing
+`targeted` coordination mode. Its exact scope is never persisted in the
+reconciler and is not a durable replayable work item.
 
 Before any Git, supervisor, or LLM work, every production invocation MUST
 classify its mode by pure argv parsing and atomically increment
@@ -139,12 +149,13 @@ classify its mode by pure argv parsing and atomically increment
 build or resolve modules from the source checkout.
 
 - One live owner executes reconciliation passes.
-- A global owner coalesces a global requester, incrementing the requested
-  generation exactly once.
-- Any combination containing a targeted request does not coalesce. The
-  incompatible caller waits process-locally with bounded exponential polling,
-  registers no durable request, and retries with unchanged mode and arguments.
-- Normal targeted execution starts only from an idle, converged coordinator.
+- A legacy global owner still coalesces a legacy global requester,
+  incrementing the requested generation exactly once.
+- No fresh ordinary or explicit targeted request coalesces. A request that
+  meets another live owner waits process-locally with bounded exponential
+  polling, registers no durable request, and retries with unchanged mode and
+  arguments until it obtains its own exact ownership.
+- Normal exact execution starts only from an idle, converged coordinator.
 - Ownerless pending generations are global reconciliation debt: recovery
   acquires global ownership, and targeted callers are not satisfied by it.
 - Registration and pass finalization use short `BEGIN IMMEDIATE` transactions.

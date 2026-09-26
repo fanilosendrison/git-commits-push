@@ -17,22 +17,48 @@ severity: "strict"
 This document defines public invocation, durable coordination, active execution,
 recovery, and compatibility for `git-commits-push`.
 
-There are exactly two public invocation modes:
+The domain distinguishes the invocation scope carried by one Turnlock run from
+the durable coordinator mode:
+
+```text
+domain InvocationScope:
+  legacy-global | worktree | targeted-explicit
+
+durable coordinator mode:
+  global | targeted
+```
+
+A **worktree** scope means the caller invoked the ordinary command and the
+universe is exactly the canonical Git top-level containing the original
+invocation directory. A **targeted-explicit** scope means the caller named one
+exact canonical worktree plus explicit remote/ref publication authority. Both
+`worktree` and `targeted-explicit` requests are exact, non-coalescing
+caller-owned requests, and both map to the durable coordinator mode `targeted`.
+
+A **global** coordinator mode remains only for legacy persisted state,
+ownerless reconciliation debt, and legacy recovery compatibility. No fresh
+public invocation produces fresh global work: the ordinary command never scans
+`searchPaths`, never enumerates sibling worktrees, and never coalesces into
+another exact request's scope. A legacy global pass still records and settles
+durable debt under the existing ownership, fencing, and generation rules.
+
+There are exactly two durable coordinator modes:
 
 ```ts
 type ReconciliationInvocationMode = "global" | "targeted";
 ```
 
-A **global invocation** means that global repository state may have changed, so
-the current dirty-repository set must be reconciled. Global requests are
-rediscoverable by a fresh global rescan, and multiple live global requests may
-coalesce by generation. An incomplete admitted global generation remains durable
-reconciliation work.
+A **legacy global** request means that global repository state may have changed,
+so the current dirty-repository set had to be reconciled. Global generations
+remain rediscoverable compatibility state, and multiple live legacy global
+requests may coalesce by generation. An incomplete admitted global generation
+remains durable reconciliation work.
 
-A **targeted invocation** is one synchronous exact caller-owned request that
-names one exact worktree, remote, and ref. The repository, remote, and ref remain
-outside reconciler durable state, so the request must execute its own scope, must
-not coalesce into another request's execution, and is not a durable replayable
+An **exact targeted** request is one synchronous exact caller-owned request that
+names one exact worktree, remote, and ref (or, for an ordinary worktree request,
+the exact invocation worktree). The repository, remote, and ref remain outside
+reconciler durable state, so the request must execute its own scope, must not
+coalesce into another request's execution, and is not a durable replayable
 coordinator work item.
 
 The coordinator stores generations, one reconciliation owner, and at most one
@@ -61,7 +87,7 @@ inside one Turnlock execution pass.
 At most one distinct `git-commits-push` execution boundary capable of Git side
 effects may be alive. Recovery ownership never authorizes fresh Git execution
 until every previous execution boundary is proven terminated or safely adopted.
-This implementation uses termination and a fresh global rescan; it does not
+This implementation uses termination and a fresh fenced owner pass; it does not
 adopt old execution.
 
 Owner death is not evidence of execution death. Heartbeat age, expected signal
@@ -135,23 +161,28 @@ increments `requested_generation` exactly once for every admitted request.
 
 ### Global/global coalescing
 
-A matching live global owner coalesces a global requester: `requested_generation`
-increments exactly once, and the running generation, owner token, owner PID,
-owner mode, and active execution stay unchanged.
+A matching live legacy global owner coalesces a legacy global requester:
+`requested_generation` increments exactly once, and the running generation,
+owner token, owner PID, owner mode, and active execution stay unchanged. No
+fresh public invocation produces this combination; it exists for compatibility
+with already-existing global debt and historical state.
 
-### No targeted coalescing
+### No exact-request coalescing
 
-No combination containing a targeted request may coalesce:
+No combination containing a fresh exact request may coalesce:
 
-- live global owner with a targeted requester;
-- live targeted owner with a global requester;
-- live targeted owner with another targeted requester.
+- a fresh ordinary `worktree` request against any live owner;
+- a fresh explicit targeted request against any live owner;
+- an ordinary request against another ordinary request from a different
+  worktree.
 
 These combinations perform zero durable mutation and return a process-local
 `WAIT`. The caller polls with bounded exponential backoff (25 ms, 50 ms, 100 ms,
 200 ms, then 250 ms maximum) and re-registers with unchanged mode and arguments.
 WAIT is never durable, creates no request row, increments no generation, and
-starts no runtime preparation, supervisor, Git, or LLM work.
+starts no runtime preparation, supervisor, Git, or LLM work. Two ordinary
+invocations from different worktrees therefore serialize without ever
+executing each other's scope.
 
 ### Normal targeted admission
 
@@ -237,9 +268,13 @@ explicit-recovery execution under the new owner.
 
 ### No active execution
 
-Recovery may proceed according to its mode. A global recovery runs a fresh
-global rescan. A targeted recovery settles its generation and admits no new pass
-for the abandoned target.
+Recovery may proceed according to its durable mode. A legacy global recovery
+preserves the existing global ownership, generation, fencing, and settlement
+rules as compatibility behavior for already-existing global debt. No fresh
+machine-wide `searchPaths` scan is executed, because no fresh global request
+exists; the recovery pass's executed work is the exact ordinary invocation
+transported by the requesting launcher. A targeted recovery settles its
+generation and admits no new pass for the abandoned target.
 
 ### Dead global owner
 
@@ -445,8 +480,10 @@ credentials, prompts, diffs, or remote URLs.
 - `EXEC-INV-10`: recovery remains singleton under contention.
 - `EXEC-INV-11`: supervisor disappearance never implies completion.
 - `EXEC-INV-12`: SQLite remains one bounded singleton with no history.
-- `EXEC-INV-13`: a targeted public request is never satisfied by coalescing into
+- `EXEC-INV-13`: a fresh exact request is never satisfied by coalescing into
   another request's execution scope.
+- `EXEC-INV-17`: a fresh ordinary worktree request is never satisfied by another
+  worktree's execution and is never replayed from another caller's scope.
 - `EXEC-INV-14`: normal targeted Git execution starts only from a coordinator
   whose prior reconciliation debt has been resolved.
 - `EXEC-INV-15`: targeted coordinator settlement is independent from targeted

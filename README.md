@@ -22,11 +22,11 @@ stable user-local executable:
 
 The production command does not depend on this checkout or invoke `pnpm`.
 
-**One command. All your dirty repos. Tests, Conventional Commits, file-level splitting, push. Done.**
+**One command. The current worktree. Tests, Conventional Commits, file-level splitting, push. Done.**
 
-`git-commits-push` discovers every Git repository you touched, runs their tests,
-scans for secrets, asks an LLM to write clean Conventional Commit messages, commits
-file by file, and pushes — so you don't have to think about any of it.
+`git-commits-push` operates on exactly the Git worktree you invoke it from, runs its
+tests, scans for secrets, asks an LLM to write clean Conventional Commit messages,
+commits file by file, and pushes — so you don't have to think about any of it.
 
 ---
 
@@ -60,7 +60,7 @@ repositories; it neither compiles nor consults the source checkout at runtime.
 | You are… | Use it when… |
 |-----------|--------------|
 | **An agent** (Pi, Claude Code, Codex, etc.) | Your user says "commit," "push," "publish changes," or asks about commit messages. Invoke the skill and let it run. |
-| **A human** | You worked across several repos and want clean, per-file Conventional Commits without crafting 20 messages by hand. |
+| **A human** | You finished work in one Git worktree and want clean, per-file Conventional Commits without crafting messages by hand. |
 
 ---
 
@@ -68,28 +68,45 @@ repositories; it neither compiles nor consults the source checkout at runtime.
 
 ### 1. Discovery
 
-The skill walks every directory under `searchPaths` (the committed configuration
-uses `~/Developper`; an omitted or empty value falls back to
-`~/Developper/Projects`) and identifies Git repositories that have uncommitted changes — staged,
-unstaged, or both. Repos on a detached HEAD are skipped (there's no branch to
-push to).
+By default, the skill processes exactly the Git worktree that contains your
+invocation directory:
+
+```bash
+cd ~/Projects/api
+"$HOME/.local/bin/git-commits-push"
+```
+
+- The invocation directory is resolved to its canonical Git top-level, so
+  invoking from a nested subdirectory (`cd src/deep && git-commits-push`)
+  resolves the repository root.
+- Only that worktree is inspected, validated, staged, committed, and pushed.
+- `searchPaths` is never scanned by an ordinary invocation.
+- Sibling worktrees, linked worktrees, and unrelated repositories are never
+  enumerated or touched.
+- An ordinary invocation requires an attached symbolic branch. A detached HEAD
+  fails closed with a diagnostic directing you to explicit targeted publication.
+- A clean current worktree reports no work and stops. It never searches
+  elsewhere.
 
 #### Targeted mode
 
-Two invocation modes are supported: global mode and targeted mode.
+Two invocation modes are supported: ordinary (current worktree) and targeted
+(explicit remote/ref). Legacy global discovery remains persisted-state
+compatibility only; no fresh command produces it.
 
-GLOBAL MODE
+ORDINARY MODE
 
 ```bash
 git-commits-push
 ```
 
-- uses `searchPaths`/global discovery;
-- discovers ordinary repository work;
-- global discovery skips detached HEAD repositories;
-- preserves the existing default workflow;
-- global/global concurrent requests may coalesce through reconciliation
-  generations.
+- uses only the exact Git worktree containing the invocation directory;
+- resolves nested invocation directories to the canonical worktree root;
+- requires an attached branch and fails closed on detached HEAD;
+- retains normal tracked-branch publication semantics;
+- ignores `searchPaths` and never expands to siblings or unrelated repositories;
+- concurrent ordinary invocations from different worktrees serialize through
+  reconciliation but never scope-coalesce.
 
 TARGETED MODE
 
@@ -121,7 +138,7 @@ git-commits-push \
 - fails closed if the destination becomes stale/diverged;
 - does not merge, rebase, or resolve conflicts;
 - leaves convergence/correction to the caller;
-- incompatible targeted/global requests serialize rather than scope-coalescing;
+- incompatible exact requests serialize rather than scope-coalescing;
 - the reconciler persists owner invocation mode but never target
   repository/remote/ref payload;
 - `SINGLE_LIVE_GIT_EXECUTION` remains global.
@@ -328,7 +345,7 @@ activate a new default configuration. Tests and controlled integrations can set
 
 | Key | What it does | Example |
 |-----|-------------|---------|
-| `searchPaths` | Directories to scan for repos (falls back to `~/Developper/Projects` if omitted or empty) | `["~/Projects", "~/Work"]` |
+| `searchPaths` | Legacy/global-discovery compatibility state only. Normal worktree invocation and explicit targeted invocation do not use it. An omitted or empty value retains the historical `~/Developper/Projects` fallback for persisted legacy reconciliation. | `["~/Projects", "~/Work"]` |
 | `thinking` | Enable thinking/reasoning tokens on providers that support it | `true` |
 | `fallbackProvider` | Provider to escalate to when validation retries are exhausted | `"anthropic"` |
 | `fallbackModel` | Model for the fallback provider | `"claude-sonnet-4-20250514"` |
@@ -369,14 +386,20 @@ Found 3 dirty repos:
 
 ## Reconciliation — what if a run is already active?
 
-Every invocation first increments a durable generation in `reconciler.sqlite`.
-If another launcher already owns reconciliation, the new invocation coalesces
-into that owner and exits successfully. The owner finishes its current pass,
-rescans the global set of repositories, and runs another pass when a newer
-generation was registered.
+Every invocation first increments a durable generation in `reconciler.sqlite`
+before any Git work. An ordinary invocation and an explicit targeted invocation
+are exact, non-coalescing caller-owned requests. While another exact request owns
+the execution boundary, a new invocation waits process-locally without durable
+mutation and then executes its own scope. An ordinary invocation from worktree A
+and an ordinary invocation from worktree B serialize; they never merge into one
+owner's scope, and A never processes B.
 
-There is no per-request order queue. The durable contract is that every wakeup
-causes reconciliation after the latest observed change. SQLite distinguishes the
+Legacy persisted global generations remain reconciliation debt that recovery
+settles under the existing fencing and ownership rules. No fresh command creates
+rediscoverable global work or scans `searchPaths`.
+
+There is no per-request order queue. The durable contract is that exact requests
+serialize under one live Git execution boundary. SQLite distinguishes the
 launcher that owns reconciliation scheduling from the concrete execution tree
 that can mutate Git.
 
@@ -386,10 +409,11 @@ over IPC, and cannot launch Turnlock until its identity is durably registered an
 `START_AUTHORIZED` is committed. All pipeline stages inherit that one process
 group.
 
-If a launcher dies, the next elected owner preserves the old execution record,
-terminates and proves that complete boundary dead, token-clears it, and only then
-performs a fresh global rescan. Launcher death, supervisor exit, and stale
-heartbeat age are never treated as proof that Git execution has ended.
+If a launcher dies, the next elected owner terminates and proves the old
+execution boundary dead, token-clears it, and only then admits its own request.
+An abandoned exact worktree scope is never replayed by another caller. Launcher
+death, supervisor exit, and stale heartbeat age are never treated as proof that
+Git execution has ended.
 
 ---
 
@@ -475,10 +499,10 @@ owner starts the shell-free execution boundary:
 The installed launcher never builds at runtime. The source-only
 `scripts/start-node.mjs` entrypoint builds once for development and then invokes
 the same compiled public launcher. The launcher owns admission, lifecycle-wide
-signal cancellation, coalescing, recovery, and the pass loop. The execution
-controller owns parent-disconnect response and the externally fenceable process
-boundary. The orchestrator owns one pass's finite-state machine and persists
-Turnlock snapshots.
+signal cancellation, exact-request serialization, recovery, and the pass loop.
+The execution controller owns parent-disconnect response and the externally
+fenceable process boundary. The orchestrator owns one pass's finite-state
+machine and persists Turnlock snapshots.
 The bridge writes v3 requests and authorizes only
 `worker("git-commit-generator")` before resolving that capability to direct LLM
 inference. During the bounded transition it can also read v2 manifests whose

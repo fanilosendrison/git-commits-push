@@ -137,8 +137,9 @@ delete the historical run directory.
    intervention. Checkpointed SQLite state is inspected through an immutable URI;
    journal, WAL, or shared-memory sidecars block inspection rather than being
    opened or changed.
-6. Treat incomplete generations as required future rescans, not as disposable
-   queue entries.
+6. Treat incomplete generations as required future reconciliation debt that the
+   next exact invocation settles under the existing ownership and fencing
+   rules, not as disposable queue entries.
 7. For schema v2, stop all execution processes, require an idle converged row,
    and run `pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution` only
    after proving that no old descendant survives. An idle v3 row is upgraded to
@@ -158,8 +159,10 @@ delete the historical run directory.
 
 Deleting coordinator state is a last resort. It is safe only after confirming
 that no launcher, execution controller, supervisor, or pipeline descendant is
-active and accepting that the next invocation
-must rediscover all current dirty repositories from scratch.
+active and accepting that the next invocation starts from scratch on its own
+exact worktree. Legacy incomplete generations are settled by the next exact
+invocation under the existing recovery rules; no fresh invocation scans
+`searchPaths`.
 
 ## Evidence to retain
 
