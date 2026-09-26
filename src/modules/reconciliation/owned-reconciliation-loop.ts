@@ -219,6 +219,11 @@ async function runOnePass(
 export async function runOwnedReconciliation(
 	options: RunOwnedReconciliationOptions,
 ): Promise<OwnedReconciliationResult> {
+	if (options.mode === "global") {
+		throw new Error(
+			"legacy global reconciliation mode is non-executable; global recovery must fence and retire without replay",
+		);
+	}
 	await recoverPriorExecutionForOwner(options.db, options.ownerToken);
 	if (options.cancellation.signal.aborted) {
 		return { cancelled: true, exitCode: 2 };

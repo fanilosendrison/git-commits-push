@@ -110,6 +110,11 @@ export interface ReleaseOwnershipOptions {
 	readonly pid: number;
 }
 
+export interface RetireLegacyGlobalRecoveryOptions {
+	readonly pid: number;
+	readonly token: string;
+}
+
 function ownerIsAlive(state: ReconcilerStateRecord): boolean {
 	if (
 		state.ownerToken === null ||
@@ -470,6 +475,41 @@ export function releaseReconciliationOwnership(
 					owner_origin_agent = NULL, owner_session_id = NULL,
 					owner_invocation_mode = NULL, heartbeat_at_epoch_ms = NULL
 				 WHERE singleton_id = 1 AND owner_token = ? AND owner_pid = ?`,
+			)
+			.run(options.token, options.pid);
+		return result.changes === 1;
+	});
+}
+
+/**
+ * Retire accumulated legacy global debt under a fenced recovery owner.
+ *
+ * This is a settlement transition, not an execution-success transition: it
+ * settles every accumulated global generation and clears the owner without
+ * starting or replaying any application work. The caller must first fence and
+ * clear any preserved active execution with `recoverPriorExecutionForOwner`.
+ */
+export function retireLegacyGlobalRecovery(
+	db: DatabaseSync,
+	options: RetireLegacyGlobalRecoveryOptions,
+): boolean {
+	return runReconcilerTransaction(db, () => {
+		const state = readReconcilerState(db);
+		if (state.ownerToken !== options.token || state.ownerPid !== options.pid) {
+			return false;
+		}
+		if (state.ownerInvocationMode !== "global") return false;
+		if (state.activeExecution !== null) return false;
+		const result = db
+			.prepare(
+				`UPDATE reconciler_state SET completed_generation = requested_generation,
+					running_generation = NULL, owner_token = NULL,
+					owner_pid = NULL, owner_boot_epoch_ms = NULL,
+					owner_process_identity = NULL, owner_caller_name = NULL,
+					owner_origin_agent = NULL, owner_session_id = NULL,
+					owner_invocation_mode = NULL, heartbeat_at_epoch_ms = NULL
+				 WHERE singleton_id = 1 AND owner_token = ? AND owner_pid = ?
+					AND owner_invocation_mode = 'global'`,
 			)
 			.run(options.token, options.pid);
 		return result.changes === 1;

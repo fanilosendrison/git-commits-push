@@ -3,7 +3,7 @@ export function writeCoalescedMessage(generation: number): void {
 	process.stdout.write(
 		`Reconciliation requested (generation ${generation}).\n` +
 			"Another git-commits-push worker is active.\n" +
-			"This terminal can exit; the active worker will perform another global rescan before becoming idle.\n",
+			"This terminal can exit; the active owner retains reconciliation ownership for the newer generation.\n",
 	);
 }
 

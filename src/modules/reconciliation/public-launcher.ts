@@ -35,6 +35,7 @@ import { createOwnerTenure } from "./owner-tenure.ts";
 import {
 	establishCurrentProcessIdentity,
 	releaseReconciliationOwnership,
+	retireLegacyGlobalRecovery,
 } from "./reconciler.ts";
 import {
 	openReconcilerDb,
@@ -355,29 +356,33 @@ export async function runPublicLauncher(
 		}
 
 		if (registration.recoveryMode === "global") {
-			const requestSatisfied = registration.requestSatisfiedByRecovery;
-			let result: OwnedReconciliationResult;
-			try {
-				result = await runOwnedReconciliation({
-					cancellation,
-					compiledApplicationDirectory: options.compiledApplicationDirectory,
-					db,
-					initialGeneration: registration.generation,
-					invocationDirectory,
-					mode: "global",
-					ownerToken: registrationToken,
-					passthroughArguments: requestSatisfied ? externalArguments : [],
-					...(options.prepareRuntime === undefined
-						? {}
-						: { prepareRuntime: options.prepareRuntime }),
-				});
-			} catch (error) {
-				return failTenure("reconciliation recovery failed", error);
+			// A current fresh caller is never satisfied by a retired legacy
+			// generation; retirement is coordination settlement, not application
+			// success.
+			if (registration.requestSatisfiedByRecovery) {
+				return failTenure(
+					"legacy global recovery cannot satisfy a fresh exact caller",
+					new Error(
+						"a current exact caller must not be reported as satisfied by legacy global recovery",
+					),
+				);
 			}
-			if (result.cancelled) return terminateAfterCancellation();
-			if (requestSatisfied || result.exitCode !== 0) {
-				tenure.close();
-				return result.exitCode;
+			try {
+				await recoverPriorExecutionForOwner(db, registrationToken);
+				const retired = retireLegacyGlobalRecovery(db, {
+					pid: process.pid,
+					token: registrationToken,
+				});
+				if (!retired) {
+					throw new Error(
+						"legacy global reconciliation debt could not be durably retired",
+					);
+				}
+				process.stderr.write(
+					"git-commits-push: retired legacy global reconciliation debt without replay.\n",
+				);
+			} catch (error) {
+				return failTenure("legacy global retirement failed", error);
 			}
 			tenure.end();
 		} else {
