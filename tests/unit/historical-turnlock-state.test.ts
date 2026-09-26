@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, test } from "node:test";
 import { inspectHistoricalTurnlockState } from "../../src/modules/reconciliation/historical-turnlock-state.ts";
+import { LEGACY_GLOBAL_REVOCATION_KIND } from "../../src/modules/reconciliation/legacy-global-run-revocation.ts";
 
 const ORCHESTRATOR_NAME = "git-commits-push-tl";
 const NOW_EPOCH_MS = 1_800_000_000_000;
@@ -86,6 +87,7 @@ describe("historical Turnlock state", () => {
 			{
 				runId: "01J00000000000000000000014",
 				state: {
+					data: { repos: {} },
 					orchestratorName: ORCHESTRATOR_NAME,
 					runId: "01J00000000000000000000014",
 					schemaVersion: 2,
@@ -120,6 +122,39 @@ describe("historical Turnlock state", () => {
 		assert.match(inspection.classifications[1]?.reason ?? "", /schemaVersion/u);
 		assert.match(inspection.classifications[2]?.reason ?? "", /identity/u);
 		assert.match(inspection.classifications[3]?.reason ?? "", /failure/u);
+	});
+
+	test("accepts a physical legacy-global revocation tombstone", () => {
+		const fixture = createFixture();
+		const runId = "01J00000000000000000000015";
+		fs.mkdirSync(path.join(fixture.runsDirectory, ".retired"));
+		fs.mkdirSync(path.join(fixture.runsDirectory, ".namespace"));
+		fs.writeFileSync(
+			path.join(fixture.runsDirectory, runId),
+			`${JSON.stringify({
+				kind: LEGACY_GLOBAL_REVOCATION_KIND,
+				orchestratorName: ORCHESTRATOR_NAME,
+				revokedAt: "2027-01-15T08:00:00.000Z",
+				runId,
+				version: 1,
+			})}\n`,
+		);
+
+		const inspection = inspectHistoricalTurnlockState(
+			fixture.runsDirectory,
+			fixture.closureLedgerPath,
+			NOW_EPOCH_MS,
+		);
+
+		assert.deepStrictEqual(inspection.blockers, []);
+		assert.deepStrictEqual(inspection.classifications, [
+			{
+				classification: "explicitly-closed",
+				reason:
+					"legacy global run is physically revoked by a canonical tombstone",
+				runId,
+			},
+		]);
 	});
 
 	test("requires canonical timestamp and ULID closure evidence", () => {

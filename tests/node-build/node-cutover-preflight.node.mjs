@@ -59,9 +59,13 @@ async function writeRun(runsDirectory, runId, state, events = []) {
 	const runDirectory = path.join(runsDirectory, runId);
 	await mkdir(runDirectory, { recursive: true });
 	if (state !== undefined) {
+		const persistedState =
+			state.schemaVersion === 2 && state.data === undefined
+				? { ...state, data: { repos: {} } }
+				: state;
 		await writeFile(
 			path.join(runDirectory, "state.json"),
-			JSON.stringify(state),
+			JSON.stringify(persistedState),
 		);
 	}
 	if (events.length > 0) {
@@ -160,7 +164,7 @@ test("classifies drained, explicitly closed, and incompatible historical runs", 
 		});
 		assert.deepEqual(report.blockers, [
 			{
-				detail: "state schemaVersion 1 is incompatible with Node cutover",
+				detail: "Turnlock state identity or schemaVersion is invalid",
 				kind: "incompatible-run",
 				subject: INCOMPATIBLE_RUN_ID,
 			},
