@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.3.0"
+version: "3.3.1"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -104,6 +104,19 @@ runtime behavior belongs in TypeScript modules.
   top-level containing the original invocation directory. Nested invocation
   directories resolve to that top-level, and the scope never widens into
   recursive, sibling, linked-worktree, or common-dir discovery.
+- Worktree identity is the isolation boundary. GCP does not track agent,
+  session, task, or per-file ownership inside one worktree.
+- The repository's primary/persistent checkout is itself one Git worktree; it
+  may coexist safely with independent linked task worktrees.
+- Two independent agents or tasks sharing one worktree are intentionally not
+  isolated by GCP. An invocation may process the combined dirty state visible
+  in that worktree.
+- Concurrent implementation tasks that require publication isolation must use
+  distinct Git worktrees or distinct checkouts before invoking GCP. Providing
+  those workspaces is caller or harness discipline; GCP neither creates nor
+  enforces them.
+- An ordinary invocation outside every Git worktree fails closed; it never
+  widens into repository discovery.
 - The ordinary worktree scope requires an attached symbolic branch and fails
   closed on detached HEAD; it never falls back to `searchPaths`.
 - Legacy `global` scope exists only for persisted Turnlock-state compatibility
