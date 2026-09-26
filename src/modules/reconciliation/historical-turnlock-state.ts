@@ -1,25 +1,19 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { decodeTime } from "ulid";
 import { z } from "zod";
+import {
+	GCP_TURNLOCK_ORCHESTRATOR_NAME,
+	TURNLOCK_MANAGEMENT_DIRECTORY_NAMES,
+} from "./legacy-global-run-paths.ts";
+import { isLegacyGlobalRevocationTombstone } from "./legacy-global-run-revocation.ts";
 import type {
 	HistoricalRunRecord,
 	NodeCutoverBlocker,
 } from "./node-cutover-types.ts";
+import { isValidTurnlockRunId } from "./turnlock-run-identity.ts";
+import { readTurnlockRunIncompatibilityReason } from "./turnlock-run-state-inspection.ts";
 
-const ORCHESTRATOR_NAME = "git-commits-push-tl";
-const RUN_ID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const RFC3339_TIMESTAMP_SCHEMA = z.string().datetime({ offset: true });
-
-function isValidRunId(value: unknown): value is string {
-	if (typeof value !== "string" || !RUN_ID_PATTERN.test(value)) return false;
-	try {
-		decodeTime(value);
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 interface ClosureRecord {
 	readonly closedAt: string;
@@ -93,7 +87,7 @@ function readClosureLedger(ledgerPath: string): ClosureLedgerResult {
 		}
 		const { closedAt, reason, runId } = value;
 		if (
-			!isValidRunId(runId) ||
+			!isValidTurnlockRunId(runId) ||
 			typeof closedAt !== "string" ||
 			!RFC3339_TIMESTAMP_SCHEMA.safeParse(closedAt).success ||
 			typeof reason !== "string" ||
@@ -199,7 +193,7 @@ function readTerminalEvent(
 		if (!finalEventIsTerminal) continue;
 		if (
 			event.runId !== runId ||
-			event.orchestratorName !== ORCHESTRATOR_NAME ||
+			event.orchestratorName !== GCP_TURNLOCK_ORCHESTRATOR_NAME ||
 			typeof event.success !== "boolean"
 		) {
 			return { reason: "orchestrator_end event does not match its run" };
@@ -209,27 +203,6 @@ function readTerminalEvent(
 	return finalEventIsTerminal && terminalSuccess !== undefined
 		? { terminalSuccess }
 		: {};
-}
-
-function readStateIncompatibilityReason(
-	runDirectory: string,
-	runId: string,
-): string | null {
-	const statePath = path.join(runDirectory, "state.json");
-	let state: unknown;
-	try {
-		state = JSON.parse(fs.readFileSync(statePath, "utf8"));
-	} catch {
-		return "state.json is missing, malformed, or unreadable";
-	}
-	if (!isRecord(state)) return "state.json is not an object";
-	if (state.schemaVersion !== 2) {
-		return `state schemaVersion ${String(state.schemaVersion)} is incompatible with Node cutover`;
-	}
-	if (state.runId !== runId || state.orchestratorName !== ORCHESTRATOR_NAME) {
-		return "state.json identity does not match its run directory";
-	}
-	return null;
 }
 
 function inspectRun(
@@ -250,7 +223,7 @@ function inspectRun(
 		};
 	}
 
-	const stateReason = readStateIncompatibilityReason(runDirectory, runId);
+	const stateReason = readTurnlockRunIncompatibilityReason(runDirectory, runId);
 	if (stateReason) {
 		return {
 			blockers: [
@@ -356,7 +329,36 @@ export function inspectHistoricalTurnlockState(
 	}
 
 	for (const entry of entries) {
-		if (!entry.isDirectory() || !isValidRunId(entry.name)) {
+		if (
+			TURNLOCK_MANAGEMENT_DIRECTORY_NAMES.some((name) => name === entry.name)
+		) {
+			continue;
+		}
+		if (!isValidTurnlockRunId(entry.name)) {
+			blockers.push({
+				detail: "Turnlock run root contains a non-run entry",
+				kind: "unexpected-run-entry",
+				subject: entry.name,
+			});
+			continue;
+		}
+		if (
+			entry.isFile() &&
+			isLegacyGlobalRevocationTombstone(
+				path.join(runsDirectory, entry.name),
+				entry.name,
+			)
+		) {
+			classifications.push({
+				classification: "explicitly-closed",
+				reason:
+					"legacy global run is physically revoked by a canonical tombstone",
+				runId: entry.name,
+			});
+			classifiedRunIds.add(entry.name);
+			continue;
+		}
+		if (!entry.isDirectory() || entry.isSymbolicLink()) {
 			blockers.push({
 				detail: "Turnlock run root contains a non-run entry",
 				kind: "unexpected-run-entry",

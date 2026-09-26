@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { OrchestratorConfig } from "turnlock";
 import { stateSchema } from "../config/state-schema.ts";
+import { GCP_TURNLOCK_ORCHESTRATOR_NAME } from "../modules/reconciliation/legacy-global-run-paths.ts";
 import { runDiscoveryAndValidationPhase } from "../phases/step1-discovery-validation.ts";
 import { runCommitAndPushPhase } from "../phases/step2-commit-push.ts";
 import type { GlobalState } from "../types.ts";
@@ -23,7 +24,7 @@ if (isDirectExecution(import.meta.url)) {
 	const { definePhase, runOrchestrator } = await import("turnlock");
 
 	const config: OrchestratorConfig<GlobalState> = {
-		name: "git-commits-push-tl",
+		name: GCP_TURNLOCK_ORCHESTRATOR_NAME,
 		initial: "discovery-and-validation",
 		initialState: {
 			invocationScope: initialInvocationScope,
