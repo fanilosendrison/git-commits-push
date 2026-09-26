@@ -2,6 +2,8 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { installStandalone } from "../src/modules/installation/standalone-installer.ts";
+import { assertLegacyGlobalRunCutoverComplete } from "../src/modules/reconciliation/legacy-global-run-cutover.ts";
+import { resolveLegacyGlobalRunCutoverPaths } from "../src/modules/reconciliation/legacy-global-run-paths.ts";
 
 const sourceDirectory = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -13,6 +15,10 @@ if (!pnpmCliPath) {
 		"pnpm did not expose npm_execpath; run `pnpm run install:standalone`.",
 	);
 }
+assertLegacyGlobalRunCutoverComplete(
+	resolveLegacyGlobalRunCutoverPaths(process.env),
+);
+
 const result = await installStandalone({
 	pnpmCliPath,
 	sourceDirectory,
