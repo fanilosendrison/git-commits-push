@@ -16,6 +16,7 @@ import {
 	registerActiveExecution,
 	registerReconciliationRequest,
 	releaseReconciliationOwnership,
+	retireLegacyGlobalRecovery,
 } from "../../src/modules/reconciliation/reconciler.ts";
 import {
 	openReconcilerDb,
@@ -151,6 +152,23 @@ describe("durable active execution transitions", () => {
 			true,
 		);
 		assert.strictEqual(readReconcilerState(db).activeExecution, null);
+
+		// Preserve old descriptor -> exact clear -> retire without replay.
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid,
+				token: OWNER_B,
+			}),
+			true,
+		);
+		const retired = readReconcilerState(db);
+		assert.strictEqual(
+			retired.completedGeneration,
+			retired.requestedGeneration,
+		);
+		assert.strictEqual(retired.runningGeneration, null);
+		assert.strictEqual(retired.ownerInvocationMode, null);
+		assert.strictEqual(retired.activeExecution, null);
 	});
 
 	test("EXEC-INV-5 | stale owner and execution tokens cannot mutate replacement execution", () => {
@@ -269,37 +287,71 @@ describe("durable active execution transitions", () => {
 		);
 	});
 
-	test("a coalesced generation is retried after runtime preparation fails", async () => {
+	test("legacy global generation arithmetic stays testable through the fenced primitive", () => {
+		const identity = readProcessStartIdentity(process.pid) ?? "owner-identity";
+		const owner = registerOwner(OWNER_A, identity);
+		assert.strictEqual(owner.kind, "OWNER");
+		const coalesced = registerOwner(OWNER_B, identity);
+		assert.strictEqual(coalesced.kind, "COALESCED");
+
+		// The old generic execution-loop test is replaced by the state-transition
+		// primitive because runOwnedReconciliation(global) is non-executable.
+		const finish = finishReconciliationPass(db, {
+			generation: 1,
+			mode: "global",
+			nowEpochMs: Date.now(),
+			pid: process.pid,
+			success: false,
+			token: OWNER_A,
+		});
+		assert.strictEqual(finish.decision, "CONTINUE");
+		if (finish.decision !== "CONTINUE") return;
+		assert.strictEqual(finish.generation, 2);
+
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 2);
+		assert.strictEqual(state.completedGeneration, 0);
+		assert.strictEqual(state.runningGeneration, 2);
+		assert.strictEqual(state.ownerToken, OWNER_A);
+	});
+
+	test("EXEC-INV-18 | legacy global execution is impossible before preparation", async () => {
 		const identity = readProcessStartIdentity(process.pid) ?? "owner-identity";
 		const owner = registerOwner(OWNER_A, identity);
 		assert.strictEqual(owner.kind, "OWNER");
 		const cancellation = createLauncherCancellation();
-		let preparationAttempts = 0;
+		let preparationCalls = 0;
 		try {
-			const result = await runOwnedReconciliation({
-				cancellation,
-				compiledApplicationDirectory: stateDirectory,
-				db,
-				initialGeneration: 1,
-				invocationDirectory: stateDirectory,
-				mode: "global",
-				ownerToken: OWNER_A,
-				passthroughArguments: [],
-				prepareRuntime: async () => {
-					preparationAttempts += 1;
-					if (preparationAttempts === 1) {
-						const coalesced = registerOwner(OWNER_B, identity);
-						assert.strictEqual(coalesced.kind, "COALESCED");
-					}
-					return { exitCode: 1 };
+			await assert.rejects(
+				runOwnedReconciliation({
+					cancellation,
+					compiledApplicationDirectory: stateDirectory,
+					db,
+					initialGeneration: 1,
+					invocationDirectory: stateDirectory,
+					mode: "global",
+					ownerToken: OWNER_A,
+					passthroughArguments: [],
+					prepareRuntime: async () => {
+						preparationCalls += 1;
+						return { exitCode: 0 };
+					},
+				}),
+				(error: unknown) => {
+					assert.ok(error instanceof Error);
+					assert.match(error.message, /non-executable/);
+					assert.match(
+						error.message,
+						/global recovery must fence and retire without replay/,
+					);
+					return true;
 				},
-			});
-			assert.strictEqual(result.exitCode, 1);
-			assert.strictEqual(preparationAttempts, 2);
+			);
+			assert.strictEqual(preparationCalls, 0);
 			const state = readReconcilerState(db);
-			assert.strictEqual(state.requestedGeneration, 2);
-			assert.strictEqual(state.completedGeneration, 0);
-			assert.strictEqual(state.ownerToken, null);
+			assert.strictEqual(state.activeExecution, null);
+			assert.strictEqual(state.ownerToken, OWNER_A);
+			assert.strictEqual(state.runningGeneration, 1);
 		} finally {
 			cancellation.removeSignalHandlers();
 		}

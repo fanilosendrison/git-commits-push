@@ -14,6 +14,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"acceptance/a5-v3-full-pipeline.test.ts",
 	"acceptance/a6-push-only-recovery.test.ts",
 	"acceptance/a7-targeted-scope.test.ts",
+	"acceptance/a8-legacy-global-scope.test.ts",
 	"concurrency/c1-cold-start-contention.test.ts",
 	"concurrency/c2-finish-request-race.test.ts",
 	"concurrency/c3-crashed-owner.test.ts",

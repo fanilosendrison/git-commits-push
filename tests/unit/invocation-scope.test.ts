@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import {
+	assertExecutableInvocationScope,
 	assertInvocationScopeCurrent,
 	GLOBAL_INVOCATION_SCOPE,
 	type InvocationRequest,
@@ -533,5 +534,37 @@ describe("U-IS-18 | persisted worktree scope revalidation", () => {
 		repo.checkoutDetached();
 
 		assert.throws(() => assertInvocationScopeCurrent(scope), /detached HEAD/);
+	});
+});
+
+describe("U-IS-19 | executable scope assertion", () => {
+	test("accepts structurally valid worktree and targeted scopes", () => {
+		assert.doesNotThrow(() =>
+			assertExecutableInvocationScope({
+				kind: "worktree",
+				repository: "/absolute/worktree",
+			}),
+		);
+		assert.doesNotThrow(() =>
+			assertExecutableInvocationScope({
+				kind: "targeted",
+				repository: "/absolute/worktree",
+				pushRemote: "origin",
+				pushRef: "refs/heads/main",
+			}),
+		);
+	});
+
+	test("rejects legacy global scope without filesystem or Git validation", () => {
+		assert.throws(
+			() => assertExecutableInvocationScope(GLOBAL_INVOCATION_SCOPE),
+			(error: unknown) => {
+				assert.ok(error instanceof Error);
+				assert.match(error.message, /legacy global/);
+				assert.match(error.message, /non-executable/);
+				assert.match(error.message, /retired without replay/);
+				return true;
+			},
+		);
 	});
 });

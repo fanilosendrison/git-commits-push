@@ -20,6 +20,7 @@ import {
 	isDetachedHead,
 } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
+import { captureRepositoryState } from "../helpers/test-helpers.ts";
 
 const BASE_SETTINGS: Settings = {
 	searchPaths: [],
@@ -337,17 +338,42 @@ test("U-DI-17 | runDiscovery — worktree tracked push-only follows autoPush", a
 	);
 });
 
-test("U-DI-18 | runDiscovery — legacy persisted global scope still discovers dirty repositories", async (t) => {
-	const fixture = createTargetFixture();
-	t.after(() => disposeTargetFixture(fixture));
+test("U-DI-18 | runDiscovery — legacy global scope is rejected before any global discovery", async (t) => {
+	const searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "di-18-"));
+	const fixture = createTargetFixture(searchRoot);
+	const unrelated = GitRepoFixture.create({ parentDir: searchRoot });
+	unrelated.commit("initial");
+	unrelated.writeAndStage("unrelated.ts", "export const unrelated = true;\n");
 	fixture.repo.writeAndStage("legacy.ts", "export const legacy = true;\n");
-	const results = await runDiscovery(
-		settingsFor(fixture),
-		GLOBAL_INVOCATION_SCOPE,
+	t.after(() => {
+		disposeTargetFixture(fixture);
+		unrelated.dispose();
+		fs.rmSync(searchRoot, { recursive: true, force: true });
+	});
+
+	const fixtureBefore = captureRepositoryState(fixture.repo.dir);
+	const unrelatedBefore = captureRepositoryState(unrelated.dir);
+
+	await assert.rejects(
+		runDiscovery(
+			settingsFor(fixture, { searchPaths: [searchRoot] }),
+			GLOBAL_INVOCATION_SCOPE,
+		),
+		(error: unknown) => {
+			assert.ok(error instanceof Error);
+			assert.match(error.message, /legacy global/);
+			assert.match(error.message, /non-executable/);
+			return true;
+		},
+	);
+
+	assert.deepStrictEqual(
+		captureRepositoryState(fixture.repo.dir),
+		fixtureBefore,
 	);
 	assert.deepStrictEqual(
-		results.map((result) => result.path),
-		[fs.realpathSync(fixture.repo.dir)],
+		captureRepositoryState(unrelated.dir),
+		unrelatedBefore,
 	);
 });
 test("U-DI-19 | computeRepoId — deterministic across calls", async (t) => {

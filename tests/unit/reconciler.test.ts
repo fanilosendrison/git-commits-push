@@ -16,11 +16,14 @@ import {
 	ReconcilerFencedError,
 	type RegisterReconciliationOptions,
 	readProcessStartIdentity,
+	registerActiveExecution,
 	registerReconciliationRequest,
 	releaseReconciliationOwnership,
+	retireLegacyGlobalRecovery,
 } from "../../src/modules/reconciliation/reconciler.ts";
 import {
 	openReconcilerDb,
+	POSIX_EXECUTION_BOUNDARY_KIND,
 	ReconcilerInvariantError,
 	readReconcilerState,
 	resolveReconcilerDbPath,
@@ -783,5 +786,171 @@ describe("reconciler state machine", () => {
 		assert.strictEqual(state.ownerToken, "dead-targeted-owner");
 		assert.strictEqual(state.requestedGeneration, 3);
 		assert.strictEqual(state.runningGeneration, 2);
+	});
+
+	test("R1 | ownerless legacy global debt is retired without replay", () => {
+		fabricateOwnerlessDebt(5, 3);
+		const registration = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "retire-r1" }),
+		);
+		assert.strictEqual(registration.kind, "RECOVERY_OWNER");
+		if (registration.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(registration.recoveryMode, "global");
+		assert.strictEqual(registration.requestSatisfiedByRecovery, false);
+		assert.strictEqual(registration.generation, 6);
+
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid,
+				token: "retire-r1",
+			}),
+			true,
+		);
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 6);
+		assert.strictEqual(state.completedGeneration, state.requestedGeneration);
+		assert.strictEqual(state.runningGeneration, null);
+		assert.strictEqual(state.ownerToken, null);
+		assert.strictEqual(state.ownerInvocationMode, null);
+		assert.strictEqual(state.activeExecution, null);
+	});
+
+	test("R2 | retirement is refused while an active execution remains", () => {
+		registerReconciliationRequest(
+			db,
+			options({
+				processIdentity: "deliberately-mismatched-owner-identity",
+				token: "owner-a-r2",
+			}),
+		);
+		assert.strictEqual(
+			registerActiveExecution(db, {
+				executionBoundaryKind: POSIX_EXECUTION_BOUNDARY_KIND,
+				executionGroupId: process.pid,
+				executionPid: process.pid,
+				executionProcessIdentity: "execution-r2-identity",
+				executionToken: "execution-r2",
+				generation: 1,
+				ownerPid: process.pid,
+				ownerToken: "owner-a-r2",
+			}).state,
+			"REGISTERED",
+		);
+		const identity =
+			readProcessStartIdentity(process.pid) ?? "owner-b-r2-identity";
+		const recovery = registerReconciliationRequest(
+			db,
+			options({ processIdentity: identity, token: "owner-b-r2" }),
+		);
+		assert.strictEqual(recovery.kind, "RECOVERY_OWNER");
+		if (recovery.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(recovery.recoveryMode, "global");
+		assert.strictEqual(recovery.requiresExecutionRecovery, true);
+
+		const before = readReconcilerState(db);
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid,
+				token: "owner-b-r2",
+			}),
+			false,
+		);
+		assert.deepStrictEqual(readReconcilerState(db), before);
+	});
+
+	test("R3 | retirement is fenced by token, PID, and owner mode", () => {
+		fabricateOwnerlessDebt(5, 3);
+		registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "recovery-r3" }),
+		);
+		const before = readReconcilerState(db);
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid,
+				token: "wrong-token",
+			}),
+			false,
+		);
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid + 1,
+				token: "recovery-r3",
+			}),
+			false,
+		);
+		assert.deepStrictEqual(readReconcilerState(db), before);
+
+		// Settle the legacy recovery owner, then prove a targeted owner cannot
+		// retire legacy global debt.
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid,
+				token: "recovery-r3",
+			}),
+			true,
+		);
+		const targeted = registerReconciliationRequest(
+			db,
+			options({ mode: "targeted", token: "targeted-r3" }),
+		);
+		assert.strictEqual(targeted.kind, "OWNER");
+		const targetedBefore = readReconcilerState(db);
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid,
+				token: "targeted-r3",
+			}),
+			false,
+		);
+		assert.deepStrictEqual(readReconcilerState(db), targetedBefore);
+	});
+
+	test("R4 | retirement settles all accumulated legacy global generations", () => {
+		fabricateOwnerRow({
+			completedGeneration: 2,
+			heartbeatAtEpochMs: Date.now() - 60_000,
+			ownerBootEpochMs: currentBootEpochMs(),
+			ownerInvocationMode: "global",
+			ownerPid: deadPid(),
+			ownerToken: "dead-global-r4",
+			requestedGeneration: 5,
+			runningGeneration: 5,
+		});
+		const recovery = registerReconciliationRequest(
+			db,
+			options({ token: "recovery-r4" }),
+		);
+		assert.strictEqual(recovery.kind, "RECOVERY_OWNER");
+		if (recovery.kind !== "RECOVERY_OWNER") return;
+		assert.strictEqual(recovery.generation, 6);
+
+		// A matching legacy global requester coalesces, accumulating obsolete
+		// global authority above the recovery owner's running generation.
+		const coalesced = registerReconciliationRequest(
+			db,
+			options({ token: randomUUID() }),
+		);
+		assert.strictEqual(coalesced.kind, "COALESCED");
+		const before = readReconcilerState(db);
+		assert.strictEqual(before.runningGeneration, 6);
+		assert.strictEqual(before.requestedGeneration, 7);
+		assert.strictEqual(before.ownerToken, "recovery-r4");
+
+		assert.strictEqual(
+			retireLegacyGlobalRecovery(db, {
+				pid: process.pid,
+				token: "recovery-r4",
+			}),
+			true,
+		);
+		const state = readReconcilerState(db);
+		assert.strictEqual(state.requestedGeneration, 7);
+		assert.strictEqual(state.completedGeneration, 7);
+		assert.strictEqual(state.runningGeneration, null);
+		assert.strictEqual(state.ownerToken, null);
+		assert.strictEqual(state.ownerInvocationMode, null);
+		assert.strictEqual(state.activeExecution, null);
 	});
 });

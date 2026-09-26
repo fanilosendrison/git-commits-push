@@ -347,24 +347,15 @@ test("W6 | a moved destination settles targeted failure without claiming success
 	});
 });
 
-test("W7 | historical global debt converges before a targeted request is admitted", async () => {
+test("W7 | historical global debt is retired without replay before a targeted request is admitted", async () => {
 	await withTemporaryDirectory(async (root) => {
 		const llmServer = await startLlmOverlapServer();
 		let launcher = null;
 		try {
 			const environment = isolatedEnvironment(root);
 			const prepared = await prepareLauncherRoot(root, environment);
-			const target = await createTargetFixture(root, environment, "ordered");
-			// The legacy global-debt recovery pass transports the launcher cwd, so
-			// the launcher runs from its own attached ordinary fixture worktree.
-			const ordinary = await createOrdinaryFixture(
-				root,
-				environment,
-				"ordered-recovery",
-			);
-			const emptySearchRoot = path.join(root, "empty search");
-			await mkdir(emptySearchRoot, { recursive: true });
-			const settingsPath = await writeLauncherSettings(root, [emptySearchRoot]);
+			const target = await createTargetFixture(root, environment, "retired");
+			const settingsPath = await writeLauncherSettings(root, []);
 
 			const reconcilerDb = await import(
 				pathToFileURL(
@@ -390,19 +381,29 @@ test("W7 | historical global debt converges before a targeted request is admitte
 				raw.close();
 			}
 
+			// The targeted caller runs from an isolated HOME that is not inside any
+			// Git repository; no recovery worktree exists and no global work may
+			// be replayed from the caller cwd.
 			launcher = spawnLauncher(
 				launcherEnvironment(root, environment, llmServer, settingsPath, {
-					PI_SESSION_ID: "ordered-targeted-caller",
+					PI_SESSION_ID: "retired-targeted-caller",
 				}),
 				targetedArguments(target),
-				ordinary.repositoryPath,
+				environment.HOME,
 			);
 			await waitForCondition(
-				() => llmServer.events.some(({ type }) => type === "request_opened"),
+				() =>
+					llmServer.events.some(
+						(event) =>
+							event.type === "request_opened" &&
+							(event.payload?.files ?? []).includes("retired-task.ts"),
+					),
 				"targeted pass never reached the LLM barrier",
 			);
 			const targetedRequest = llmServer.events.find(
-				({ type }) => type === "request_opened",
+				(event) =>
+					event.type === "request_opened" &&
+					(event.payload?.files ?? []).includes("retired-task.ts"),
 			);
 			const targetedRow = await readReconcilerRowEventually(
 				prepared.dbPath,
@@ -414,35 +415,21 @@ test("W7 | historical global debt converges before a targeted request is admitte
 			assert.strictEqual(targetedRow.completedGeneration, 6);
 			assert.strictEqual(targetedRow.runningGeneration, 7);
 			assert.strictEqual(targetedRow.ownerInvocationMode, "targeted");
-			assert.strictEqual(
-				runGit(target.taskPath, ["rev-parse", "HEAD"], environment),
-				target.baseline,
-			);
 
+			// Retirement performed no execution: exactly one supervisor exists and
+			// it belongs to the targeted request. There is no recovery token.
 			const events = await readExecutionEvents(prepared.executionEventsPath);
-			const exitedTokens = new Set(
-				events
-					.filter(({ type }) => type === "supervisor_exited")
-					.map(({ executionToken }) => executionToken),
+			const startedEvents = events.filter(
+				({ type }) => type === "supervisor_started",
 			);
-			const recoveryToken = events
-				.filter(({ type }) => type === "supervisor_started")
-				.map(({ executionToken }) => executionToken)
-				.find((token) => exitedTokens.has(token));
-			assert.ok(recoveryToken, "global recovery execution never exited");
-			assert.notStrictEqual(recoveryToken, targetedRequest.token);
-			const recoveryExitIndex = events.findIndex(
-				(event) =>
-					event.type === "supervisor_exited" &&
-					event.executionToken === recoveryToken,
+			assert.strictEqual(startedEvents.length, 1);
+			assert.strictEqual(
+				startedEvents[0].executionToken,
+				targetedRequest.token,
 			);
-			const targetedStartIndex = events.findIndex(
-				(event) =>
-					event.type === "supervisor_started" &&
-					event.executionToken === targetedRequest.token,
-			);
-			assert.ok(
-				recoveryExitIndex >= 0 && recoveryExitIndex < targetedStartIndex,
+			assert.strictEqual(
+				llmServer.events.filter(({ type }) => type === "request_opened").length,
+				1,
 			);
 
 			llmServer.release();
@@ -451,6 +438,17 @@ test("W7 | historical global debt converges before a targeted request is admitte
 				0,
 				launcher.stderr(),
 			);
+			assert.match(
+				launcher.stderr(),
+				/retired legacy global reconciliation debt without replay/,
+			);
+
+			// Exactly one LLM request total, and it belonged to target A.
+			const openedRequests = llmServer.events.filter(
+				({ type }) => type === "request_opened",
+			);
+			assert.strictEqual(openedRequests.length, 1);
+			assert.strictEqual(openedRequests[0].token, targetedRequest.token);
 
 			const finalRow = readReconcilerRow(prepared.dbPath);
 			assert.strictEqual(finalRow.requestedGeneration, 7);
@@ -459,6 +457,8 @@ test("W7 | historical global debt converges before a targeted request is admitte
 			assert.strictEqual(finalRow.ownerToken, null);
 			assert.strictEqual(finalRow.ownerInvocationMode, null);
 			assert.strictEqual(finalRow.executionToken, null);
+			assert.strictEqual(finalRow.executionState, null);
+
 			const targetHead = runGit(
 				target.taskPath,
 				["rev-parse", "HEAD"],
