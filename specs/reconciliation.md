@@ -39,8 +39,9 @@ A **global** coordinator mode remains only for legacy persisted state,
 ownerless reconciliation debt, and legacy recovery compatibility. No fresh
 public invocation produces fresh global work: the ordinary command never scans
 `searchPaths`, never enumerates sibling worktrees, and never coalesces into
-another exact request's scope. A legacy global pass still records and settles
-durable debt under the existing ownership, fencing, and generation rules.
+another exact request's scope. Legacy global mode carries no execution
+authority: its recovery fences any preserved boundary and retires the debt
+without starting or replaying application work.
 
 There are exactly two durable coordinator modes:
 
@@ -48,11 +49,11 @@ There are exactly two durable coordinator modes:
 type ReconciliationInvocationMode = "global" | "targeted";
 ```
 
-A **legacy global** request means that global repository state may have changed,
-so the current dirty-repository set had to be reconciled. Global generations
-remain rediscoverable compatibility state, and multiple live legacy global
-requests may coalesce by generation. An incomplete admitted global generation
-remains durable reconciliation work.
+A **legacy global** request is obsolete application authority retained as
+compatibility state. Global generations remain representable and inspectable,
+and multiple live legacy global requests may coalesce by generation, but the
+current runtime never executes them. An incomplete admitted global generation
+is durable reconciliation debt to be retired.
 
 An **exact targeted** request is one synchronous exact caller-owned request that
 names one exact worktree, remote, and ref (or, for an ordinary worktree request,
@@ -60,6 +61,14 @@ the exact invocation worktree). The repository, remote, and ref remain outside
 reconciler durable state, so the request must execute its own scope, must not
 coalesce into another request's execution, and is not a durable replayable
 coordinator work item.
+
+### Turnlock global scope
+
+A persisted `InvocationScope.global`, including a historical state whose
+`invocationScope` is missing and normalizes to `{kind:"global"}`, is parseable
+for compatibility but non-executable. The runtime refuses discovery,
+commit/push resumption, and every other phase from such a run before any
+repository mutation.
 
 The coordinator stores generations, one reconciliation owner, and at most one
 active execution descriptor. It stores no request or execution history and no
@@ -198,9 +207,9 @@ Ownerless `requested_generation > completed_generation` state is global
 reconciliation debt because targeted ownership is never released leaving
 targeted debt. For either requester mode, recovery acquires ownership with
 `owner_invocation_mode = global` and a generation strictly greater than the
-previous running generation. A global requester is satisfied by that fresh
-global pass; a targeted requester is not and must retry normal admission after
-the coordinator converges.
+previous running generation, then retires the debt without starting an
+execution boundary. No requester is satisfied by legacy global recovery; every
+fresh exact caller retries normal admission after retirement.
 
 Other admission rules remain:
 
@@ -268,20 +277,26 @@ explicit-recovery execution under the new owner.
 
 ### No active execution
 
-Recovery may proceed according to its durable mode. A legacy global recovery
-preserves the existing global ownership, generation, fencing, and settlement
-rules as compatibility behavior for already-existing global debt. No fresh
-machine-wide `searchPaths` scan is executed, because no fresh global request
-exists; the recovery pass's executed work is the exact ordinary invocation
-transported by the requesting launcher. A targeted recovery settles its
-generation and admits no new pass for the abandoned target.
+A `RECOVERY_OWNER(global)` retires requested legacy generations without starting
+an execution boundary. It performs no discovery, no supervisor spawn, no
+Turnlock run, no Git operation, and no LLM operation. A targeted recovery
+settles its generation and admits no new pass for the abandoned target.
 
 ### Dead global owner
 
-A dead or replaceable global owner is recovered with a fresh global
-execution. The recovery generation is the new requested generation. A global
-requester is satisfied by that pass; a targeted requester is not, and retries
-normal admission only after global convergence.
+A dead or replaceable global owner is recovered to fence and retire. Recovery
+first terminates and proves any preserved old boundary dead, token-clears the
+exact descriptor, then retires the legacy global debt. It never starts a
+replacement supervisor or replays the abandoned global work. The recovery
+generation settles the accumulated debt and the caller retries normal
+admission.
+
+### Live global owner
+
+A matching live legacy global owner remains authoritative until it exits or
+finishes. A fresh exact caller performs no durable mutation, waits
+process-locally, and retries admission after that owner is gone. A matching live
+owner is never killed or replaced.
 
 ### Dead targeted owner
 
@@ -338,10 +353,13 @@ pipeline result known
 recorded, and MUST verify owner token, PID, invocation mode, running generation,
 and execution absence before changing completion state.
 
-A successful global pass advances completion only after execution clearing. A
-failed global pass does not claim its generation complete. A newer requested
-generation retains the global owner and starts one fresh pass after the old
-boundary is dead. Intermediate global generations remain coalescible.
+A legacy global recovery owner never executes a pass. It fences any preserved
+boundary, then retires every accumulated legacy generation by setting
+`completed_generation = requested_generation` and clearing the owner.
+Intermediate legacy global generations are retired together; they are never
+coalesced into a future execution. `completed_generation` here means the legacy
+coordination obligation was settled, not that abandoned global Git work
+succeeded.
 
 A targeted owner must never have coalesced newer work
 (`requested_generation == running_generation ==` pass generation), or
@@ -490,3 +508,5 @@ credentials, prompts, diffs, or remote URLs.
   application success and creates no durable exact-request replay obligation.
 - `EXEC-INV-16`: dead-owner recovery preserves the prior owner's invocation mode
   until the old execution/reconciliation obligation has been safely resolved.
+- `EXEC-INV-18`: the current runtime never starts a supervisor, Turnlock run,
+  Git operation, or LLM operation to replay legacy global authority.

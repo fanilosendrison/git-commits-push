@@ -394,8 +394,10 @@ mutation and then executes its own scope. An ordinary invocation from worktree A
 and an ordinary invocation from worktree B serialize; they never merge into one
 owner's scope, and A never processes B.
 
-Legacy persisted global generations remain reconciliation debt that recovery
-settles under the existing fencing and ownership rules. No fresh command creates
+Legacy persisted global generations remain reconciliation debt. Old global state
+can be retired safely, but it cannot cause the current command to scan other
+worktrees or start any global work: recovery only fences any preserved execution
+boundary and retires the debt without replay. No fresh command creates
 rediscoverable global work or scans `searchPaths`.
 
 There is no per-request order queue. The durable contract is that exact requests

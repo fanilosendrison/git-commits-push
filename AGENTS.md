@@ -107,6 +107,10 @@ runtime behavior belongs in TypeScript modules.
   closed on detached HEAD; it never falls back to `searchPaths`.
 - Legacy `global` scope exists only for persisted Turnlock-state compatibility
   and legacy reconciliation debt. No fresh ordinary invocation produces it.
+  Legacy `InvocationScope.global` is compatibility state only: the current
+  runtime may parse and inspect it but must never execute it. A persisted
+  global scope cannot run discovery, resume commit/push, or authorize any Git
+  work; it fails closed before repository mutation.
 - Targeted scope names one exact canonical worktree plus explicit remote/ref
   publication intent.
 - Targeted scope never widens into recursive, sibling, linked-worktree, or
@@ -156,8 +160,14 @@ build or resolve modules from the source checkout.
   polling, registers no durable request, and retries with unchanged mode and
   arguments until it obtains its own exact ownership.
 - Normal exact execution starts only from an idle, converged coordinator.
-- Ownerless pending generations are global reconciliation debt: recovery
-  acquires global ownership, and targeted callers are not satisfied by it.
+- Ownerless pending generations are legacy global reconciliation debt. Recovery
+  acquires global ownership only to fence any preserved execution boundary and
+  retire the debt; it starts no replacement execution. Legacy global recovery:
+  preserves safety; fences any old execution; retires debt without replay;
+  starts no replacement execution; then re-admits the fresh exact caller.
+- Legacy global reconciliation mode is non-executable: `runOwnedReconciliation`
+  rejects it before runtime preparation, execution-token creation, controller
+  spawn, supervisor, Turnlock, Git, or LLM work.
 - Registration and pass finalization use short `BEGIN IMMEDIATE` transactions.
 - An owner runs another fresh pass when a newer generation was registered.
 - Ownership is fenced by random token, PID, process-start identity, and
@@ -166,9 +176,9 @@ build or resolve modules from the source checkout.
   controller PID, process-start identity, and POSIX process-group identity.
 - Recovery ownership never authorizes fresh Git execution until the previous
   execution boundary is proven dead and its record is token-cleared.
-- Dead global reconciliation is recovered globally; dead targeted requests are
-  fenced and settled, never replayed, and never run through a replacement
-  supervisor for the abandoned target.
+- Dead global reconciliation is fenced and retired without replay; dead
+  targeted requests are fenced and settled, never replayed, and never run
+  through a replacement supervisor for the abandoned target.
 - A matching live process is never replaced because of heartbeat age or
   boot-clock drift.
 - A live PID with temporarily unreadable process metadata retains ownership.
@@ -341,7 +351,8 @@ Concurrency and recovery changes MUST cover:
 - registration racing with pass completion;
 - owner death and recycled-PID recovery, including mode-preserving targeted
   recovery that fences without replaying the abandoned target;
-- global recovery before targeted normal admission;
+- legacy global fencing/retirement without replay before exact-request
+  admission;
 - fenced heartbeat and release;
 - active-execution registration, START authorization, and token clearing;
 - launcher and supervisor hard-death recovery without execution overlap;

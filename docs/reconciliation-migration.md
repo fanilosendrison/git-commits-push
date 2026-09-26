@@ -17,7 +17,7 @@ severity: "strict"
 The public launcher no longer creates durable per-request order files or runs a
 file-queue worker. It now records reconciliation generations in
 `reconciler.sqlite`, serializes exact caller-owned requests under one live owner,
-and keeps legacy global generations as compatible recovery state. The ordinary
+and keeps legacy global generations as non-executable compatibility state. The ordinary
 command operates on exactly the Git worktree it was invoked from; it never scans
 `searchPaths` or sibling worktrees.
 
@@ -54,13 +54,18 @@ No compatibility field re-enables queue semantics.
 - The ordinary `worktree` scope and the explicit `targeted-explicit` scope both
   use the durable coordinator mode `targeted`: they are exact, non-coalescing
   caller-owned requests.
+- Legacy `{kind:"global"}` state remains structurally compatible, but its
+  application authority is retired. A persisted global Turnlock run is
+  parseable and inspectable, yet it is non-executable: discovery and
+  commit/push resumption both fail closed before repository mutation.
 - A malformed present invocationScope still fails state validation.
 - This is not a reconciler SQLite migration. There is no schema v5.
 - `PRAGMA user_version` remains 4.
 - No target repository, remote, or ref is added to the reconciler singleton, and
   the worktree path is never persisted there.
-- Existing global debt keeps its existing global recovery, fencing, and
-  settlement semantics; no fresh invocation creates fresh global work.
+- Existing legacy global debt is retired by fence-and-settle recovery, never by
+  replay, and no fresh invocation creates fresh global work. Historical missing
+  Turnlock scope still normalizes to global but cannot execute.
 
 ## Turnlock push-state compatibility
 
@@ -86,11 +91,17 @@ No compatibility field re-enables queue semantics.
   ordinary or explicit targeted request is exact: it performs no durable
   mutation while another owner is live, waits process-locally with bounded
   exponential polling, and retries with unchanged arguments.
+- Legacy global recovery preserves safety: it fences and clears any preserved
+  active execution, retires accumulated global debt without replay, starts no
+  replacement execution, and then re-admits the fresh exact caller.
+- Legacy global reconciliation mode is non-executable: a global owner can never
+  start a supervisor, Turnlock run, Git operation, or LLM operation.
 - Two ordinary invocations from different worktrees serialize without
   scope-coalescing, and neither processes the other's worktree.
 - Normal exact execution requires an idle, converged coordinator.
-- Ownerless pending generations are global debt; targeted callers are not
-  satisfied by the global recovery pass that resolves them.
+- Ownerless pending generations are legacy global debt; no caller is satisfied
+  by the global recovery that retires them, and every fresh exact caller
+  re-admits after retirement.
 - Dead targeted owners are fenced and settled without replaying the abandoned
   target or starting a replacement supervisor for it.
 - Targeted coordinator settlement is separate from targeted application success:
