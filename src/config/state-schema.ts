@@ -29,6 +29,15 @@ const invocationScopeSchema: z.ZodSchema<InvocationScope> =
 	z.discriminatedUnion("kind", [
 		z.object({ kind: z.literal("global") }),
 		z.object({
+			kind: z.literal("worktree"),
+			repository: z
+				.string()
+				.min(1)
+				.refine((value) => path.isAbsolute(value), {
+					message: "worktree repository must be an absolute path",
+				}),
+		}),
+		z.object({
 			kind: z.literal("targeted"),
 			repository: z
 				.string()
@@ -311,6 +320,34 @@ export const stateSchema: z.ZodSchema<GlobalState> = z
 						code: z.ZodIssueCode.custom,
 						message:
 							"a global invocation must not carry an explicit push snapshot",
+						path: [...path, "pushSnapshot"],
+					});
+				}
+				continue;
+			}
+
+			if (scope.kind === "worktree") {
+				if (repoState.repository !== scope.repository) {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						message:
+							"a worktree invocation may only persist state for its exact worktree",
+						path: [...path, "repository"],
+					});
+				}
+				if (repoState.explicitPushTargetSnapshot) {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						message:
+							"a worktree invocation must not carry a frozen explicit push target",
+						path: [...path, "explicitPushTargetSnapshot"],
+					});
+				}
+				if (repoState.pushSnapshot?.kind === "explicit") {
+					context.addIssue({
+						code: z.ZodIssueCode.custom,
+						message:
+							"a worktree invocation must not carry an explicit push snapshot",
 						path: [...path, "pushSnapshot"],
 					});
 				}

@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
-import { parseInvocationArguments } from "../invocation/invocation-scope.ts";
+import {
+	type InvocationRequest,
+	parseInvocationArguments,
+} from "../invocation/invocation-scope.ts";
 import { resolveRequestIdentity } from "../orders/request-identity.ts";
 import {
 	createSkillStatsLog,
@@ -66,6 +69,19 @@ type AdmissionResult =
 	| { readonly kind: "failed" }
 	| { readonly kind: "interrupted" };
 
+/**
+ * Every fresh invocation is an exact caller-owned request: an ordinary
+ * worktree request and an explicit targeted request both use the existing
+ * non-coalescing reconciliation class. Neither produces rediscoverable global
+ * debt.
+ */
+const FRESH_INVOCATION_RECONCILIATION_MODES: Readonly<
+	Record<InvocationRequest["kind"], ReconciliationInvocationMode>
+> = Object.freeze({
+	targeted: "targeted",
+	worktree: "targeted",
+});
+
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -86,10 +102,12 @@ function logTelemetry(operation: (log: SkillStatsLog) => void): void {
 export async function runPublicLauncher(
 	options: RunPublicLauncherOptions,
 ): Promise<number> {
+	const invocationDirectory = process.cwd();
 	const externalArguments = options.passthroughArguments ?? [];
 	let invocationMode: ReconciliationInvocationMode;
 	try {
-		invocationMode = parseInvocationArguments(externalArguments).request.kind;
+		const request = parseInvocationArguments(externalArguments).request;
+		invocationMode = FRESH_INVOCATION_RECONCILIATION_MODES[request.kind];
 	} catch (error) {
 		failClosed(`invalid invocation arguments: ${errorMessage(error)}`);
 		return 2;
@@ -320,6 +338,7 @@ export async function runPublicLauncher(
 					compiledApplicationDirectory: options.compiledApplicationDirectory,
 					db,
 					initialGeneration: registration.generation,
+					invocationDirectory,
 					mode: registration.mode,
 					ownerToken: registrationToken,
 					passthroughArguments: externalArguments,
@@ -344,6 +363,7 @@ export async function runPublicLauncher(
 					compiledApplicationDirectory: options.compiledApplicationDirectory,
 					db,
 					initialGeneration: registration.generation,
+					invocationDirectory,
 					mode: "global",
 					ownerToken: registrationToken,
 					passthroughArguments: requestSatisfied ? externalArguments : [],

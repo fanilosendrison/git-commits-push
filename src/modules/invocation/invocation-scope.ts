@@ -5,8 +5,13 @@
  *
  * The parser is intentionally pure: it performs no filesystem access and no
  * Git subprocess work, so reconciliation admission (Issue #8) can reuse it to
- * classify an invocation as `global` or `targeted` before any Git execution.
- * Filesystem and Git validation live in the separate resolution step.
+ * classify an invocation before any Git execution. Filesystem and Git
+ * validation live in the separate resolution step.
+ *
+ * An ordinary invocation (no owned flags) resolves through the worktree
+ * resolver against the original invocation directory transported in
+ * `GCP_INVOCATION_CWD_ENV`. That directory is internal transport written by the
+ * public launcher from its real `process.cwd()`; it is never user authority.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -18,10 +23,19 @@ type OwnedFlag = (typeof OWNED_FLAGS)[number];
 
 const BRANCH_REF_PREFIX = "refs/heads/";
 
+/**
+ * Internal transport for the original invocation directory.
+ *
+ * The public launcher overwrites this key on every child environment from its
+ * own `process.cwd()`, so an inherited or ambient value can never become
+ * worktree-scope authority.
+ */
+export const GCP_INVOCATION_CWD_ENV = "GCP_INVOCATION_CWD";
+
 /** Uncanonicalized invocation request derived from argv. */
 export type InvocationRequest =
 	| {
-			readonly kind: "global";
+			readonly kind: "worktree";
 	  }
 	| {
 			readonly kind: "targeted";
@@ -40,13 +54,14 @@ type TargetedInvocationRequest = Extract<
 	{ kind: "targeted" }
 >;
 
+type WorktreeInvocationScope = Extract<InvocationScope, { kind: "worktree" }>;
 type TargetedInvocationScope = Extract<InvocationScope, { kind: "targeted" }>;
 
-const GLOBAL_INVOCATION_REQUEST: InvocationRequest = Object.freeze({
-	kind: "global",
+const WORKTREE_INVOCATION_REQUEST: InvocationRequest = Object.freeze({
+	kind: "worktree",
 });
 
-/** Canonical global scope. Never mutate this object. */
+/** Legacy persisted-only scope. Never mutate this object. */
 export const GLOBAL_INVOCATION_SCOPE: InvocationScope = Object.freeze({
 	kind: "global",
 });
@@ -65,7 +80,7 @@ function matchesOwnedEqualsSyntax(value: string): boolean {
  * Owned flags are `--repository`, `--push-remote`, and `--push-ref`. Every
  * other argument is preserved byte-for-byte in original order so Turnlock
  * (`--run-id`, `--resume`, and future flags) keeps seeing exactly what the
- * caller supplied.
+ * caller supplied. No owned flag means an ordinary worktree request.
  */
 export function parseInvocationArguments(
 	args: readonly string[],
@@ -107,7 +122,7 @@ export function parseInvocationArguments(
 
 	if (presentFlags.length === 0) {
 		return {
-			request: GLOBAL_INVOCATION_REQUEST,
+			request: WORKTREE_INVOCATION_REQUEST,
 			passthroughArguments,
 		};
 	}
@@ -221,22 +236,119 @@ function resolveTargetedScope(
 	});
 }
 
-/** Canonicalize a parsed invocation request into its durable scope. */
+function readAttachedBranch(repository: string): string | null {
+	try {
+		const branch = gitExecArgs(
+			["symbolic-ref", "--quiet", "--short", "HEAD"],
+			repository,
+		);
+		return branch || null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Canonicalize the original invocation directory into the exact Git worktree
+ * that contains it. A nested directory is valid; the repository directory is
+ * not required to equal the invocation directory.
+ */
+function resolveWorktreeScope(
+	invocationDirectory: string | undefined,
+): WorktreeInvocationScope {
+	if (invocationDirectory === undefined || invocationDirectory.length === 0) {
+		throw new Error(
+			"internal contract violation: resolving an ordinary worktree invocation requires the transported original invocation directory",
+		);
+	}
+
+	let canonicalInvocationDirectory: string;
+	try {
+		canonicalInvocationDirectory = fs.realpathSync(invocationDirectory);
+	} catch {
+		throw new Error(
+			`Ordinary invocation directory does not exist or cannot be resolved: ${invocationDirectory}.`,
+		);
+	}
+
+	const invocationStats = fs.statSync(canonicalInvocationDirectory);
+	if (!invocationStats.isDirectory()) {
+		throw new Error(
+			`Ordinary invocation directory must be a directory: ${canonicalInvocationDirectory}.`,
+		);
+	}
+
+	let rawTopLevel: string;
+	try {
+		rawTopLevel = gitExecArgs(
+			["rev-parse", "--show-toplevel"],
+			canonicalInvocationDirectory,
+		);
+	} catch {
+		throw new Error(
+			`Ordinary invocation directory is not inside a Git worktree: ${canonicalInvocationDirectory}.`,
+		);
+	}
+
+	let canonicalTopLevel: string;
+	try {
+		canonicalTopLevel = fs.realpathSync(rawTopLevel);
+	} catch {
+		throw new Error(
+			`Ordinary invocation Git top-level cannot be resolved: ${rawTopLevel}.`,
+		);
+	}
+
+	if (readAttachedBranch(canonicalTopLevel) === null) {
+		throw new Error(
+			`Ordinary invocation worktree is on a detached HEAD: ${canonicalTopLevel}. ` +
+				"An ordinary invocation has no implicit publication destination; use explicit targeted publication with --repository, --push-remote, and --push-ref to publish a detached worktree.",
+		);
+	}
+
+	return Object.freeze({
+		kind: "worktree",
+		repository: canonicalTopLevel,
+	});
+}
+
+/**
+ * Canonicalize a parsed invocation request into its durable scope.
+ *
+ * `invocationDirectory` is the trusted internal transport for a `worktree`
+ * request only. Explicit targeted requests resolve from their own absolute
+ * `--repository` argument and ignore it.
+ */
 export function resolveInvocationScope(
 	request: InvocationRequest,
+	invocationDirectory?: string,
 ): InvocationScope {
-	if (request.kind === "global") {
-		return GLOBAL_INVOCATION_SCOPE;
+	if (request.kind === "worktree") {
+		return resolveWorktreeScope(invocationDirectory);
 	}
 	return resolveTargetedScope(request);
 }
 
 /**
- * Prove that a persisted targeted scope still denotes the same worktree,
- * remote, and ref. Never repairs or rewrites persisted state.
+ * Prove that a persisted scope still denotes the same invocation universe.
+ * Never repairs or rewrites persisted state.
+ *
+ * A persisted `worktree` scope is immutable authority for its Turnlock run:
+ * the exact persisted repository must still be a Git worktree root attached
+ * to a symbolic branch. Revalidation never widens to siblings or search paths.
  */
 export function assertInvocationScopeCurrent(scope: InvocationScope): void {
 	if (scope.kind === "global") {
+		return;
+	}
+
+	if (scope.kind === "worktree") {
+		const resolved = resolveWorktreeScope(scope.repository);
+		if (resolved.repository !== scope.repository) {
+			throw new Error(
+				"Persisted worktree invocation scope no longer matches the current worktree.",
+			);
+		}
 		return;
 	}
 

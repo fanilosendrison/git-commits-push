@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import path from "node:path";
+import { GCP_INVOCATION_CWD_ENV } from "../invocation/invocation-scope.ts";
 import {
 	ExecutionBoundaryError,
 	platformSupportsExecutionBoundary,
@@ -42,6 +43,8 @@ export interface PrepareSupervisorPassOptions {
 	readonly compiledApplicationDirectory: string;
 	readonly passthroughArguments: readonly string[];
 	readonly executionToken: string;
+	/** Original public-launcher invocation directory; internal transport only. */
+	readonly invocationDirectory: string;
 }
 
 interface ChildClose {
@@ -176,6 +179,7 @@ export async function prepareSupervisorPass({
 	compiledApplicationDirectory,
 	passthroughArguments,
 	executionToken,
+	invocationDirectory,
 }: PrepareSupervisorPassOptions): Promise<PreparedSupervisorPass> {
 	if (!executionToken.trim())
 		throw new TypeError("execution token is required");
@@ -200,7 +204,10 @@ export async function prepareSupervisorPass({
 		{
 			cwd: compiledApplicationDirectory,
 			detached: true,
-			env: process.env,
+			env: {
+				...process.env,
+				[GCP_INVOCATION_CWD_ENV]: invocationDirectory,
+			},
 			shell: false,
 			stdio: ["ignore", "inherit", "inherit", "ipc"],
 			windowsHide: true,

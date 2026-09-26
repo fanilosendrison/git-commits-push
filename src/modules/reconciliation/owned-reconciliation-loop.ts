@@ -35,6 +35,8 @@ export interface RunOwnedReconciliationOptions {
 	readonly initialGeneration: number;
 	readonly mode: ReconciliationInvocationMode;
 	readonly compiledApplicationDirectory: string;
+	/** Original public-launcher invocation directory; internal transport only. */
+	readonly invocationDirectory: string;
 	readonly passthroughArguments: readonly string[];
 	readonly cancellation: LauncherCancellation;
 	readonly prepareRuntime?: (
@@ -114,6 +116,7 @@ async function runOnePass(
 	const prepared = await prepareSupervisorPass({
 		compiledApplicationDirectory: options.compiledApplicationDirectory,
 		executionToken,
+		invocationDirectory: options.invocationDirectory,
 		passthroughArguments: options.passthroughArguments,
 	});
 	logTelemetry((log) =>

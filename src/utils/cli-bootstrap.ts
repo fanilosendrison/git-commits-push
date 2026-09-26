@@ -6,6 +6,7 @@
  * execution has a fresh Turnlock run id and a request identity for telemetry.
  */
 import {
+	GCP_INVOCATION_CWD_ENV,
 	GLOBAL_INVOCATION_SCOPE,
 	parseInvocationArguments,
 	resolveInvocationScope,
@@ -41,7 +42,6 @@ export function bootstrapOrchestratorRun(
 		process.argv.length - 2,
 		...parsed.passthroughArguments,
 	);
-	const invocationScope = resolveInvocationScope(parsed.request);
 
 	const isResume = parsed.passthroughArguments.includes("--resume");
 	const runIdIdx = parsed.passthroughArguments.indexOf("--run-id");
@@ -53,6 +53,11 @@ export function bootstrapOrchestratorRun(
 		// --resume, and persisted Turnlock state overrides this fallback.
 		return GLOBAL_INVOCATION_SCOPE;
 	}
+
+	const invocationScope = resolveInvocationScope(
+		parsed.request,
+		process.env[GCP_INVOCATION_CWD_ENV],
+	);
 
 	let runId = argRunId ?? "";
 	if (!runId) {

@@ -29,14 +29,21 @@ export interface Settings {
 /**
  * Durable invocation universe for one Turnlock run.
  *
- * `global` means the caller asked to discover work through the configured
- * search paths. `targeted` means the caller named exactly one canonical
- * worktree plus explicit remote/ref publication intent, and no discovery may
- * widen beyond it.
+ * `global` is legacy persisted-only state: it may survive in historical
+ * Turnlock runs and legacy reconciliation recovery, but no fresh public
+ * invocation produces it. `worktree` means the caller asked to process exactly
+ * the canonical Git worktree containing the original invocation directory, so
+ * no discovery may widen beyond it. `targeted` means the caller named exactly
+ * one canonical worktree plus explicit remote/ref publication intent, and no
+ * discovery may widen beyond it.
  */
 export type InvocationScope =
 	| {
 			readonly kind: "global";
+	  }
+	| {
+			readonly kind: "worktree";
+			readonly repository: string;
 	  }
 	| {
 			readonly kind: "targeted";

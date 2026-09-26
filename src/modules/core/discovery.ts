@@ -34,11 +34,48 @@ export async function runDiscovery(
 	settings: Settings,
 	invocationScope: InvocationScope,
 ): Promise<RepositoryInfo[]> {
+	if (invocationScope.kind === "worktree") {
+		return discoverWorktreeRepository(invocationScope, settings);
+	}
 	if (invocationScope.kind === "targeted") {
 		return discoverTargetedRepository(invocationScope);
 	}
 
 	return discoverGlobalRepositories(settings);
+}
+
+/**
+ * Ordinary invocation discovery: exactly the canonical invocation worktree,
+ * with normal tracked-branch publication semantics.
+ *
+ * It never scans `settings.searchPaths`, never enumerates sibling worktrees,
+ * and never attaches explicit publication authority.
+ */
+async function discoverWorktreeRepository(
+	invocationScope: Extract<InvocationScope, { kind: "worktree" }>,
+	settings: Settings,
+): Promise<RepositoryInfo[]> {
+	assertInvocationScopeCurrent(invocationScope);
+
+	const repository = invocationScope.repository;
+	const id = await computeRepoId(repository);
+
+	if (hasLocalChanges(repository)) {
+		return [{ id, path: repository, operation: "commit-and-push" }];
+	}
+
+	if (!settings.autoPush) return [];
+
+	const pushSnapshot = captureTrackedPushSnapshot(repository);
+	if (!pushSnapshot) return [];
+	return [
+		{
+			id,
+			path: repository,
+			operation: "push-only",
+			pushSnapshot,
+		},
+	];
 }
 
 /**
