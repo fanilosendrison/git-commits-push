@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "4.0.0"
+version: "4.1.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -66,6 +66,13 @@ No compatibility field re-enables queue semantics.
 - Existing legacy global debt is retired by fence-and-settle recovery, never by
   replay, and no fresh invocation creates fresh global work. Historical missing
   Turnlock scope still normalizes to global but cannot execute.
+- Current-runtime guards do not retroactively govern absolute resume commands
+  emitted by historical releases. The offline legacy-global cutover therefore
+  moves every global or missing-scope run out of the canonical Turnlock
+  namespace and leaves a physical tombstone before installation may activate a
+  new release.
+- Closure-ledger records remain decision evidence only. They do not make a run
+  path non-executable and cannot replace physical revocation.
 
 ## Turnlock push-state compatibility
 
@@ -170,8 +177,30 @@ The installer deploys an immutable content-addressed release below non-empty
 `XDG_DATA_HOME`, falling back to `~/.local/share`, atomically switches only the
 application's `current` symlink, and exposes the stable harness entrypoint at
 `~/.local/bin/git-commits-push`. Production invocations do not run `pnpm` or
-compile source. Older releases remain available so persisted Turnlock runs can
-resume against the exact entrypoints recorded when they began.
+compile source. Older releases remain available so compatible non-global
+Turnlock runs can resume against the exact entrypoints recorded when they began.
+
+Before installation, inspect historical global authority:
+
+```bash
+pnpm run cutover:legacy-global-runs
+```
+
+Exit `1` means candidates or blockers remain and the command has mutated
+nothing. After stopping every launcher and historical resume process, apply the
+one-way cutover explicitly:
+
+```bash
+pnpm run cutover:legacy-global-runs -- --apply --confirm-no-live-execution
+```
+
+The apply path holds the shared state-cutover lock, requires an idle reconciler,
+checkpoints abandoned Turnlock WAL state, reads SQLite state authoritatively,
+and atomically renames only global or missing-scope runs into the quarantine
+beside the Turnlock run root. A regular-file tombstone then occupies each old
+canonical run path. If a crash occurs between rename and tombstone, rerun the
+same command; the absent canonical directory is already non-executable and the
+quarantined bytes are preserved.
 
 The one-time state migration moves the complete legacy `.state/` container,
 including `orders/` and the closure ledger, into the XDG state location.
@@ -204,10 +233,13 @@ launcher process is active.
 4. If an idle schema-v2 database exists, prove all historical execution trees
    dead and run the explicit reconciler migration.
 5. Run `pnpm run check:node-cutover` and resolve every blocker.
-6. Run the compiled reconciliation, recovery, migration, and hard-death suites.
-7. Run `pnpm run install:standalone` and verify the stable executable resolves to
+6. Run `pnpm run cutover:legacy-global-runs`; stop every historical execution,
+   then apply the confirmed offline cutover and require a subsequent inspection
+   to exit `0`.
+7. Run the compiled reconciliation, recovery, migration, and hard-death suites.
+8. Run `pnpm run install:standalone` and verify the stable executable resolves to
    a content-addressed release.
-8. Enable public invocations only after the preflight exits `0` by invoking
+9. Enable public invocations only after both preflights exit `0` by invoking
    `"$HOME/.local/bin/git-commits-push"`.
 
 See [`node-cutover-preflight.md`](node-cutover-preflight.md) for incident and

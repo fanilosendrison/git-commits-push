@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.0.0"
+version: "4.1.0"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -69,6 +69,39 @@ A persisted `InvocationScope.global`, including a historical state whose
 for compatibility but non-executable. The runtime refuses discovery,
 commit/push resumption, and every other phase from such a run before any
 repository mutation.
+
+### Historical-release cutover
+
+Current-runtime guards do not govern an absolute resume command that names an
+immutable pre-cutover release. Before source installation may activate a new
+release, every historical global or missing-scope run MUST therefore be removed
+from the canonical Turnlock run namespace by the offline legacy-global cutover.
+
+The cutover MUST:
+
+1. default to read-only inspection;
+2. require explicit operator confirmation that no historical execution remains
+   live before mutation;
+3. hold the state-cutover lock and require idle, converged reconciliation state;
+4. treat digest-verified SQLite `run_state` as authority when present and use
+   `state.json` only for pre-SQLite runs;
+5. refuse legacy `.lock`, held SQLite ownership, corrupt state, hostile paths,
+   and unknown schema;
+6. checkpoint abandoned SQLite WAL only inside the confirmed offline window;
+7. rename each complete global run directory into a same-filesystem quarantine
+   before writing a regular-file revocation tombstone at the exact canonical
+   run path;
+8. leave `worktree` and `targeted` runs in their canonical namespaces with
+   unchanged logical authority; an offline WAL checkpoint may materialize their
+   already-committed SQLite state; and
+9. leave every immutable release tree byte-identical.
+
+The rename is the safety frontier. A crash after rename but before tombstone
+publication leaves the canonical run directory absent, so an old absolute
+resume command still cannot load state; retry completes the tombstone. A closure
+ledger entry documents an operator decision but is not an execution fence.
+Installed-release activation MUST fail until inspection reports no candidate or
+blocker.
 
 The coordinator stores generations, one reconciliation owner, and at most one
 active execution descriptor. It stores no request or execution history and no
@@ -510,3 +543,7 @@ credentials, prompts, diffs, or remote URLs.
   until the old execution/reconciliation obligation has been safely resolved.
 - `EXEC-INV-18`: the current runtime never starts a supervisor, Turnlock run,
   Git operation, or LLM operation to replay legacy global authority.
+- `EXEC-INV-19`: after historical-release cutover, no global or missing-scope
+  run remains a canonical Turnlock directory; an old absolute resume command
+  encounters an absent path or a regular-file revocation tombstone before state
+  loading.

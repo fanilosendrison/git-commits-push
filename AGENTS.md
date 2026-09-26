@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.2.0"
+version: "3.3.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -78,7 +78,8 @@ Responsibilities MUST remain separated:
 - `src/modules/installation/` owns content-addressed deployment, release-tree
   validation, installer locking, and atomic `current` activation. Installed
   releases are immutable and MUST NOT be automatically garbage-collected while
-  historical Turnlock runs may reference their absolute entrypoints.
+  compatible historical Turnlock runs may reference absolute entrypoints.
+  Legacy-global cutover revokes run paths, never release-tree content.
 - `src/modules/reconciliation/` is the sole authority for SQLite schema,
   generation transitions, active-execution recovery, and token fencing.
 - `src/entrypoints/execution-controller.ts` is the inert-until-START POSIX
@@ -110,7 +111,9 @@ runtime behavior belongs in TypeScript modules.
   Legacy `InvocationScope.global` is compatibility state only: the current
   runtime may parse and inspect it but must never execute it. A persisted
   global scope cannot run discovery, resume commit/push, or authorize any Git
-  work; it fails closed before repository mutation.
+  work; it fails closed before repository mutation. Before activating a release,
+  source installation must prove that every historical global or missing-scope
+  run is physically revoked from its canonical Turnlock namespace.
 - Targeted scope names one exact canonical worktree plus explicit remote/ref
   publication intent.
 - Targeted scope never widens into recursive, sibling, linked-worktree, or
@@ -267,6 +270,17 @@ queue execution path. Telemetry failures must never block reconciliation.
 - Release names bind semantic version and a deterministic tree digest. Reject
   escaping or broken symlinks, special files, hostile destination entries, and
   mismatched existing release content.
+- `pnpm run cutover:legacy-global-runs` is read-only by default. Its apply form
+  requires explicit no-live-execution confirmation, an idle reconciler, and the
+  shared state-cutover lock. It may checkpoint abandoned Turnlock WAL state only
+  inside that confirmed offline window.
+- Global-run revocation atomically renames the complete run directory into a
+  same-filesystem quarantine and writes a regular-file tombstone at the exact
+  canonical run path. It never edits an immutable release or moves a worktree or
+  targeted run. Closure-ledger prose alone is not an execution fence.
+- Installation MUST fail until legacy-global cutover inspection is ready. A
+  crash after quarantine rename remains fail-closed because the canonical run
+  directory is absent; a retry completes the tombstone.
 - Installation locking uses a lifecycle-held SQLite exclusive transaction plus
   a private owner record fenced by nonce, PID, and process-start identity. OS
   lock release makes crashes recoverable, and simultaneous stale recovery may
@@ -337,11 +351,17 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 73 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 76 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 
 Concurrency and recovery changes MUST cover:
+
+- historical absolute resume commands encountering a non-directory tombstone
+  after global-run revocation, with no Git or LLM effect;
+- authoritative SQLite scope inspection, abandoned-WAL checkpointing only in a
+  confirmed offline apply, crash-after-rename recovery, and non-global run
+  preservation;
 
 - simultaneous cold-start registration;
 - global coalescing during a running pass;

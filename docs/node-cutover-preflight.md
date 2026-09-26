@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.0.0"
+version: "4.1.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -18,7 +18,9 @@ The preflight is a read-only gate for inspecting both historical Turnlock runs
 and the state directory used by the SQLite reconciler. It detects incomplete or
 incompatible Turnlock runs, legacy queue residue, live or stale reconciler
 owners, active or orphaned Git execution, incomplete generations, and corrupt or
-incompatible databases without creating or mutating state.
+incompatible databases without creating or mutating state. A separate
+legacy-global preflight proves that no historical absolute resume command can
+still reach a canonical global run directory.
 
 Use it before runtime upgrades, incident recovery, or manual coordinator
 maintenance. Routine public invocations perform their own fail-closed admission
@@ -54,6 +56,34 @@ The command accepts these inspection inputs:
 
 `ORDER_STATE_DIR` remains a compatibility name for the reconciliation state
 directory.
+
+## Legacy-global release cutover
+
+Inspect the historical-release boundary independently:
+
+```bash
+pnpm run cutover:legacy-global-runs
+```
+
+The default is read-only. Exit `0` means every global or missing-scope run is
+already physically revoked; exit `1` reports candidates or blockers; exit `2`
+means inspection failed. The report includes the canonical run namespace,
+quarantine, safe non-global runs, revoked runs, candidates, and blockers.
+
+After stopping every current and historical process that could execute a resume
+command, apply the cutover:
+
+```bash
+pnpm run cutover:legacy-global-runs -- --apply --confirm-no-live-execution
+```
+
+Apply refuses `ORDER_STATE_DIR`, because overridden launchers do not share the
+default state-cutover lock. It requires idle reconciliation state, rejects
+legacy locks and held Turnlock ownership, checkpoints abandoned WAL, and moves
+only authoritative global or missing-scope state. The quarantine defaults next
+to the Turnlock run root and can be overridden with the absolute
+`GCP_LEGACY_GLOBAL_QUARANTINE` path. Source installation refuses release
+activation until this inspection is ready.
 
 ## Exit contract
 
@@ -94,8 +124,8 @@ understood.
 
 Every historical Turnlock run is classified as one of:
 
-- `drained`: schema version `2`, matching orchestrator identity, and a final
-  successful `orchestrator_end` event;
+- `drained`: a supported digest-verified authoritative state, matching
+  orchestrator identity, and a final successful `orchestrator_end` event;
 - `explicitly-closed`: a valid closure-ledger record documents the operator's
   decision;
 - `rejected-incompatible`: the run is not proven drained and has no valid closure
@@ -118,7 +148,10 @@ The closure ledger is a versioned JSON object. Each entry requires a unique ULID
 ```
 
 Closure evidence records a deliberate operator decision; it does not modify or
-delete the historical run directory.
+delete the historical run directory. It therefore does not prevent a historical
+absolute resume command from executing. Legacy-global closure requires the
+physical quarantine-and-tombstone cutover in addition to any retained decision
+evidence.
 
 ## Recovery rules
 
@@ -147,13 +180,17 @@ delete the historical run directory.
    and requires manual inspection.
 8. Review every incompatible historical Turnlock run. Add explicit closure
    evidence only after determining that it cannot contain resumable work.
-9. For legacy artifacts, confirm that no legacy worker is active. A normal
+9. Run the legacy-global inspection. If candidates remain, stop every historical
+   resume process and run the confirmed apply command. Require the repeated
+   read-only inspection to exit `0`; closure-ledger evidence alone is
+   insufficient.
+10. For legacy artifacts, confirm that no legacy worker is active. A normal
    launcher invocation can migrate stale residue only after it has durably
    registered a SQLite generation.
-10. If the sibling `.migration-lock` directory remains after a crash or power
+11. If the sibling `.migration-lock` directory remains after a crash or power
     loss, prove that no migration or launcher process is active, then remove only
     that empty directory with `rmdir`.
-11. Run the preflight again and require exit `0` before reinstalling or
+12. Run both preflights again and require exit `0` before reinstalling or
    re-enabling automated invocations through
    `"$HOME/.local/bin/git-commits-push"`.
 
@@ -175,4 +212,5 @@ For an upgrade or incident record, capture:
 - Node and Git versions;
 - historical classifications and reported blocker kinds;
 - operator decision and any preserved database copy;
-- post-recovery preflight output.
+- legacy-global dry-run and apply reports, including quarantine path;
+- post-recovery output from both preflights.

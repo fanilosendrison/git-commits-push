@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.2.0"
+version: "3.3.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -32,7 +32,22 @@ commits file by file, and pushes — so you don't have to think about any of it.
 
 ## Installation
 
-From this repository, install or upgrade the production CLI with:
+Before upgrading a host that may contain historical Turnlock runs, inspect and
+retire every legacy global run:
+
+```bash
+pnpm run cutover:legacy-global-runs
+pnpm run cutover:legacy-global-runs -- --apply --confirm-no-live-execution
+```
+
+The first command is read-only. The apply form is an offline operation: stop all
+launchers and historical resume processes first. It moves only `global` or
+missing-scope runs to a same-filesystem quarantine and leaves a durable regular
+file at each canonical run path, so an absolute resume command from an old
+release cannot reopen that run. Exact `worktree` and `targeted` runs are not
+moved. The installer refuses activation until this cutover reports ready.
+
+Then install or upgrade the production CLI:
 
 ```bash
 pnpm run install:standalone
@@ -47,8 +62,10 @@ at `~/.local/bin/git-commits-push`.
 
 Add `~/.local/bin` to `PATH` for interactive use, or invoke the absolute path as
 the harness does. Releases are immutable and are not automatically deleted:
-active Turnlock runs can retain an absolute entrypoint from an older release and
-resume after a later installation. Re-running the installer with identical
+compatible non-global Turnlock runs can retain an absolute entrypoint from an
+older release and resume after a later installation. Legacy global runs are the
+intentional exception: cutover revokes their canonical run paths without
+modifying the historical release trees. Re-running the installer with identical
 content reuses the verified release.
 
 `pnpm` is an installation and contributor dependency only. The installed CLI
@@ -538,6 +555,16 @@ unconfirmed v2 state fails closed.
 
 ### Compatibility with older Turnlock runs
 
+A historical release remains immutable, but immutability does not preserve
+retired global application authority. `pnpm run cutover:legacy-global-runs`
+reads SQLite-backed runs from their digest-verified authoritative state and uses
+`state.json` only for pre-SQLite runs. The confirmed apply operation checkpoints
+abandoned WAL state, refuses active locks or held ownership, atomically renames
+each global or missing-scope run into quarantine, and occupies the original run
+path with a tombstone. A crash after rename leaves the canonical path absent and
+therefore non-resumable; rerunning the command completes the tombstone.
+Operator closure evidence alone is not an execution fence.
+
 Turnlock 0.11.0 migrates supported state schema v2/v3 runs into schema v4.
 A pending manifest-v2 delegation is re-emittable only when its historical
 worker is present; this consumer further authorizes only
@@ -548,8 +575,10 @@ closed before physical execution.
 
 The immutable Git revision in `package.json` must be replaced by the published
 npm `turnlock@0.11.0` only after the same Turnlock commit is release-CI green.
-Historical installed git-commits-push releases remain immutable for runs whose
-resume command points to them.
+Historical installed git-commits-push releases remain immutable for compatible
+non-global runs whose resume command points to them. A pre-cutover absolute
+resume command for a revoked global run resolves to a non-directory tombstone
+and cannot load Turnlock state.
 
 ## For contributors
 
