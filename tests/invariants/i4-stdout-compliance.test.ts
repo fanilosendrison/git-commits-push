@@ -60,6 +60,7 @@ describe("I4 — Turnlock stdout Compliance", () => {
 			env: {
 				...process.env,
 				...env.env(),
+				GCP_INVOCATION_CWD: repoDirty.dir,
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-initial"),
 			},
 			encoding: "utf-8",
@@ -74,6 +75,7 @@ describe("I4 — Turnlock stdout Compliance", () => {
 			env: {
 				...process.env,
 				...env.env(),
+				GCP_INVOCATION_CWD: repoDirty.dir,
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-stderr"),
 			},
 			encoding: "utf-8",
@@ -90,6 +92,7 @@ describe("I4 — Turnlock stdout Compliance", () => {
 			env: {
 				...process.env,
 				...env.env(),
+				GCP_INVOCATION_CWD: repoDirty.dir,
 				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-i4-debug"),
 			},
 			encoding: "utf-8",

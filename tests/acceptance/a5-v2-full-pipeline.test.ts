@@ -67,6 +67,7 @@ before(() => {
 		env: {
 			...process.env,
 			...env.env(),
+			GCP_INVOCATION_CWD: repoDirty.dir,
 			OPENAI_API_KEY: "test-token",
 			PI_SESSION_ID: "a5-v2-full-pipeline",
 		},

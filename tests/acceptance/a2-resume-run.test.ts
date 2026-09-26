@@ -1,6 +1,7 @@
 // NIB-T — Test A2: End-to-End Resume Run (Phases 4, 5)
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess, Settings } from "../../src/types.ts";
@@ -49,7 +50,10 @@ before(async () => {
 	computeStateJson(
 		env.runDir,
 		{
-			invocationScope: { kind: "global" },
+			invocationScope: {
+				kind: "worktree",
+				repository: fs.realpathSync(repoDirty.dir),
+			},
 			repos: {
 				[repoId]: {
 					repository: repoDirty.dir,

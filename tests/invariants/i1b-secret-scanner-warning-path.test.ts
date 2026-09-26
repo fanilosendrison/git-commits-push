@@ -58,6 +58,7 @@ describe("I1b — Secret Scanner Warning Path", () => {
 			env: {
 				...process.env,
 				...env.env(),
+				GCP_INVOCATION_CWD: repoWarning.dir,
 			},
 			encoding: "utf-8",
 		});

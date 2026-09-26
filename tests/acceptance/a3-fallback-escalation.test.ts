@@ -141,7 +141,10 @@ describe("A3 — Fallback model escalation", () => {
 		computeStateJson(
 			env.runDir,
 			{
-				invocationScope: { kind: "global" },
+				invocationScope: {
+					kind: "worktree",
+					repository: fs.realpathSync(repo.dir),
+				},
 				repos: {
 					[repoId]: {
 						repository: repo.dir,
@@ -267,7 +270,10 @@ describe("A3 — Fallback model escalation", () => {
 		computeStateJson(
 			env.runDir,
 			{
-				invocationScope: { kind: "global" },
+				invocationScope: {
+					kind: "worktree",
+					repository: fs.realpathSync(repo.dir),
+				},
 				repos: {
 					[repoId]: {
 						repository: repo.dir,

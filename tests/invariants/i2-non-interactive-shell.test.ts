@@ -3,6 +3,7 @@
 // Expected: push fails immediately (no hang), failure recorded in report.
 import assert from "node:assert/strict";
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess } from "../../src/types.ts";
@@ -72,7 +73,10 @@ before(async () => {
 	});
 
 	computeStateJson(env.runDir, {
-		invocationScope: { kind: "global" },
+		invocationScope: {
+			kind: "worktree",
+			repository: fs.realpathSync(repoFakeRemote.dir),
+		},
 		repos: {
 			[repoId]: {
 				repository: repoFakeRemote.dir,

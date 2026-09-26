@@ -58,6 +58,7 @@ describe("A1 — End-to-End Initial Run", () => {
 			env: {
 				...process.env,
 				...env.env(),
+				GCP_INVOCATION_CWD: repoDirty.dir,
 			},
 			encoding: "utf-8",
 		});
@@ -114,8 +115,12 @@ describe("A1 — End-to-End Initial Run", () => {
 		assert.strictEqual(state.currentPhase, "discovery-and-validation");
 		assert.strictEqual(state.pendingDelegation?.kind, "batch");
 		assert.ok((state.pendingDelegation?.jobIds?.length ?? 0) > 0);
-		// A normal invocation without targeted flags persists explicit global scope.
-		assert.deepStrictEqual(state.data?.invocationScope, { kind: "global" });
+		// A normal invocation without targeted flags persists the exact
+		// invocation worktree scope.
+		assert.deepStrictEqual(state.data?.invocationScope, {
+			kind: "worktree",
+			repository: fs.realpathSync(repoDirty.dir),
+		});
 	});
 
 	test("A1-07 | delegation manifest contains prompt with diff payload", () => {
@@ -163,12 +168,24 @@ describe("A1 — End-to-End Initial Run", () => {
 		assert.strictEqual(m.maxAttempts, 1);
 		assert.ok(m.jobs.length > 0);
 
-		// The prompt must be a valid JSON-serialized CommitJobPayload
+		// The prompt must be a valid JSON-serialized CommitJobPayload scoped to
+		// exactly the dirty invocation worktree.
 		const firstJob = m.jobs[0];
 		assert.notStrictEqual(firstJob, undefined);
 		if (!firstJob) return;
 		const payload = JSON.parse(firstJob.prompt);
 		assert.ok(Object.hasOwn(payload, "diff"));
 		assert.ok(Object.hasOwn(payload, "diffHash"));
+		assert.deepStrictEqual(
+			m.jobs.map(
+				(job) =>
+					(
+						JSON.parse(job.prompt) as {
+							repository?: unknown;
+						}
+					).repository,
+			),
+			[fs.realpathSync(repoDirty.dir)],
+		);
 	});
 });

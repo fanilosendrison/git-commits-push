@@ -1,52 +1,53 @@
-// NIB-T — Test I3: Parallel Validation Isolation (Phase 2)
-// Given: repo-A (valid), repo-B (failing tests), repo-C (valid).
-// Expected: B is FAILED, A+C are SUCCESS, manifest contains only A+C, all run concurrently.
+// NIB-T — Test I3: Ordinary Worktree Isolation
+// Given: two dirty linked worktrees A and B of the same repository.
+// Expected: an ordinary invocation from A processes only A; B is never
+// discovered, delegated, or mutated in its index, HEAD, working tree, branch
+// refs, or local configuration.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
+import { captureRepositoryState } from "../helpers/test-helpers.ts";
 
-let repoA: GitRepoFixture;
-let repoB: GitRepoFixture; // has a failing test suite
-let repoC: GitRepoFixture;
+let primary: GitRepoFixture;
+let worktreeA: string;
+let worktreeB: string;
 let env: MockTurnlockEnvironment;
 let searchRoot: string;
+let worktreeBStateBefore: string;
 
 const SKILL_ENTRYPOINT = path.resolve(
 	import.meta.dirname,
 	"../../src/entrypoints/turnlock-orchestrator.ts",
 );
 
+function git(cwd: string, args: readonly string[]): string {
+	return execFileSync("git", [...args], {
+		cwd,
+		encoding: "utf-8",
+		stdio: ["pipe", "pipe", "pipe"],
+	}).trim();
+}
+
 before(() => {
 	env = MockTurnlockEnvironment.create();
 	searchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "i3-"));
 
-	// repo-A: valid staged change, no test suite (skipTests is per-run, not per-repo)
-	repoA = GitRepoFixture.create({ parentDir: searchRoot });
-	repoA.commit("initial commit");
-	repoA.writeAndStage("a.ts", "export const a = 1;\n");
+	primary = GitRepoFixture.create({ parentDir: searchRoot });
+	primary.commit("initial commit");
+	worktreeA = path.join(searchRoot, "worktree-a");
+	worktreeB = path.join(searchRoot, "worktree-b");
+	git(primary.dir, ["worktree", "add", worktreeA, "-b", "branch-a"]);
+	git(primary.dir, ["worktree", "add", worktreeB, "-b", "branch-b"]);
 
-	// repo-B: has a failing test file.
-	// The discovery engine must detect test runner presence and execute it.
-	repoB = GitRepoFixture.create({ parentDir: searchRoot });
-	repoB.commit("initial commit");
-	repoB.writeAndStage("b.ts", "export const b = 2;\n");
-	// Write a failing Node test file directly into the repo.
-	fs.writeFileSync(
-		path.join(repoB.dir, "b.test.ts"),
-		`import assert from "node:assert/strict";\nimport test from "node:test";\ntest("always fails", () => { assert.strictEqual(true, false); });\n`,
-	);
-	// Stage the test file too so the repo appears dirty
-	spawnSync("git", ["add", "-A"], { cwd: repoB.dir });
-
-	// repo-C: valid staged change
-	repoC = GitRepoFixture.create({ parentDir: searchRoot });
-	repoC.commit("initial commit");
-	repoC.writeAndStage("c.ts", "export const c = 3;\n");
+	fs.writeFileSync(path.join(worktreeA, "a.ts"), "export const a = 1;\n");
+	git(worktreeA, ["add", "-A"]);
+	fs.writeFileSync(path.join(worktreeB, "b.ts"), "export const b = 2;\n");
+	git(worktreeB, ["add", "-A"]);
 
 	env.writeSettings({
 		searchPaths: [searchRoot],
@@ -55,27 +56,28 @@ before(() => {
 		temperature: 0,
 		systemPromptPath: path.join(import.meta.dirname, "../../system-prompt.md"),
 		autoPush: false,
-		skipTests: false, // tests must run — repo-B will fail
+		skipTests: true,
 	});
+
+	worktreeBStateBefore = captureRepositoryState(worktreeB);
 });
 
 after(() => {
-	repoA.dispose();
-	repoB.dispose();
-	repoC.dispose();
+	primary.dispose();
 	env.dispose();
 	fs.rmSync(searchRoot, { recursive: true, force: true });
 });
 
-describe("I3 — Parallel Validation Isolation", () => {
+describe("I3 — Ordinary Worktree Isolation", () => {
 	let stdout: string;
 	let exitCode: number;
 
-	test("I3-01 | process exits with code 0 (partial failure is graceful)", () => {
+	test("I3-01 | process exits with code 0", () => {
 		const result = spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
 			env: {
 				...process.env,
 				...env.env(),
+				GCP_INVOCATION_CWD: worktreeA,
 			},
 			encoding: "utf-8",
 		});
@@ -84,12 +86,12 @@ describe("I3 — Parallel Validation Isolation", () => {
 		assert.strictEqual(exitCode, 0);
 	});
 
-	test("I3-02 | a delegation is emitted (repo-A and repo-C succeeded)", () => {
+	test("I3-02 | a delegation is emitted for the invocation worktree", () => {
 		assert.ok(stdout.includes("@@TURNLOCK@@"));
 		assert.ok(stdout.includes("action: DELEGATE"));
 	});
 
-	test("I3-03 | manifest contains repo-A and repo-C but not repo-B", () => {
+	test("I3-03 | manifest contains only worktree A and no B file", () => {
 		const runsDir = path.join(env.runDir, "runs");
 		let manifest: { jobs: { id: string; prompt: string }[] } | null = null;
 
@@ -111,33 +113,20 @@ describe("I3 — Parallel Validation Isolation", () => {
 		findManifest(runsDir);
 		assert.notStrictEqual(manifest, null);
 		const m = manifest as unknown as { jobs: { id: string; prompt: string }[] };
+		assert.strictEqual(m.jobs.length, 1);
 
-		const repoPaths = m.jobs.map(
-			(j: { id: string; prompt: string }) =>
-				JSON.parse(j.prompt).repository as string,
-		);
-		assert.ok(repoPaths.includes(repoA.dir));
-		assert.ok(repoPaths.includes(repoC.dir));
-		assert.ok(!repoPaths.includes(repoB.dir));
+		for (const job of m.jobs) {
+			const payload = JSON.parse(job.prompt) as {
+				repository: string;
+				diff: string;
+			};
+			assert.strictEqual(payload.repository, fs.realpathSync(worktreeA));
+			assert.ok(!payload.repository.includes(worktreeB));
+			assert.ok(!payload.diff.includes("b.ts"));
+		}
 	});
 
-	test("I3-04 | all three Phase 2 workers start within 500ms of each other (concurrent execution)", () => {
-		// This is a coarse concurrency check: we measure the total wall-clock time
-		// of running three repos. If it is close to a single run (rather than 3x),
-		// workers ran in parallel.
-		const start = Date.now();
-		spawnSync(process.execPath, [SKILL_ENTRYPOINT], {
-			env: {
-				...process.env,
-				...env.env(),
-				TURNLOCK_RUN_DIR_ROOT: path.join(env.runDir, "runs-timing"),
-			},
-			encoding: "utf-8",
-		});
-		const total = Date.now() - start;
-		// We cannot guarantee parallelism in a unit test, but we can check that
-		// the total is under a loose sequential upper bound (3 × 3s = 9s).
-		// The real enforcement is via code review of the production implementation.
-		assert.ok(total < 15_000);
+	test("I3-04 | worktree B is byte-for-byte unchanged", () => {
+		assert.strictEqual(captureRepositoryState(worktreeB), worktreeBStateBefore);
 	});
 });

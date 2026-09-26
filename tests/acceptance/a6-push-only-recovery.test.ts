@@ -83,6 +83,7 @@ before(() => {
 		env: {
 			...process.env,
 			...environment.env(),
+			GCP_INVOCATION_CWD: repository.dir,
 			PI_SESSION_ID: "a6-push-only-recovery",
 		},
 		encoding: "utf8",

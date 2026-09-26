@@ -56,7 +56,10 @@ before(async () => {
 	});
 
 	computeStateJson(env.runDir, {
-		invocationScope: { kind: "global" },
+		invocationScope: {
+			kind: "worktree",
+			repository: fs.realpathSync(repoSource.dir),
+		},
 		repos: {
 			[repoId]: {
 				repository: repoSource.dir,

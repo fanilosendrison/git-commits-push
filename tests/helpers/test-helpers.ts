@@ -5,10 +5,42 @@
  * fixture intentionally mirrors the runtime's post-delegation snapshot so
  * tests exercise the real resume path rather than a legacy approximation.
  */
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { STATE_SCHEMA_VERSION } from "turnlock";
 import type { CommitJobResult, GlobalState } from "../../src/types.ts";
+
+/**
+ * Capture every observable Git state an isolation test must prove unchanged:
+ * HEAD, symbolic/detached state, working tree status, staged index diff,
+ * branch refs, and local configuration.
+ */
+export function captureRepositoryState(repositoryPath: string): string {
+	const read = (args: readonly string[]): string => {
+		const result = spawnSync("git", [...args], {
+			cwd: repositoryPath,
+			encoding: "utf-8",
+		});
+		return JSON.stringify({
+			status: result.status,
+			stdout: result.stdout,
+			stderr: result.stderr,
+		});
+	};
+	return JSON.stringify({
+		head: read(["rev-parse", "HEAD"]),
+		symbolicHead: read(["symbolic-ref", "--quiet", "HEAD"]),
+		status: read(["status", "--porcelain=v1", "--untracked-files=all"]),
+		indexDiff: read(["diff", "--cached", "--binary"]),
+		branchRefs: read([
+			"for-each-ref",
+			"refs/heads",
+			"--format=%(refname):%(objectname)",
+		]),
+		localConfig: read(["config", "--local", "--list"]),
+	});
+}
 
 interface PendingBatchDelegationRecord {
 	readonly label: string;

@@ -126,7 +126,10 @@ describe("A3 — validation repair retry bounds", () => {
 		computeStateJson(
 			environment.runDir,
 			{
-				invocationScope: { kind: "global" },
+				invocationScope: {
+					kind: "worktree",
+					repository: fs.realpathSync(activeRepository.dir),
+				},
 				repos: {
 					[repoId]: {
 						repository: activeRepository.dir,

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
 
 const SKILL_ENTRYPOINT = path.resolve(
@@ -13,13 +13,14 @@ const SKILL_ENTRYPOINT = path.resolve(
 
 describe("A4 — Orchestrator is free of global scheduling", () => {
 	let env: MockTurnlockEnvironment;
-	let emptySearchRoot: string;
+	let cleanRepository: GitRepoFixture;
 
 	beforeEach(() => {
 		env = MockTurnlockEnvironment.create();
-		emptySearchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "a4-empty-"));
+		cleanRepository = GitRepoFixture.create();
+		cleanRepository.commit("initial commit");
 		env.writeSettings({
-			searchPaths: [emptySearchRoot],
+			searchPaths: [cleanRepository.dir],
 			provider: "anthropic",
 			model: "claude-3-5-sonnet-20241022",
 			temperature: 0,
@@ -38,7 +39,7 @@ describe("A4 — Orchestrator is free of global scheduling", () => {
 		delete process.env.SECRET_SCANNER_STATS_DIR;
 		delete process.env.PI_SESSION_ID;
 		env.dispose();
-		fs.rmSync(emptySearchRoot, { recursive: true, force: true });
+		cleanRepository.dispose();
 	});
 
 	test("A4-01 | a direct orchestrator run creates no queue artifacts", () => {
@@ -49,6 +50,7 @@ describe("A4 — Orchestrator is free of global scheduling", () => {
 				...env.env(),
 				PI_AGENT: "1",
 				PI_SESSION_ID: "session-a4",
+				GCP_INVOCATION_CWD: cleanRepository.dir,
 			},
 			encoding: "utf-8",
 		});
@@ -69,6 +71,7 @@ describe("A4 — Orchestrator is free of global scheduling", () => {
 				...env.env(),
 				PI_AGENT: "1",
 				PI_SESSION_ID: "session-a4",
+				GCP_INVOCATION_CWD: cleanRepository.dir,
 			},
 			encoding: "utf-8",
 		});
