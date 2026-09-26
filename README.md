@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.3.0"
+version: "3.3.1"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -96,6 +96,8 @@ cd ~/Projects/api
 - The invocation directory is resolved to its canonical Git top-level, so
   invoking from a nested subdirectory (`cd src/deep && git-commits-push`)
   resolves the repository root.
+- If the invocation directory is not inside a Git worktree, the ordinary command
+  fails closed and does not search elsewhere.
 - Only that worktree is inspected, validated, staged, committed, and pushed.
 - `searchPaths` is never scanned by an ordinary invocation.
 - Sibling worktrees, linked worktrees, and unrelated repositories are never
@@ -104,6 +106,47 @@ cd ~/Projects/api
   fails closed with a diagnostic directing you to explicit targeted publication.
 - A clean current worktree reports no work and stops. It never searches
   elsewhere.
+
+For example, invoking `git-commits-push` from `~/Desktop` fails closed. It does
+not scan `searchPaths`, search `~/Developper`, choose a recently modified
+repository, or infer an agent workspace.
+
+#### Multi-agent isolation
+
+git-commits-push isolates by Git worktree, not by agent or session. The
+repository's primary checkout is itself a Git worktree. GCP has no concept of
+which agent authored an individual dirty file: every change visible inside the
+invocation worktree belongs to that worktree's observable state.
+
+| Agent layout | GCP isolation |
+| ------------ | ------------- |
+| A in linked worktree A, B in linked worktree B | Yes. GCP from A processes only A; GCP from B processes only B. |
+| A in the primary checkout, B in a linked worktree | Yes. The primary checkout and linked checkout are distinct Git worktrees. |
+| A and B in separate clones | Yes for local working-tree scope. Each invocation resolves its own Git top-level. |
+| A and B in the same checkout/worktree | No. GCP sees the combined dirty state of that worktree and cannot attribute files to individual agents or sessions. |
+
+If agents in different worktrees invoke GCP concurrently, the existing global
+execution boundary still serializes them: A executes, B waits, A completes, and
+then B executes its own B scope. The requests never scope-coalesce, and the
+worktrees do not execute Git concurrently.
+
+For concurrent implementation tasks that require isolation, give each task its
+own Git worktree (or otherwise a distinct checkout). Sharing one worktree means
+sharing one GCP mutation scope.
+
+```text
+Session A changes a.ts
+Session B changes b.ts
+both sessions use /Projects/foo
+
+git-commits-push invoked from /Projects/foo
+-> a.ts and b.ts are both inside the invocation scope
+```
+
+GCP cannot distinguish ownership by session, including from Git staging status.
+Two agents writing into the same Git worktree are not isolated from each other
+by git-commits-push, so normal processing may stage and commit both agents'
+changes as the combined dirty state of that worktree.
 
 #### Targeted mode
 
