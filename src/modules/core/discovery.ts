@@ -1,47 +1,24 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import type { InvocationScope, RepositoryInfo, Settings } from "../../types.ts";
-import {
-	computeRepoId,
-	findGitDirectoriesRecursively,
-	getWorktrees,
-	hasLocalChanges,
-	isDetachedHead,
-} from "../../utils/git-utils.ts";
+import { computeRepoId, hasLocalChanges } from "../../utils/git-utils.ts";
 import { buildExplicitPushSnapshot } from "../git/explicit-push.ts";
 import { captureExplicitPushTargetSnapshot } from "../git/explicit-push-target.ts";
 import { resolveExplicitPushDestination } from "../git/push-destination.ts";
 import { captureTrackedPushSnapshot } from "../git/push-only.ts";
-import { assertInvocationScopeCurrent } from "../invocation/invocation-scope.ts";
-
-function expandPath(p: string): string {
-	if (p.startsWith("~/")) {
-		return path.join(os.homedir(), p.slice(2));
-	}
-	return p;
-}
-
-function canonicalizePath(p: string): string {
-	try {
-		return fs.realpathSync(p);
-	} catch {
-		return p;
-	}
-}
+import {
+	assertExecutableInvocationScope,
+	assertInvocationScopeCurrent,
+} from "../invocation/invocation-scope.ts";
 
 export async function runDiscovery(
 	settings: Settings,
 	invocationScope: InvocationScope,
 ): Promise<RepositoryInfo[]> {
+	assertExecutableInvocationScope(invocationScope);
+
 	if (invocationScope.kind === "worktree") {
 		return discoverWorktreeRepository(invocationScope, settings);
 	}
-	if (invocationScope.kind === "targeted") {
-		return discoverTargetedRepository(invocationScope);
-	}
-
-	return discoverGlobalRepositories(settings);
+	return discoverTargetedRepository(invocationScope);
 }
 
 /**
@@ -132,78 +109,4 @@ async function discoverTargetedRepository(
 			pushSnapshot,
 		},
 	];
-}
-
-async function discoverGlobalRepositories(
-	settings: Settings,
-): Promise<RepositoryInfo[]> {
-	const searchPaths =
-		settings.searchPaths.length > 0
-			? settings.searchPaths
-			: ["~/Developper/Projects"];
-
-	const results: RepositoryInfo[] = [];
-	const seen = new Set<string>();
-
-	for (const root of searchPaths) {
-		const expanded = expandPath(root);
-		const canonical = canonicalizePath(expanded);
-
-		let repos: string[];
-		try {
-			repos = findGitDirectoriesRecursively(canonical);
-		} catch {
-			process.stderr.write(
-				`[discovery] Warning: cannot scan path ${canonical}\n`,
-			);
-			continue;
-		}
-
-		const allRepos: string[] = [];
-		for (const repoPath of repos) {
-			try {
-				const worktrees = getWorktrees(repoPath);
-				allRepos.push(...worktrees);
-			} catch {
-				allRepos.push(repoPath);
-			}
-		}
-
-		for (const repoPath of allRepos) {
-			if (seen.has(repoPath)) {
-				continue;
-			}
-			seen.add(repoPath);
-
-			if (isDetachedHead(repoPath)) {
-				continue;
-			}
-
-			const isDirty = hasLocalChanges(repoPath);
-			if (isDirty) {
-				const id = await computeRepoId(repoPath);
-				results.push({ id, path: repoPath, operation: "commit-and-push" });
-				continue;
-			}
-			if (!settings.autoPush) continue;
-
-			const pushSnapshot = captureTrackedPushSnapshot(repoPath);
-			if (!pushSnapshot) continue;
-			const id = await computeRepoId(repoPath);
-			results.push({
-				id,
-				path: repoPath,
-				operation: "push-only",
-				pushSnapshot,
-			});
-		}
-	}
-
-	// Order submodules before their parents so that submodule commits
-	// land first. The parent diff will then include the updated SHA.
-	results.sort(
-		(a, b) => b.path.split(path.sep).length - a.path.split(path.sep).length,
-	);
-
-	return results;
 }

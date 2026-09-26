@@ -21,7 +21,10 @@ import { resolveFrozenExplicitTarget } from "../modules/git/explicit-push-target
 import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
 import { handlePushOnlyCheckpointResult } from "../modules/git/push-only-checkpoint.ts";
 import { resetIndexForRetry } from "../modules/git/reset-index.ts";
-import { assertInvocationScopeCurrent } from "../modules/invocation/invocation-scope.ts";
+import {
+	assertExecutableInvocationScope,
+	assertInvocationScopeCurrent,
+} from "../modules/invocation/invocation-scope.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import type { CommittedSha, GlobalState, OriginalHead } from "../types.ts";
 
@@ -74,6 +77,7 @@ export async function runCommitAndPushPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
 ): Promise<PhaseResult<GlobalState, unknown>> {
+	assertExecutableInvocationScope(state.invocationScope);
 	assertInvocationScopeCurrent(state.invocationScope);
 
 	const settings = readSettings(path.resolve(import.meta.dirname, "../config"));

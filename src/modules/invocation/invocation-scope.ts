@@ -330,12 +330,31 @@ export function resolveInvocationScope(
 }
 
 /**
+ * Prove that a scope may authorize execution in the current runtime.
+ *
+ * Legacy `global` is structural compatibility state only: it may be parsed and
+ * inspected, but it must never authorize discovery, supervisor, Turnlock, Git,
+ * or LLM work. Fresh executable scopes are only `worktree` and `targeted`.
+ */
+export function assertExecutableInvocationScope(
+	scope: InvocationScope,
+): asserts scope is Exclude<InvocationScope, { readonly kind: "global" }> {
+	if (scope.kind === "global") {
+		throw new Error(
+			"The legacy global invocation scope is non-executable in the current runtime; it may be parsed for compatibility but must be retired without replay.",
+		);
+	}
+}
+
+/**
  * Prove that a persisted scope still denotes the same invocation universe.
  * Never repairs or rewrites persisted state.
  *
  * A persisted `worktree` scope is immutable authority for its Turnlock run:
  * the exact persisted repository must still be a Git worktree root attached
  * to a symbolic branch. Revalidation never widens to siblings or search paths.
+ * The `global` branch remains a structural no-op because compatibility and
+ * executable authority are deliberately separate concerns.
  */
 export function assertInvocationScopeCurrent(scope: InvocationScope): void {
 	if (scope.kind === "global") {
