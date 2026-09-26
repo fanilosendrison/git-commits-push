@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.1.0"
+version: "4.1.1"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -34,6 +34,17 @@ invocation directory. A **targeted-explicit** scope means the caller named one
 exact canonical worktree plus explicit remote/ref publication authority. Both
 `worktree` and `targeted-explicit` requests are exact, non-coalescing
 caller-owned requests, and both map to the durable coordinator mode `targeted`.
+
+Worktree identity, not caller identity, is the mutation-scope boundary. Agent
+identity, session identity, task identity, and per-file authorship do not
+partition one worktree into smaller scopes. Two callers using distinct Git
+worktrees have distinct invocation universes. Two callers using the same Git
+worktree share one invocation universe containing the combined observable state
+of that worktree.
+
+The repository's primary checkout is one Git worktree for this purpose; a linked
+checkout is another. Separate clones likewise resolve to their own Git
+top-levels.
 
 A **global** coordinator mode remains only for legacy persisted state,
 ownerless reconciliation debt, and legacy recovery compatibility. No fresh
@@ -547,3 +558,7 @@ credentials, prompts, diffs, or remote URLs.
   run remains a canonical Turnlock directory; an old absolute resume command
   encounters an absent path or a regular-file revocation tombstone before state
   loading.
+
+`EXEC-INV-17` separates distinct worktrees; it does not create sub-worktree
+ownership. Callers sharing one worktree intentionally share that worktree's
+observable mutation scope.
