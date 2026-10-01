@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
+import { enableWalWithBoundedContentionRetry } from "./reconciler-sqlite-contention.ts";
 
 export {
 	APPLICATION_STATE_DIRECTORY_NAME,
@@ -116,33 +117,6 @@ CREATE TABLE IF NOT EXISTS reconciler_state (
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
-}
-
-function isSqliteBusy(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		"code" in error &&
-		(error as NodeJS.ErrnoException).code === "ERR_SQLITE_ERROR" &&
-		"errcode" in error &&
-		(error as { errcode?: number }).errcode === 5
-	);
-}
-
-function waitSynchronously(milliseconds: number): void {
-	const signal = new Int32Array(new SharedArrayBuffer(4));
-	Atomics.wait(signal, 0, 0, milliseconds);
-}
-
-function enableWalWithBoundedContentionRetry(db: DatabaseSync): void {
-	for (let attempt = 0; attempt < 8; attempt++) {
-		try {
-			db.exec("PRAGMA journal_mode = WAL");
-			return;
-		} catch (error) {
-			if (!isSqliteBusy(error) || attempt === 7) throw error;
-			waitSynchronously(10 * (attempt + 1));
-		}
-	}
 }
 
 function readSchemaVersion(db: DatabaseSync): number {
@@ -344,7 +318,7 @@ export function openReconcilerDb(
 		if (!options.readOnly) enableWalWithBoundedContentionRetry(db);
 		const userVersion = readSchemaVersion(db);
 		const tables = listReconcilerTables(db);
-		if (userVersion === 0 && tables.length === 0) {
+		if (userVersion === 0) {
 			if (options.readOnly) {
 				throw new ReconcilerOpenError(
 					"corrupt",
