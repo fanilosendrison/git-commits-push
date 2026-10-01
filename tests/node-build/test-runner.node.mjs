@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
 	buildFailureDiagnostic,
@@ -18,6 +19,20 @@ test("keeps the git-commits-push Node test surface closed and sequential", () =>
 		"--test-reporter=tap",
 		"/tmp/example.test.ts",
 	]);
+});
+
+test("keeps the package Node-build timeout aligned with the source runner", () => {
+	assert.equal(FIXED_TEST_TIMEOUT_MILLISECONDS, 600_000);
+	const packageManifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	assert.match(
+		packageManifest.scripts["test:node:build"],
+		new RegExp(
+			`--test-timeout=${FIXED_TEST_TIMEOUT_MILLISECONDS}(?:\\s|$)`,
+			"u",
+		),
+	);
 });
 
 test("isolates the closed Node suite from publication settings", () => {
