@@ -70,7 +70,7 @@ const reconcilerPreloadPath = path.join(
 	"fixtures",
 	"mock-openai-fetch-reconciler.mjs",
 );
-const RELEASE_NAME_PATTERN = /^0\.8\.1-[a-f0-9]{64}$/;
+const RELEASE_NAME_PATTERN = /^0\.8\.2-[a-f0-9]{64}$/;
 const SYNTHETIC_API_KEY = `sk-${"Q".repeat(48)}`;
 
 let qualification = null;
@@ -156,7 +156,7 @@ before(async () => {
 			"utf8",
 		),
 	);
-	assert.equal(releaseManifest.version, "0.8.1");
+	assert.equal(releaseManifest.version, "0.8.2");
 	assert.equal(
 		existsSync(
 			path.join(qualification.releaseDirectory, "dist", "system-prompt.md"),
