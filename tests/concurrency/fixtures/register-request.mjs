@@ -79,16 +79,16 @@ if (mode !== "global" && mode !== "targeted") {
 const token = randomBytes(16).toString("hex");
 const processIdentity = reconciler.readProcessStartIdentity(process.pid);
 if (!processIdentity) throw new Error("cannot read fixture process identity");
+if (readyFile) {
+	writeFileSync(readyFile, `${process.pid}\n`);
+}
+if (barrierFile) {
+	waitForFile(barrierFile);
+}
 const db = reconcilerDb.openReconcilerDb(
 	reconcilerDb.resolveReconcilerDbPath(stateDirectory),
 );
 try {
-	if (readyFile) {
-		writeFileSync(readyFile, `${process.pid}\n`);
-	}
-	if (barrierFile) {
-		waitForFile(barrierFile);
-	}
 	const registration = reconciler.registerReconciliationRequest(db, {
 		token,
 		pid: process.pid,
