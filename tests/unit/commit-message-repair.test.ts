@@ -94,11 +94,76 @@ describe("commit-message repair protocol", () => {
 		const body = JSON.parse(prompt);
 		assert.strictEqual(body.task, "repair-commit-messages");
 		assert.strictEqual(body.maximumSubjectLength, 72);
+		assert.strictEqual(body.plans[0].subjectPrefix, "feat: ");
+		assert.strictEqual(body.plans[0].maximumDescriptionLength, 66);
 		assert.deepStrictEqual(
 			body.plans.map((plan: { planIndex: number }) => plan.planIndex),
 			[0],
 		);
 		assert.ok(!prompt.includes("src/feature.ts"));
+	});
+
+	test("provides the exact description budget for a long protected scope", () => {
+		const payload = makePayload();
+		const firstPlan = payload.rejectedPlans[0];
+		assert.ok(firstPlan);
+		firstPlan.commit.scope = "github-authoritative-ref-monotonicity";
+
+		const prompt = formatCommitMessageRepairPrompt(payload);
+		const body = JSON.parse(prompt);
+
+		assert.strictEqual(
+			body.plans[0].subjectPrefix,
+			"feat(github-authoritative-ref-monotonicity): ",
+		);
+		assert.strictEqual(body.plans[0].maximumDescriptionLength, 27);
+	});
+
+	test("accepts a long-scope repair inside the calculated budget", () => {
+		const payload = makePayload();
+		const firstPlan = payload.rejectedPlans[0];
+		assert.ok(firstPlan);
+		firstPlan.commit.scope = "github-authoritative-ref-monotonicity";
+
+		const merged = mergeCommitMessageRepairs(payload, [
+			{
+				planIndex: 0,
+				commit: {
+					type: "feat",
+					scope: "github-authoritative-ref-monotonicity",
+					description: "use system trust for TLS",
+					isBreaking: false,
+				},
+			},
+		]);
+
+		assert.strictEqual(
+			merged[0]?.commit.description,
+			"use system trust for TLS",
+		);
+	});
+
+	test("rejects a repair that exceeds the protected description budget", () => {
+		const payload = makePayload();
+		const firstPlan = payload.rejectedPlans[0];
+		assert.ok(firstPlan);
+		firstPlan.commit.scope = "github-authoritative-ref-monotonicity";
+
+		assert.throws(
+			() =>
+				mergeCommitMessageRepairs(payload, [
+					{
+						planIndex: 0,
+						commit: {
+							type: "feat",
+							scope: "github-authoritative-ref-monotonicity",
+							description: "use system trust for TLS now",
+							isBreaking: false,
+						},
+					},
+				]),
+			/description exceeds protected subject budget/u,
+		);
 	});
 
 	test("merges indexed messages while preserving every original file list", () => {

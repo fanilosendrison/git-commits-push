@@ -21,12 +21,35 @@ const repairItemSchema = z
 	})
 	.strict();
 
+function formatProtectedSubjectPrefix(commit: CommitMessage): string {
+	let prefix = commit.type;
+	if (commit.scope) {
+		prefix += `(${commit.scope})`;
+	}
+	if (commit.isBreaking) {
+		prefix += "!";
+	}
+	return `${prefix}: `;
+}
+
+function maximumDescriptionLength(commit: CommitMessage): number {
+	return Math.max(
+		0,
+		MAX_COMMIT_SUBJECT_LENGTH - formatProtectedSubjectPrefix(commit).length,
+	);
+}
+
 export const COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT = `You repair Conventional Commit messages.
 Return only a JSON array of objects shaped as {"planIndex": number, "commit": CommitMessage}.
 Return exactly one object for every requested planIndex and no other indexes.
-Never return files or alter file ownership. Preserve intent and unaffected fields.
+Never return files or alter file ownership.
+Preserve type, scope, and isBreaking exactly.
+Each requested plan includes subjectPrefix and maximumDescriptionLength.
+The subjectPrefix already accounts for type, scope, the breaking marker, and ": ".
+Set commit.description to at most that plan's maximumDescriptionLength characters.
+Count only commit.description characters against maximumDescriptionLength.
 Every fully formatted subject must be at most ${MAX_COMMIT_SUBJECT_LENGTH} characters.
-Move nonessential detail into the body instead of truncating words.`;
+Move nonessential detail into the body instead of changing protected fields or truncating words.`;
 
 export function formatCommitMessageRepairPrompt(
 	payload: CommitMessageRepairPayload,
@@ -38,10 +61,21 @@ export function formatCommitMessageRepairPrompt(
 				.filter((index): index is number => index !== undefined),
 		),
 	].sort((left, right) => left - right);
-	const plans = requestedIndexes.map((planIndex) => ({
-		planIndex,
-		commit: payload.rejectedPlans[planIndex]?.commit,
-	}));
+	const plans = requestedIndexes.map((planIndex) => {
+		const rejectedPlan = payload.rejectedPlans[planIndex];
+		if (!rejectedPlan) {
+			throw new Error(
+				`Commit-message repair references missing plan index ${planIndex}.`,
+			);
+		}
+
+		return {
+			planIndex,
+			commit: rejectedPlan.commit,
+			subjectPrefix: formatProtectedSubjectPrefix(rejectedPlan.commit),
+			maximumDescriptionLength: maximumDescriptionLength(rejectedPlan.commit),
+		};
+	});
 	return JSON.stringify({
 		task: "repair-commit-messages",
 		maximumSubjectLength: MAX_COMMIT_SUBJECT_LENGTH,
@@ -84,6 +118,13 @@ export function mergeCommitMessageRepairs(
 		) {
 			throw new Error(
 				"Commit-message repair changed protected semantic fields.",
+			);
+		}
+
+		const descriptionLimit = maximumDescriptionLength(rejectedCommit);
+		if (repair.commit.description.length > descriptionLimit) {
+			throw new Error(
+				`Commit-message repair description exceeds protected subject budget for plan ${repair.planIndex}: ${repair.commit.description.length}/${descriptionLimit}.`,
 			);
 		}
 	}
