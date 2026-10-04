@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { parseCommitJobResponse } from "../../src/modules/core/commit-job-response.ts";
 import {
+	COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT,
 	formatCommitMessageRepairPrompt,
 	mergeCommitMessageRepairs,
 } from "../../src/modules/core/commit-message-repair.ts";
@@ -114,7 +115,6 @@ describe("commit-message repair protocol", () => {
 		assert.strictEqual(payload.diff, undefined);
 		assert.deepStrictEqual(payload.rejectedPlans, source.rejectedPlans);
 	});
-
 	test("formats only rejected plans, indexed errors, and the canonical limit", () => {
 		const prompt = formatCommitMessageRepairPrompt(makePayload());
 		const body = JSON.parse(prompt);
@@ -127,8 +127,12 @@ describe("commit-message repair protocol", () => {
 			[0],
 		);
 		assert.ok(!prompt.includes("src/feature.ts"));
+		assert.match(COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT, /Preserve body exactly/u);
+		assert.doesNotMatch(
+			COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT,
+			/Move nonessential detail into the body/u,
+		);
 	});
-
 	test("provides the exact description budget for a long protected scope", () => {
 		const payload = makePayload();
 		const firstPlan = payload.rejectedPlans[0];
@@ -144,7 +148,6 @@ describe("commit-message repair protocol", () => {
 		);
 		assert.strictEqual(body.plans[0].maximumDescriptionLength, 27);
 	});
-
 	test("accepts a long-scope repair inside the calculated budget", () => {
 		const payload = makePayload();
 		const firstPlan = payload.rejectedPlans[0];
@@ -168,16 +171,18 @@ describe("commit-message repair protocol", () => {
 			"use system trust for TLS",
 		);
 	});
-
-	test("preserves an in-budget repair description exactly", () => {
+	test("preserves an in-budget repair description and original body", () => {
 		const payload = makePayload();
+		const rejected = payload.rejectedPlans[0]?.commit;
+		assert.ok(rejected);
+		rejected.body = "original body";
 		const description = "observe  resolved bootstrap";
-		assert.strictEqual(
-			repairFirstPlan(payload, description)[0]?.commit.description,
-			description,
-		);
+		const repaired = repairFirstPlan(payload, description, {
+			body: "changed body",
+		})[0]?.commit;
+		assert.strictEqual(repaired?.description, description);
+		assert.strictEqual(repaired?.body, "original body");
 	});
-
 	test("fits the concrete 34/33 repair at its last whole-word boundary", () => {
 		const payload = makePayload();
 		const rejected = payload.rejectedPlans[0]?.commit;
@@ -196,7 +201,6 @@ describe("commit-message repair protocol", () => {
 			"observe resolved bootstrap",
 		);
 	});
-
 	test("accepts an ASCII-space boundary exactly at the maximum", () => {
 		const payload = makePayload();
 		const rejected = payload.rejectedPlans[0]?.commit;
@@ -209,7 +213,6 @@ describe("commit-message repair protocol", () => {
 			exactPrefix,
 		);
 	});
-
 	test("selects the longest fitting prefix and preserves multiple spaces", () => {
 		const payload = makePayload();
 		const rejected = payload.rejectedPlans[0]?.commit;
@@ -255,12 +258,12 @@ describe("commit-message repair protocol", () => {
 		const rejected = payload.rejectedPlans[0]?.commit;
 		assert.ok(rejected);
 		rejected.scope = THIRTY_THREE_CHARACTER_BUDGET_SCOPE;
+		rejected.body = "original body";
 		rejected.isBreaking = true;
-		const body = "Exact body bytes\nremain here.";
 		const merged = repairFirstPlan(
 			payload,
 			"observe resolved bootstrap targets",
-			{ body },
+			{ body: "changed body" },
 		);
 		assert.strictEqual(merged.length, payload.rejectedPlans.length);
 		assert.deepStrictEqual(merged[0]?.files, ["src/feature.ts"]);
@@ -270,9 +273,22 @@ describe("commit-message repair protocol", () => {
 			type: "feat",
 			scope: THIRTY_THREE_CHARACTER_BUDGET_SCOPE,
 			description: "observe resolved bootstrap",
-			body,
+			body: "original body",
 			isBreaking: true,
 		});
+
+		for (const originalBody of [null, undefined] as const) {
+			const bodyPayload = makePayload();
+			const originalCommit = bodyPayload.rejectedPlans[0]?.commit;
+			assert.ok(originalCommit);
+			if (originalBody === null) originalCommit.body = null;
+			assert.strictEqual(
+				repairFirstPlan(bodyPayload, "repair subject", {
+					body: "introduced body",
+				})[0]?.commit.body,
+				originalBody,
+			);
+		}
 	});
 
 	test("the canonical validator accepts a valid fitted repair", () => {
