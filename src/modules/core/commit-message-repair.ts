@@ -63,13 +63,15 @@ export const COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT = `You repair Conventional Comm
 Return only a JSON array of objects shaped as {"planIndex": number, "commit": CommitMessage}.
 Return exactly one object for every requested planIndex and no other indexes.
 Never return files or alter file ownership.
-Preserve type, scope, and isBreaking exactly.
+Preserve type, scope, isBreaking, and body exactly.
 Each requested plan includes subjectPrefix and maximumDescriptionLength.
 The subjectPrefix already accounts for type, scope, the breaking marker, and ": ".
 Set commit.description to at most that plan's maximumDescriptionLength characters.
 Count only commit.description characters against maximumDescriptionLength.
 Every fully formatted subject must be at most ${MAX_COMMIT_SUBJECT_LENGTH} characters.
-Move nonessential detail into the body instead of changing protected fields or truncating words.`;
+Preserve body exactly.
+Do not move removed or nonessential subject detail into the body.
+Shorten only commit.description when necessary without truncating words.`;
 
 export function formatCommitMessageRepairPrompt(
 	payload: CommitMessageRepairPayload,
@@ -153,7 +155,7 @@ export function mergeCommitMessageRepairs(
 			);
 		}
 		repairedMessages.set(repair.planIndex, {
-			...repair.commit,
+			...rejectedCommit,
 			description,
 		});
 	}
