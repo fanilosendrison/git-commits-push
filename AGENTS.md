@@ -242,6 +242,11 @@ registered and exact pre-admission file evidence is revalidated.
   inside the bounded attempt loop.
 - Commit-message repair may change only requested messages; file ownership,
   indexes, and plan cardinality remain invariant.
+- An over-budget `repair-commit-messages` response may be shortened only at an
+  existing ASCII-space whole-word boundary using the already-calculated
+  description budget. The repair preserves `type`, `scope`, `isBreaking`, body,
+  file ownership, and plan structure; the canonical full commit validator
+  remains the final gate. If no whole-word prefix fits, fail closed.
 - Primary validation repair is bounded to two attempts. At most one configured
   fallback attempt follows. An invalid fallback terminates.
 - Never log provider tokens, Authorization headers, raw credential-bearing URLs,

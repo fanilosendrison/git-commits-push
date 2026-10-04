@@ -208,7 +208,10 @@ Every message is validated on return:
 - Does the plan map cleanly onto the files that were staged?
 
 If any message fails validation, the LLM is retried with structured feedback
-about what was wrong. If the primary model exhausts its validation budget, the
+about what was wrong. LLM repair remains primary. If a repair response still
+exceeds its exact subject budget, the runtime may mechanically shorten only the
+description at an existing ASCII-space whole-word boundary, then runs the normal
+full validator again. If the primary model exhausts its validation budget, the
 skill escalates to the fallback model (when configured).
 
 ### 4. Commit & push
