@@ -39,6 +39,26 @@ function maximumDescriptionLength(commit: CommitMessage): number {
 	);
 }
 
+function fitRepairDescriptionToBudget(
+	description: string,
+	maximumLength: number,
+): string {
+	if (description.length <= maximumLength) {
+		return description;
+	}
+
+	let boundary = description.lastIndexOf(" ", maximumLength);
+	while (boundary > 0 && description[boundary - 1] === " ") {
+		boundary = description.lastIndexOf(" ", boundary - 1);
+	}
+	if (boundary <= 0) {
+		throw new Error(
+			"Commit-message repair description exceeds its protected subject budget and no whole-word prefix fits.",
+		);
+	}
+	return description.slice(0, boundary);
+}
+
 export const COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT = `You repair Conventional Commit messages.
 Return only a JSON array of objects shaped as {"planIndex": number, "commit": CommitMessage}.
 Return exactly one object for every requested planIndex and no other indexes.
@@ -108,6 +128,7 @@ export function mergeCommitMessageRepairs(
 		);
 	}
 
+	const repairedMessages = new Map<number, CommitMessage>();
 	for (const repair of repairs) {
 		const rejectedCommit = payload.rejectedPlans[repair.planIndex]?.commit;
 		if (
@@ -122,16 +143,21 @@ export function mergeCommitMessageRepairs(
 		}
 
 		const descriptionLimit = maximumDescriptionLength(rejectedCommit);
-		if (repair.commit.description.length > descriptionLimit) {
+		const description = fitRepairDescriptionToBudget(
+			repair.commit.description,
+			descriptionLimit,
+		);
+		if (description.length > descriptionLimit) {
 			throw new Error(
-				`Commit-message repair description exceeds protected subject budget for plan ${repair.planIndex}: ${repair.commit.description.length}/${descriptionLimit}.`,
+				`Commit-message repair description exceeds protected subject budget for plan ${repair.planIndex}: ${description.length}/${descriptionLimit}.`,
 			);
 		}
+		repairedMessages.set(repair.planIndex, {
+			...repair.commit,
+			description,
+		});
 	}
 
-	const repairedMessages = new Map<number, CommitMessage>(
-		repairs.map((repair) => [repair.planIndex, repair.commit]),
-	);
 	return payload.rejectedPlans.map((plan, planIndex) => ({
 		commit: repairedMessages.get(planIndex) ?? plan.commit,
 		files: [...plan.files],
