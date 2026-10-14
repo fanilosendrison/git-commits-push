@@ -1,14 +1,14 @@
 {
 	"searchPaths": ["~/Developper"],
-	"provider": "deepseek",
-	"model": "deepseek-flash",
+	"provider": "google",
+	"model": "gemini-3.5-flash-lite",
 	"temperature": 0.2,
 	"systemPromptPath": "../../system-prompt.md",
 	"autoPush": true,
 	"skipTests": false,
 	"thinking": false,
-	"fallbackProvider": "deepseek",
-	"fallbackModel": "deepseek-v4-pro",
+	"fallbackProvider": "google",
+	"fallbackModel": "gemini-3.5-flash-lite",
 	"agent": "git-commits-push",
 	"maxDiffChars": 3000000
 }
