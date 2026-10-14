@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "4.1.0"
+version: "4.1.1"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -154,7 +154,7 @@ process remains alive, an operator may migrate only an idle, fully converged v2
 singleton:
 
 ```bash
-pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
+pnpm run migrate:reconciler-v2 --confirm-no-live-execution
 ```
 
 The command rejects missing confirmation, active or pending state, malformed
@@ -191,7 +191,7 @@ nothing. After stopping every launcher and historical resume process, apply the
 one-way cutover explicitly:
 
 ```bash
-pnpm run cutover:legacy-global-runs -- --apply --confirm-no-live-execution
+pnpm run cutover:legacy-global-runs --apply --confirm-no-live-execution
 ```
 
 The apply path holds the shared state-cutover lock, requires an idle reconciler,

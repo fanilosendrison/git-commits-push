@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.3.0"
+version: "3.3.1"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -37,7 +37,7 @@ retire every legacy global run:
 
 ```bash
 pnpm run cutover:legacy-global-runs
-pnpm run cutover:legacy-global-runs -- --apply --confirm-no-live-execution
+pnpm run cutover:legacy-global-runs --apply --confirm-no-live-execution
 ```
 
 The first command is read-only. The apply form is an offline operation: stop all
@@ -549,7 +549,7 @@ supervisor or descendant remains alive, migrate an idle, fully converged v2
 singleton explicitly:
 
 ```bash
-pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
+pnpm run migrate:reconciler-v2 --confirm-no-live-execution
 ```
 
 The explicit path stages schema v3 and then completes the bounded v4 upgrade

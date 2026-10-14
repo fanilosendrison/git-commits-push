@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.1.0"
+version: "4.1.1"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -477,7 +477,7 @@ An operator may migrate only an idle, converged v2 singleton after externally
 proving that no launcher, supervisor, or descendant remains alive:
 
 ```bash
-pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution
+pnpm run migrate:reconciler-v2 --confirm-no-live-execution
 ```
 
 The explicit migration adds the existing v3 execution columns, sets

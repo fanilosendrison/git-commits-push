@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.1.0"
+version: "4.1.1"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -74,7 +74,7 @@ After stopping every current and historical process that could execute a resume
 command, apply the cutover:
 
 ```bash
-pnpm run cutover:legacy-global-runs -- --apply --confirm-no-live-execution
+pnpm run cutover:legacy-global-runs --apply --confirm-no-live-execution
 ```
 
 Apply refuses `ORDER_STATE_DIR`, because overridden launchers do not share the
@@ -174,7 +174,7 @@ evidence.
    next exact invocation retires under the existing ownership and fencing
    rules, not as disposable queue entries.
 7. For schema v2, stop all execution processes, require an idle converged row,
-   and run `pnpm run migrate:reconciler-v2 -- --confirm-no-live-execution` only
+   and run `pnpm run migrate:reconciler-v2 --confirm-no-live-execution` only
    after proving that no old descendant survives. An idle v3 row is upgraded to
    v4 automatically by the next writable open; a non-idle v3 row stays preserved
    and requires manual inspection.
@@ -190,9 +190,12 @@ evidence.
 11. If the sibling `.migration-lock` directory remains after a crash or power
     loss, prove that no migration or launcher process is active, then remove only
     that empty directory with `rmdir`.
-12. Run both preflights again and require exit `0` before reinstalling or
-   re-enabling automated invocations through
-   `"$HOME/.local/bin/git-commits-push"`.
+12. For full node-cutover qualification or incident recovery, run both
+    preflights again and require exit `0` before re-enabling automated
+    invocations through `"$HOME/.local/bin/git-commits-push"`. For a routine
+    standalone upgrade, require the legacy-global inspection to exit `0` before
+    installation; preserve non-global historical runs and do not add closure
+    evidence solely to make the broader historical audit green.
 
 Deleting coordinator state is a last resort. It is safe only after confirming
 that no launcher, execution controller, supervisor, or pipeline descendant is
