@@ -35,13 +35,13 @@ describe("readSettings", () => {
 		skipTests: false,
 	};
 
-	test("uses DeepSeek V4 Flash for primary and fallback by default", () => {
+	test("uses Gemini 3.5 Flash-Lite with a DeepSeek fallback by default", () => {
 		const settings = readSettings(
 			path.resolve(import.meta.dirname, "../../src/config"),
 		);
 
-		assert.strictEqual(settings.provider, "deepseek");
-		assert.strictEqual(settings.model, "deepseek-v4-flash");
+		assert.strictEqual(settings.provider, "google");
+		assert.strictEqual(settings.model, "gemini-3.5-flash-lite");
 		assert.strictEqual(settings.fallbackProvider, "deepseek");
 		assert.strictEqual(settings.fallbackModel, "deepseek-v4-flash");
 		assert.strictEqual(settings.agent, "git-commits-push");
