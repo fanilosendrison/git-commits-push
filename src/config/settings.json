@@ -7,8 +7,8 @@
 	"autoPush": true,
 	"skipTests": false,
 	"thinking": false,
-	"fallbackProvider": "deepseek",
-	"fallbackModel": "deepseek-v4-flash",
+	"fallbackProvider": "mistral",
+	"fallbackModel": "mistral-large-latest",
 	"agent": "git-commits-push",
 	"maxDiffChars": 3000000
 }

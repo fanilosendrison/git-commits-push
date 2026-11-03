@@ -16,6 +16,7 @@ import {
 	invokeLlm,
 	type LlmAdapterFactories,
 } from "../modules/llm/llm-invoker.ts";
+import { createLlmJobFailure } from "../modules/llm/provider-failure.ts";
 import { parseTurnlockBatchManifest } from "../modules/turnlock/batch-manifest.ts";
 import { writeCommitJobResult } from "../modules/turnlock/job-result-store.ts";
 import { isDirectExecution } from "../utils/direct-execution.ts";
@@ -195,8 +196,11 @@ export async function handleTurnlockDelegation(
 	// Run LLM inference in parallel
 	await Promise.all(
 		manifest.jobs.map(async (job) => {
+			let rejectedPlans: CommitPlan[] | undefined;
 			try {
 				const payload: BridgeJobPayload = JSON.parse(job.prompt);
+				if (payload.mode === "repair-commit-messages")
+					rejectedPlans = payload.rejectedPlans;
 				if (payload.mode === "checkpoint-push-only") {
 					writeCommitJobResult(job.resultPath, {
 						success: true,
@@ -284,15 +288,11 @@ export async function handleTurnlockDelegation(
 					`[Turnlock→LLM] [${job.id}] Success result written to ${job.resultPath}`,
 				);
 			} catch (err: unknown) {
-				const errMsg = sanitizeSensitiveDiagnostic(
-					err instanceof Error ? err.message : String(err),
-				);
-				console.error(`[Turnlock→LLM] [${job.id}] Error: ${errMsg}`);
-				const errorResult: CommitJobResult = {
-					success: false,
-					id: job.id,
-					error: `LLM Fatal Error: ${errMsg}`,
+				const errorResult = {
+					...createLlmJobFailure(job.id, err),
+					...(rejectedPlans ? { rejectedPlans } : {}),
 				};
+				console.error(`[Turnlock→LLM] [${job.id}] Error: ${errorResult.error}`);
 				writeCommitJobResult(job.resultPath, errorResult);
 			}
 		}),

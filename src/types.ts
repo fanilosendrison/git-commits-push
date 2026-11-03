@@ -155,7 +155,7 @@ export interface CommitPlan {
  * Plan ref: Phase 2 — Extended types, FeedbackError
  */
 export interface FeedbackError {
-	kind: "validation" | "structural" | "race" | "git" | "network";
+	kind: "validation" | "structural" | "race" | "git" | "network" | "provider";
 	message: string;
 	resolution_hint?: string | undefined;
 	files?: string[] | undefined;
@@ -272,6 +272,9 @@ export interface CommitJobResultSuccess {
 
 /** Written by the Turnlock-to-LLM bridge to each job's resultPath on failure */
 export interface CommitJobResultError {
+	/** Preserve ownership when a provider fails during message-only repair. */
+	rejectedPlans?: CommitPlan[];
+	providerFailureKind?: import("./modules/llm/provider-failure.ts").ProviderFailureKind;
 	success: false;
 	id: string;
 	error: string;

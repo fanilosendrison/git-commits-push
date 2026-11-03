@@ -2,7 +2,6 @@ import * as path from "node:path";
 import { z } from "zod";
 import type {
 	AttemptsByKind,
-	CommitJobResult,
 	CommitPlan,
 	ExplicitPushTargetSnapshot,
 	GlobalState,
@@ -72,45 +71,16 @@ const commitMessageStateSchema = z.object({
 	isBreaking: z.boolean(),
 });
 
-const commitMessageResultSchema = z.object({
-	type: z.string(),
-	scope: z.string().optional().nullable(),
-	description: z.string(),
-	body: z.string().optional().nullable(),
-	isBreaking: z.boolean().optional().default(false),
-});
-
 export const commitPlanSchema: z.ZodSchema<CommitPlan> = z.object({
 	commit: commitMessageStateSchema,
 	files: z.array(z.string()),
 });
 
-export const commitPlanResultSchema = z.object({
-	commit: commitMessageResultSchema,
-	files: z.array(z.string()),
-});
-
-export const nonEmptyCommitPlanResultListSchema = z
-	.array(commitPlanResultSchema)
-	.min(1);
-
-const commitJobResultRuntimeSchema = z.union([
-	z.object({
-		success: z.literal(true),
-		id: z.string(),
-		commits: z.array(commitPlanResultSchema),
-	}),
-	z.object({
-		success: z.literal(false),
-		id: z.string(),
-		error: z.string(),
-	}),
-]);
-
-// Turnlock consumes result files as unknown JSON, while ZodSchema<T> fixes input
-// to T. This schema normalizes omitted `isBreaking` values before returning T.
-export const commitJobResultSchema =
-	commitJobResultRuntimeSchema as z.ZodSchema<CommitJobResult>;
+export {
+	commitJobResultSchema,
+	commitPlanResultSchema,
+	nonEmptyCommitPlanResultListSchema,
+} from "../modules/turnlock/job-result-schema.ts";
 
 const ATTEMPT_KINDS = [
 	"validation",
@@ -118,6 +88,7 @@ const ATTEMPT_KINDS = [
 	"race",
 	"git",
 	"network",
+	"provider",
 ] as const;
 type AttemptKind = (typeof ATTEMPT_KINDS)[number];
 
@@ -230,7 +201,7 @@ const repoStateSchema = z
 		lastPlanHash: z.string().optional(),
 		loopDetected: z
 			.object({
-				kind: z.enum(["validation", "structural", "race", "git", "network"]),
+				kind: z.enum(ATTEMPT_KINDS),
 				planHash: z.string(),
 			})
 			.optional(),
