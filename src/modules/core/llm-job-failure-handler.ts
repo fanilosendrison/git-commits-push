@@ -1,6 +1,7 @@
 import type { CommitJobResultError, RepoState, Settings } from "../../types.ts";
 import type { SkillStatsLog } from "../telemetry/stats-logger.ts";
 import { classifyLLMFailure } from "./error-classifier.ts";
+import { buildFallbackSettings, shouldUseFallback } from "./fallback-model.ts";
 import { MAX_ATTEMPTS_BY_KIND, queueRetry } from "./queue-retry.ts";
 import { sanitizeSensitiveDiagnostic } from "./sensitive-diagnostic-sanitizer.ts";
 
@@ -29,11 +30,26 @@ export function handleLlmJobFailure({
 	systemPrompt,
 }: LlmJobFailureOptions): RepoState {
 	const llmError = sanitizeSensitiveDiagnostic(result.error);
-	const llmKind = classifyLLMFailure(llmError);
+	const llmKind = result.providerFailureKind
+		? shouldUseFallback(
+				settings,
+				"provider",
+				repoState.attempts?.provider ?? 0,
+				repoState.fallbackAttempted ?? false,
+			)
+			? "provider"
+			: null
+		: classifyLLMFailure(llmError);
+	const retrySettings =
+		llmKind === "provider" ? buildFallbackSettings(settings) : settings;
 	if (llmKind === null) {
 		const isLlmEmptyPlans =
 			llmError.includes("empty") || llmError.includes("non-empty JSON array");
-		if (isLlmEmptyPlans && (repoState.committedShas?.length ?? 0) > 0) {
+		if (
+			!result.providerFailureKind &&
+			isLlmEmptyPlans &&
+			(repoState.committedShas?.length ?? 0) > 0
+		) {
 			return {
 				...repoState,
 				status: "SUCCESS",
@@ -63,6 +79,9 @@ export function handleLlmJobFailure({
 	if (attempts < MAX_ATTEMPTS_BY_KIND[llmKind]) {
 		const incrementedState: RepoState = {
 			...repoState,
+			...(llmKind === "provider"
+				? { fallbackAttempted: true, lastPlanHash: undefined }
+				: {}),
 			attempts: {
 				...(repoState.attempts ?? {}),
 				[llmKind]: attempts + 1,
@@ -73,16 +92,18 @@ export function handleLlmJobFailure({
 			incrementedState,
 			[
 				{
-					kind: llmKind,
+					kind: result.rejectedPlans ? "validation" : llmKind,
 					message: llmError,
 					resolution_hint:
-						"The previous LLM response was malformed. Regenerate based on the current diff.",
+						llmKind === "provider"
+							? "The primary provider is unavailable. Use the configured fallback for pending work only."
+							: "The previous LLM response was malformed. Regenerate based on the current diff.",
 				},
 			],
 			{},
-			settings,
+			retrySettings,
 			systemPrompt,
-			[],
+			result.rejectedPlans ?? [],
 		);
 		if (retryResult.kind === "loop-detected") {
 			skillLog.logLoopDetected({
@@ -104,8 +125,8 @@ export function handleLlmJobFailure({
 			isRetry: true,
 			retryKind: llmKind,
 			attempt: attempts + 1,
-			model: settings.model,
-			thinking: settings.thinking ?? false,
+			model: retrySettings.model,
+			thinking: retrySettings.thinking ?? false,
 			diffHash: retryResult.repoState.diffHash ?? "",
 			retryReason: llmError.slice(0, 200),
 			diffSizeBytes: null,

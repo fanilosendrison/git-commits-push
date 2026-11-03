@@ -26,6 +26,7 @@ export const MAX_ATTEMPTS_BY_KIND: Record<FeedbackError["kind"], number> = {
 	race: 1,
 	git: 1,
 	network: 1,
+	provider: 1,
 };
 
 export const MAX_FEEDBACK_HISTORY = Math.max(
@@ -197,6 +198,13 @@ export function queueRetry(
 	}
 
 	if (
+		repoState.attempts?.provider &&
+		!reconstructRemainingDiff(repoState.repository).trim()
+	) {
+		throw new Error("Cannot queue provider fallback: no remaining diff");
+	}
+
+	if (
 		failedPlans.length > 0 &&
 		errors.length > 0 &&
 		errors.every((error) => error.kind === "validation")
@@ -265,6 +273,11 @@ export function queueRetry(
 		.createHash("sha256")
 		.update(actualDiff)
 		.digest("hex");
+
+	// A provider outage cannot authorize an inference against an empty diff.
+	if (errors.some((error) => error.kind === "provider") && !actualDiff.trim()) {
+		throw new Error("Cannot queue provider fallback: no remaining diff");
+	}
 
 	// 4. Loop detection
 	const planHash = hashPlans(failedPlans);

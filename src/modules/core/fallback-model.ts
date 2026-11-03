@@ -7,8 +7,9 @@ export function shouldUseFallback(
 	fallbackAttempted: boolean,
 ): boolean {
 	if (!settings.fallbackProvider || !settings.fallbackModel) return false;
-	if (kind !== "validation") return false;
 	if (fallbackAttempted) return false;
+	if (kind === "provider") return attemptCount === 0;
+	if (kind !== "validation") return false;
 	if (attemptCount < 2) return false;
 	return true;
 }
