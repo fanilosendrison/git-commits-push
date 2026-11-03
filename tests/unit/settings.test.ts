@@ -35,15 +35,15 @@ describe("readSettings", () => {
 		skipTests: false,
 	};
 
-	test("uses Gemini 3.5 Flash-Lite with a DeepSeek fallback by default", () => {
+	test("uses Gemini 3.5 Flash-Lite with a Mistral Large fallback by default", () => {
 		const settings = readSettings(
 			path.resolve(import.meta.dirname, "../../src/config"),
 		);
 
 		assert.strictEqual(settings.provider, "google");
 		assert.strictEqual(settings.model, "gemini-3.5-flash-lite");
-		assert.strictEqual(settings.fallbackProvider, "deepseek");
-		assert.strictEqual(settings.fallbackModel, "deepseek-v4-flash");
+		assert.strictEqual(settings.fallbackProvider, "mistral");
+		assert.strictEqual(settings.fallbackModel, "mistral-large-latest");
 		assert.strictEqual(settings.agent, "git-commits-push");
 	});
 

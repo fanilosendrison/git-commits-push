@@ -4,6 +4,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, test } from "node:test";
 import {
+	AbortedError,
+	AuthError,
+	InvalidRequestError,
+	OverloadedError,
+	ProviderProtocolError,
+	RateLimitError,
+	ResponseParseError,
+	TimeoutError,
+	TransientProviderError,
+} from "@fanilosendrison/llm-runtime";
+import {
 	type BridgeDependencies,
 	handleTurnlockDelegation,
 } from "../../src/entrypoints/turnlock-to-llm-bridge.ts";
@@ -114,6 +125,7 @@ async function runResponses(
 			invocations.push(invocation);
 			const response = responses[invocationCount];
 			invocationCount += 1;
+			if (response instanceof Error) throw response;
 			return JSON.stringify(response);
 		},
 	};
@@ -134,6 +146,8 @@ async function runResponses(
 		result: JSON.parse(fs.readFileSync(resultPath, "utf8")) as {
 			success: boolean;
 			error?: string;
+			providerFailureKind?: string;
+			rejectedPlans?: CommitMessageRepairPayload["rejectedPlans"];
 			commits?: Array<{
 				commit: { description: string; isBreaking: boolean };
 				files: string[];
@@ -141,6 +155,34 @@ async function runResponses(
 		},
 	};
 }
+
+test("typed provider outages survive the bridge without retrying inference locally", async () => {
+	for (const error of [
+		new RateLimitError(),
+		new TransientProviderError({ status: 503 }),
+		new OverloadedError(),
+		new TimeoutError(),
+		new ProviderProtocolError(),
+		new ResponseParseError(),
+	]) {
+		const outcome = await runResponses(createPlanningPayload(), [error]);
+		assert.equal(outcome.invocationCount, 1);
+		assert.equal(outcome.result.success, false);
+		assert.equal(outcome.result.providerFailureKind, error.kind);
+	}
+	const repair = createRepairPayload();
+	const failedRepair = await runResponses(repair, [new RateLimitError()]);
+	assert.deepEqual(failedRepair.result.rejectedPlans, repair.rejectedPlans);
+	for (const error of [
+		new AuthError(),
+		new InvalidRequestError(),
+		new AbortedError(),
+		new Error("HTTP 503"),
+	]) {
+		const outcome = await runResponses(createPlanningPayload(), [error]);
+		assert.equal(outcome.result.providerFailureKind, undefined);
+	}
+});
 
 afterEach(() => {
 	for (const directory of cleanup.splice(0)) {
