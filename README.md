@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.3.1"
+version: "3.4.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -268,21 +268,32 @@ detection stops the retries to avoid burning tokens indefinitely.
 
 ### Fallback model
 
-When the primary model repeatedly fails `validation` retries (invalid
-Conventional Commit output), the skill can escalate to a fallback model — a
-different provider or a more capable model — for one final attempt.
+Google `gemini-3.5-flash-lite` remains the default primary model. The configured
+fallback is Mistral `mistral-large-latest`. After the shared runtime exhausts its
+provider retry budget, typed rate-limit, overload, transient-provider, timeout,
+protocol or response-parse failures permit one fallback delegation. HTTP 429 and
+503 therefore do not require changing the primary provider.
+
+Malformed Conventional Commit messages retain their existing two primary repair
+attempts followed by at most one configured fallback attempt. Both paths share
+the durable `fallbackAttempted` budget. A provider outage during message-only
+repair preserves the exact rejected plans and file ownership; it never enables
+full replanning. Empty pending diffs cannot authorize provider failover.
 
 This is **not** a general-purpose retry strategy. The fallback only kicks in
 when:
 
 - Both `fallbackProvider` and `fallbackModel` are configured.
-- The error is specifically a `validation` error (malformed commit messages).
-- The primary model has already failed at least 2 validation attempts.
+- The error is a typed eligible provider outage, or malformed commit messages
+  have exhausted the two primary validation repairs.
+- Provider-outage classification uses the runtime error kind, not diagnostic text.
 - The fallback hasn't been used yet for this repo (one escalation per repo).
 
-It does **not** cover Git errors, network failures, race conditions, or
-structural LLM issues. If the fallback also fails, the repo is reported as
-failed and the skill moves on.
+It does **not** cover Git errors, race conditions, authentication failures,
+invalid requests, cancellation, arbitrary error strings or structural plan
+changes. If the fallback also fails, the repo is reported as failed. Legacy
+string-only result files retain their former behavior; no error is reclassified
+merely because its message contains an HTTP status.
 
 Example: you configure `provider: "openai"` with `model: "gpt-4o-mini"`
 and `fallbackProvider: "anthropic"` with `fallbackModel: "claude-sonnet-4-20250514"`.
@@ -367,7 +378,7 @@ activate a new default configuration. Tests and controlled integrations can set
 |-----|-------------|---------|
 | `searchPaths` | Legacy/global-discovery compatibility state only. Normal worktree invocation and explicit targeted invocation do not use it. An omitted or empty value retains the historical `~/Developper/Projects` fallback for persisted legacy reconciliation. | `["~/Projects", "~/Work"]` |
 | `thinking` | Enable thinking/reasoning tokens on providers that support it | `true` |
-| `fallbackProvider` | Provider to escalate to when validation retries are exhausted | `"anthropic"` |
+| `fallbackProvider` | Provider for bounded validation or typed provider-outage escalation | `"anthropic"` |
 | `fallbackModel` | Model for the fallback provider | `"claude-sonnet-4-20250514"` |
 
 > `fallbackProvider` and `fallbackModel` must be paired — configure both or neither.

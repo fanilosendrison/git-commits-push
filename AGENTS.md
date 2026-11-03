@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.3.0"
+version: "3.4.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -247,8 +247,15 @@ registered and exact pre-admission file evidence is revalidated.
   description budget. The repair preserves `type`, `scope`, `isBreaking`, body,
   file ownership, and plan structure; the canonical full commit validator
   remains the final gate. If no whole-word prefix fits, fail closed.
-- Primary validation repair is bounded to two attempts. At most one configured
-  fallback attempt follows. An invalid fallback terminates.
+- Primary validation repair is bounded to two attempts. Typed runtime rate-limit,
+  overload, transient-provider, timeout, protocol and response-parse outages may
+  also select the configured fallback after runtime retries terminate. Both paths
+  share one durable `fallbackAttempted` budget. Auth, invalid-request, cancelled
+  and untyped string errors never authorize provider failover. An invalid or failed
+  fallback terminates; no empty-diff inference or ownership-changing repair is allowed.
+- Carry the eligible runtime failure kind through job-result validation. Preserve
+  exact rejected plans when failing over a message-only repair. Legacy results
+  without a typed outage retain their historical classification.
 - Never log provider tokens, Authorization headers, raw credential-bearing URLs,
   prompts containing secrets, or unsanitized provider errors.
 
