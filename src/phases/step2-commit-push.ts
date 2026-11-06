@@ -3,6 +3,11 @@ import type { PhaseIO, PhaseResult } from "turnlock";
 import { readSettings } from "../config/settings.ts";
 import { commitJobResultSchema } from "../config/state-schema.ts";
 import { finalizeCommitPushPhase } from "../modules/core/commit-push-finalizer.ts";
+import {
+	mergeCommittedShas,
+	mergePostCommitPushFailure,
+	preserveOriginalHead,
+} from "../modules/core/committed-evidence.ts";
 import { classifyError } from "../modules/core/error-classifier.ts";
 import {
 	CommitPlanError,
@@ -17,6 +22,11 @@ import {
 } from "../modules/core/queue-retry.ts";
 import { loadSystemPrompt } from "../modules/core/system-prompt-loader.ts";
 import { handleValidationRetry } from "../modules/core/validation-retry-handler.ts";
+import { checkpointCreationOutcome } from "../modules/git/creation-outcome-checkpoint.ts";
+import {
+	creationResumeStopReason,
+	creationRetryStopReason,
+} from "../modules/git/creation-phase-safety.ts";
 import { resolveFrozenExplicitTarget } from "../modules/git/explicit-push-target.ts";
 import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
 import { handlePushOnlyCheckpointResult } from "../modules/git/push-only-checkpoint.ts";
@@ -26,52 +36,11 @@ import {
 	assertInvocationScopeCurrent,
 } from "../modules/invocation/invocation-scope.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
-import type { CommittedSha, GlobalState, OriginalHead } from "../types.ts";
+import type { GlobalState } from "../types.ts";
+
+export { mergePostCommitPushFailure } from "../modules/core/committed-evidence.ts";
 
 const skillLog = createSkillStatsLog();
-
-function mergeCommittedShas(
-	existing: readonly CommittedSha[],
-	incoming: readonly CommittedSha[],
-): CommittedSha[] {
-	const merged = [...existing];
-	const knownShas = new Set(existing.map(({ sha }) => sha));
-	for (const committedSha of incoming) {
-		if (knownShas.has(committedSha.sha)) continue;
-		knownShas.add(committedSha.sha);
-		merged.push(committedSha);
-	}
-	return merged;
-}
-
-function preserveOriginalHead(
-	existing: OriginalHead | undefined,
-	incoming: OriginalHead,
-): OriginalHead {
-	return existing === undefined ? incoming : existing;
-}
-
-export function mergePostCommitPushFailure(
-	repoState: GlobalState["repos"][string],
-	error: PostCommitPushError,
-): GlobalState["repos"][string] {
-	return {
-		...repoState,
-		committedShas: mergeCommittedShas(
-			repoState.committedShas ?? [],
-			error.context.committedShas,
-		),
-		originalHead: preserveOriginalHead(
-			repoState.originalHead,
-			error.context.originalHead,
-		),
-		attempts: {
-			...(repoState.attempts ?? {}),
-			network:
-				(repoState.attempts?.network ?? 0) + error.context.pushRetryCount,
-		},
-	};
-}
 
 export async function runCommitAndPushPhase(
 	state: GlobalState,
@@ -80,6 +49,11 @@ export async function runCommitAndPushPhase(
 	assertExecutableInvocationScope(state.invocationScope);
 	assertInvocationScopeCurrent(state.invocationScope);
 
+	if (
+		state.invocationScope.kind === "targeted-create" &&
+		Object.keys(state.repos).length === 0
+	)
+		return io.fail(new Error("Creation resume has no publication evidence."));
 	const settings = readSettings(path.resolve(import.meta.dirname, "../config"));
 
 	// ── Init stats vars for resume flow ────────────────────────────
@@ -109,7 +83,23 @@ export async function runCommitAndPushPhase(
 	for (const result of results) {
 		let repoState = nextRepos[result.id];
 		if (!repoState) continue;
+		if (
+			state.invocationScope.kind === "targeted-create" &&
+			repoState.status === "SUCCESS"
+		)
+			continue;
 
+		if (state.invocationScope.kind === "targeted-create") {
+			const reason = creationResumeStopReason(repoState);
+			if (reason) {
+				nextRepos[result.id] = {
+					...repoState,
+					status: "FAILED",
+					error: reason,
+				};
+				continue;
+			}
+		}
 		if (repoState.operation === "push-only") {
 			nextRepos[result.id] = await handlePushOnlyCheckpointResult({
 				repoId: result.id,
@@ -162,6 +152,7 @@ export async function runCommitAndPushPhase(
 				repoState.explicitPushTargetSnapshot,
 			);
 			const {
+				creationPublicationSnapshot,
 				committedShas,
 				originalHead,
 				pushRetryCount,
@@ -185,6 +176,7 @@ export async function runCommitAndPushPhase(
 					repoState.originalHead,
 					originalHead,
 				),
+				...(creationPublicationSnapshot ? { creationPublicationSnapshot } : {}),
 				publishedSha: publishedSha ?? repoState.publishedSha,
 				remoteTrackingRefSynchronization:
 					remoteTrackingRefSynchronization ??
@@ -237,7 +229,21 @@ export async function runCommitAndPushPhase(
 			const committedShasExist = (repoState.committedShas?.length ?? 0) > 0;
 			const classified = classifyError(err, committedShasExist);
 
-			// R57 fix (C1): empty-plans with committedShas = SUCCESS
+			const creationStop = creationRetryStopReason(
+				state.invocationScope,
+				committedShasExist,
+				classified,
+			);
+			if (creationStop) {
+				nextRepos[result.id] = {
+					...repoState,
+					status: "FAILED",
+					error: creationStop,
+				};
+				continue;
+			}
+
+			// R57 fix (C1): historical empty-plans with committedShas = SUCCESS
 			if (classified.kind === "success") {
 				nextRepos[result.id] = {
 					...repoState,
@@ -254,7 +260,8 @@ export async function runCommitAndPushPhase(
 			const maxAttempts = MAX_ATTEMPTS_BY_KIND[errKind];
 
 			if (classified.kind === "retry" && attempts < maxAttempts) {
-				resetIndexForRetry(repoState.repository);
+				if (state.invocationScope.kind !== "targeted-create")
+					resetIndexForRetry(repoState.repository);
 
 				repoState = {
 					...repoState,
@@ -377,6 +384,8 @@ export async function runCommitAndPushPhase(
 		);
 	}
 
+	if (state.invocationScope.kind === "targeted-create")
+		return checkpointCreationOutcome(state, nextRepos, io);
 	return finalizeCommitPushPhase(
 		nextRepos,
 		io,

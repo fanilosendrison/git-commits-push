@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.1.1"
+version: "4.1.2"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -22,7 +22,7 @@ the durable coordinator mode:
 
 ```text
 domain InvocationScope:
-  legacy-global | worktree | targeted-explicit
+  legacy-global | worktree | targeted-explicit | targeted-create
 
 durable coordinator mode:
   global | targeted
@@ -34,6 +34,7 @@ invocation directory. A **targeted-explicit** scope means the caller named one
 exact canonical worktree plus explicit remote/ref publication authority. Both
 `worktree` and `targeted-explicit` requests are exact, non-coalescing
 caller-owned requests, and both map to the durable coordinator mode `targeted`.
+The additive `targeted-create` scope also maps to this exact non-coalescing mode; its creation/base authority belongs only to Turnlock run state, as specified in [targeted destination creation](targeted-destination-creation.md). It changes no coordinator transition, SQLite schema or stored payload.
 
 A **global** coordinator mode remains only for legacy persisted state,
 ownerless reconciliation debt, and legacy recovery compatibility. No fresh

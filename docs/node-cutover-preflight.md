@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.1.1"
+version: "4.2.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -205,6 +205,14 @@ invocation with the existing recovery protocol: the current release fences any
 preserved active boundary and retires legacy global debt without replay. No
 fresh invocation scans `searchPaths`, substitutes the caller cwd for global
 work, or resumes a legacy global Turnlock run.
+
+## Conditional creation inspection
+
+For package 0.10.0 creation runs, inspect persisted `targeted-create` authority, exact worktree/remote/destination, authorized `baseRef`/`baseSha`, observed source SHA and endpoint fingerprint. The expected destination is absence, not the source base. Confirm the full outgoing-history snapshot and exact matching publication SHA before treating a creation as successful; coordinator settlement and local commits alone do not establish publication.
+
+Keep original creation authority on resume. Never replace it with a newly observed destination baseline. An interrupted dirty run without provable final validated identity must stop with commits preserved. Before-commit retries must retain the original raw diff/hash binding and reject changed input before inference, without resetting a raced index or increasing budgets. A recorded successful creation must not recreate a ref deleted later. Local object checks must not lazily fetch from a promisor remote; missing source-proof, dirty HEAD/index or outgoing-patch input objects require an explicit caller-owned prerequisite step. A dirty-at-base run must qualify its diff inputs even though its pre-existing outgoing sequence is empty. Creation scans and hashes use actual unconverted content, independent of ambient diff presentation; do not mistake this for repair of the legacy/default weakness tracked in Issue #20. Source progression alone is not an incident requiring convergence. Collisions, unreadable remote state and missing local proof objects require caller action, never automatic fetch, merge, rebase or rights escalation.
+
+Qualify candidates in isolated HOME/XDG through the installed public launcher before integration and activation. The source PR and its candidate qualification do not activate a global release or compatible harness instructions. See [the creation contract](../specs/targeted-destination-creation.md).
 
 ## Evidence to retain
 

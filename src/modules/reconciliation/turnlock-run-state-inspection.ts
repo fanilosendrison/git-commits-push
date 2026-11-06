@@ -27,7 +27,7 @@ export class TurnlockRunInspectionError extends Error {
 
 export interface InspectedTurnlockRun {
 	readonly ownershipHeld: boolean;
-	readonly scope: "global" | "targeted" | "worktree";
+	readonly scope: "global" | "targeted" | "targeted-create" | "worktree";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

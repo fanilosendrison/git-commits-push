@@ -1,9 +1,5 @@
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
-import {
-	type InvocationRequest,
-	parseInvocationArguments,
-} from "../invocation/invocation-scope.ts";
 import { resolveRequestIdentity } from "../orders/request-identity.ts";
 import {
 	createSkillStatsLog,
@@ -13,6 +9,7 @@ import {
 	admitReconciliationRequest,
 	type NonWaitRegistration,
 } from "./admission-wait.ts";
+import { classifyPublicInvocationMode } from "./classify-public-invocation.ts";
 import { createLauncherCancellation } from "./launcher-cancellation.ts";
 import {
 	failClosed,
@@ -70,19 +67,6 @@ type AdmissionResult =
 	| { readonly kind: "failed" }
 	| { readonly kind: "interrupted" };
 
-/**
- * Every fresh invocation is an exact caller-owned request: an ordinary
- * worktree request and an explicit targeted request both use the existing
- * non-coalescing reconciliation class. Neither produces rediscoverable global
- * debt.
- */
-const FRESH_INVOCATION_RECONCILIATION_MODES: Readonly<
-	Record<InvocationRequest["kind"], ReconciliationInvocationMode>
-> = Object.freeze({
-	targeted: "targeted",
-	worktree: "targeted",
-});
-
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -107,8 +91,7 @@ export async function runPublicLauncher(
 	const externalArguments = options.passthroughArguments ?? [];
 	let invocationMode: ReconciliationInvocationMode;
 	try {
-		const request = parseInvocationArguments(externalArguments).request;
-		invocationMode = FRESH_INVOCATION_RECONCILIATION_MODES[request.kind];
+		invocationMode = classifyPublicInvocationMode(externalArguments);
 	} catch (error) {
 		failClosed(`invalid invocation arguments: ${errorMessage(error)}`);
 		return 2;

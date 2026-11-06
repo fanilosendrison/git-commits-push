@@ -22,6 +22,12 @@ export async function handlePushOnlyCheckpointResult(
 		throw new Error("Persisted push-only state is missing its push snapshot.");
 	}
 
+	// A recorded successful creation is terminal, not authority to recreate a deleted ref.
+	if (
+		snapshot.kind === "explicit-create" &&
+		options.repoState.status === "SUCCESS"
+	)
+		return options.repoState;
 	return snapshot.kind === "tracked"
 		? await resumeTrackedPushOnly(options, snapshot)
 		: await resumeExplicitPushOnly(options, snapshot);
@@ -104,7 +110,10 @@ async function resumeTrackedPushOnly(
  */
 async function resumeExplicitPushOnly(
 	options: PushOnlyCheckpointHandlingOptions,
-	snapshot: Extract<RepoState["pushSnapshot"], { kind: "explicit" }>,
+	snapshot: Extract<
+		RepoState["pushSnapshot"],
+		{ kind: "explicit" | "explicit-create" }
+	>,
 ): Promise<RepoState> {
 	try {
 		if (!options.result.success) {

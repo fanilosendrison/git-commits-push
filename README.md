@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.4.0"
+version: "3.5.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -107,8 +107,7 @@ cd ~/Projects/api
 
 #### Targeted mode
 
-Two invocation modes are supported: ordinary (current worktree) and targeted
-(explicit remote/ref). Legacy global discovery remains persisted-state
+Ordinary invocation targets the current worktree. Explicit targeted invocation supports historical updates and separately authorized conditional creation (package 0.10.0 or later). Legacy global discovery remains persisted-state
 compatibility only; no fresh command produces it.
 
 ORDINARY MODE
@@ -159,6 +158,24 @@ git-commits-push \
 - the reconciler persists owner invocation mode but never target
   repository/remote/ref payload;
 - `SINGLE_LIVE_GIT_EXECUTION` remains global.
+
+#### Conditional creation of a task branch
+
+The historical three-flag targeted mode requires a destination branch that already exists. Conditional creation instead requires all six options:
+
+```bash
+"$HOME/.local/bin/git-commits-push" --repository "/absolute/exact/task-worktree" --push-remote "origin" --push-ref "refs/heads/feat/example" --create-if-absent --base-ref "refs/heads/main" --base-sha "<full-authorized-base-OID>"
+```
+
+The caller supplies exact authorized literal values. The source ref and destination must differ. The base commit must already be available locally and be an ancestor of both the observed source tip on the **push** endpoint and the initial worktree HEAD; the publisher never fetches, including implicit promisor retrieval during local history qualification. Missing local proof or patch-input objects are prerequisite failures, not authorization to download history. Source progression after admission does not lock publication to the latest source tip.
+
+A fresh creation request refuses an existing destination, even at the requested SHA. Dirty detached worktrees commit directly on detached HEAD; clean ahead worktrees publish without planning or new commits. A clean worktree exactly at the authorized base can also create its destination, without an artificial commit. Tests and secret scanning cover the entire outgoing history from the authorized base, not just a dirty diff. Creation qualifies its own HEAD/index objects before staging and uses actual, unconverted diff input for scanning and staged-diff hashes; ambient textconv, binary, color or rename settings cannot replace that input. The existing secret-pattern and false-positive policy still applies. Pre-commit retries reuse only the same validated raw input; changed work is refused before further inference rather than silently replanned. Existing inference and retry budgets are unchanged.
+
+Publication uses the final validated SHA directly under an explicit absence lease, with tag following and submodule push recursion disabled. A collision at a different SHA fails without replacement, merge or rebase. Success means the exact destination was observed at that SHA, not that this invocation exclusively created it. No local branch, upstream, tracking projection or persistent Git configuration is changed.
+
+Creation-mode diff hardening does not silently change historical scan inputs. The independently validated legacy textconv weakness is tracked in [Issue #20](https://github.com/fanilosendrison/git-commits-push/issues/20); this feature must not be presented as a repair of that default-path defect.
+
+To update a branch after publication, use historical targeted mode without creation flags. Resume uses only persisted authority and must not be mixed with targeted CLI options. An interrupted dirty creation whose final validated identity cannot be proven stops with commits preserved rather than replanning; confirmed successful creation is not authority to recreate a later-deleted branch. See [the creation contract](specs/targeted-destination-creation.md) for uncertainty, compatibility and retry boundaries.
 
 ### 2. Validation
 

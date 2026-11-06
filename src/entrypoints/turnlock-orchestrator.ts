@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { OrchestratorConfig } from "turnlock";
 import { stateSchema } from "../config/state-schema.ts";
+import { finalizeCreationOutcomePhase } from "../modules/git/creation-outcome-checkpoint.ts";
 import { GCP_TURNLOCK_ORCHESTRATOR_NAME } from "../modules/reconciliation/legacy-global-run-paths.ts";
 import { runDiscoveryAndValidationPhase } from "../phases/step1-discovery-validation.ts";
 import { runCommitAndPushPhase } from "../phases/step2-commit-push.ts";
@@ -36,6 +37,7 @@ if (isDirectExecution(import.meta.url)) {
 		phases: {
 			"discovery-and-validation": definePhase(runDiscoveryAndValidationPhase),
 			"commit-and-push": definePhase(runCommitAndPushPhase),
+			"creation-outcome": definePhase(finalizeCreationOutcomePhase),
 		},
 	};
 

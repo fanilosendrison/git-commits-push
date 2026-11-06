@@ -22,6 +22,8 @@ import {
 	type SecretScanner,
 	validateDiffForSecrets,
 } from "../core/validators/pre-commit-validators.ts";
+import { assertCreationAncestry } from "./creation-local-objects.ts";
+import type { ExplicitCreatePushSnapshot } from "./creation-types.ts";
 import {
 	explicitDestinationDivergedError,
 	explicitDestinationMovedError,
@@ -61,7 +63,7 @@ export function publishExactExplicitTarget(
 	repository: string,
 	pushEndpoint: ResolvedPushEndpoint,
 	destinationRef: string,
-	destinationBaselineSha: string,
+	destinationBaselineSha: string | null,
 	sourceSha: string,
 ): ExplicitTargetPublication {
 	const observedSha = readExplicitDestinationSha(pushEndpoint, destinationRef);
@@ -155,6 +157,7 @@ export function buildExplicitPushSnapshot(
 }
 
 export interface ExplicitPushOnlyPublicationResult {
+	readonly retryCount: number;
 	readonly pushedShas: string[];
 	readonly publishedSha: string;
 	readonly remoteTrackingRefSynchronization: RemoteTrackingRefSynchronization;
@@ -166,10 +169,16 @@ export interface ExplicitPushOnlyPublicationResult {
  */
 export async function validateAndPushExplicitSnapshot(
 	repository: RepositoryInfo,
-	snapshot: ExplicitPushSnapshot,
+	snapshot: ExplicitPushSnapshot | ExplicitCreatePushSnapshot,
 	settings: Settings,
 	scanner?: SecretScanner,
 ): Promise<ExplicitPushOnlyPublicationResult> {
+	if (snapshot.kind === "explicit-create")
+		assertCreationAncestry(
+			repository.path,
+			snapshot.baseSha,
+			snapshot.observedBaseRefSha,
+		);
 	if (!settings.skipTests) await runTestCascade(repository.path);
 
 	const currentHead = readHeadSha(repository.path);
@@ -184,9 +193,30 @@ export async function validateAndPushExplicitSnapshot(
 		);
 	}
 	assertOutgoingCommitsMatch(repository.path, snapshot, "Explicit push-only");
-	const patches = readCommitPatches(repository.path, snapshot.outgoingShas);
+	const patches = readCommitPatches(
+		repository.path,
+		snapshot.outgoingShas,
+		snapshot.kind === "explicit-create",
+	);
 	await validateDiffForSecrets(repository, patches, scanner);
 
+	// Scanning is asynchronous: recheck local identity/history after it, not only before.
+	if (
+		readHeadSha(repository.path) !== snapshot.validatedHeadSha ||
+		gitExecArgs(
+			["status", "--porcelain=v1", "--untracked-files=all"],
+			repository.path,
+		)
+	)
+		throw new PushError(
+			"Repository HEAD or worktree changed during explicit validation.",
+			false,
+		);
+	assertOutgoingCommitsMatch(repository.path, snapshot, "Explicit publication");
+	const destinationBaselineSha =
+		snapshot.kind === "explicit-create"
+			? null
+			: snapshot.destinationBaselineSha;
 	const pushEndpoint = openFrozenExplicitEndpoint(repository.path, snapshot);
 	const observedSha = readExplicitDestinationSha(
 		pushEndpoint,
@@ -194,11 +224,11 @@ export async function validateAndPushExplicitSnapshot(
 	);
 	if (
 		observedSha !== snapshot.validatedHeadSha &&
-		observedSha !== snapshot.destinationBaselineSha
+		observedSha !== destinationBaselineSha
 	) {
 		throw explicitDestinationMovedError(
 			snapshot.destinationRef,
-			snapshot.destinationBaselineSha,
+			destinationBaselineSha,
 			observedSha,
 		);
 	}
@@ -207,10 +237,11 @@ export async function validateAndPushExplicitSnapshot(
 			repository.path,
 			pushEndpoint,
 			snapshot.destinationRef,
-			snapshot.destinationBaselineSha,
+			destinationBaselineSha,
 			snapshot.validatedHeadSha,
 		);
 		return {
+			retryCount: publication.retryCount,
 			pushedShas: [...snapshot.outgoingShas],
 			publishedSha: publication.publishedSha,
 			remoteTrackingRefSynchronization: "not-applicable",
