@@ -404,7 +404,11 @@ test("U-DI-12 | targeted discovery freezes the destination for a dirty detached 
 	const snapshot = results[0]?.explicitPushTargetSnapshot;
 	assert.strictEqual(snapshot?.remote, "origin");
 	assert.strictEqual(snapshot?.destinationRef, fixture.destinationRef);
-	assert.strictEqual(snapshot?.destinationBaselineSha, fixture.baseline);
+	assert.ok(
+		snapshot && !("kind" in snapshot),
+		"historical mode must retain update authority",
+	);
+	assert.strictEqual(snapshot.destinationBaselineSha, fixture.baseline);
 	assert.match(snapshot?.pushUrlFingerprint ?? "", /^[a-f0-9]{64}$/u);
 	assert.strictEqual(results[0]?.pushSnapshot, undefined);
 });

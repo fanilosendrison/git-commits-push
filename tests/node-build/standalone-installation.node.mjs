@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
 	chmod,
-	cp,
 	lstat,
 	mkdir,
 	mkdtemp,
@@ -17,6 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { copyDeploymentSource } from "./fixtures/deployment-source.mjs";
 import { resolvePathExecutable } from "./fixtures/path-executable.mjs";
 import { resolvePnpmOfflineEnvironment } from "./fixtures/pnpm-offline-environment.mjs";
 
@@ -80,40 +80,6 @@ function runGit(cwd, args, environment) {
 	return result.stdout.trim();
 }
 
-async function copyDeploymentSource(targetDirectory) {
-	await mkdir(targetDirectory, { recursive: true });
-	for (const entry of [
-		".npmrc",
-		"bin",
-		"dist",
-		"package.json",
-		"patches",
-		"pnpm-lock.yaml",
-		"pnpm-workspace.yaml",
-	]) {
-		await cp(
-			path.join(repositoryDirectory, entry),
-			path.join(targetDirectory, entry),
-			{ recursive: true },
-		);
-	}
-	for (const packageName of ["node-runtime", "trust"]) {
-		const targetPackageDirectory = path.join(
-			targetDirectory,
-			"packages",
-			packageName,
-		);
-		await mkdir(targetPackageDirectory, { recursive: true });
-		for (const entry of ["dist", "package.json"]) {
-			await cp(
-				path.join(repositoryDirectory, "packages", packageName, entry),
-				path.join(targetPackageDirectory, entry),
-				{ recursive: true },
-			);
-		}
-	}
-}
-
 test("installs and runs a checkout-independent production deployment", async () => {
 	const root = await mkdtemp(path.join(tmpdir(), "gcp-standalone-install-é-"));
 	try {
@@ -122,7 +88,7 @@ test("installs and runs a checkout-independent production deployment", async () 
 		const homeDirectory = path.join(root, "isolated home");
 		const dataHome = path.join(root, "isolated data");
 		const sourceCheckout = path.join(root, "source checkout");
-		await copyDeploymentSource(sourceCheckout);
+		await copyDeploymentSource(repositoryDirectory, sourceCheckout);
 		const environment = {
 			...resolvePnpmOfflineEnvironment(pnpmCliPath, repositoryDirectory),
 			XDG_DATA_HOME: dataHome,
