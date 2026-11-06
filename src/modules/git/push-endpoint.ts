@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { type GitProcessConfigEntry, gitExecArgs } from "./git-exec.ts";
+import {
+	type GitProcessConfigEntry,
+	gitExecArgs,
+	gitExecArgsRaw,
+} from "./git-exec.ts";
+import { parseRemoteRefObservation } from "./git-object-id.ts";
 
 export interface ResolvedPushEndpoint {
 	readonly fingerprint: string;
@@ -117,13 +122,12 @@ export function resolveSinglePushEndpoint(
 	];
 
 	function readOptionalDestinationSha(destinationRef: string): string | null {
-		const result = gitExecArgs(
+		const result = gitExecArgsRaw(
 			["ls-remote", "--", ephemeralRemote, destinationRef],
 			repoPath,
 			processConfig,
 		);
-		const sha = result.split(/\s+/u)[0];
-		return sha || null;
+		return parseRemoteRefObservation(result, destinationRef);
 	}
 
 	return {
@@ -142,6 +146,8 @@ export function resolveSinglePushEndpoint(
 			gitExecArgs(
 				[
 					"push",
+					"--no-follow-tags",
+					"--recurse-submodules=no",
 					`--force-with-lease=${destinationRef}:${destinationBaselineSha ?? ""}`,
 					"--",
 					ephemeralRemote,

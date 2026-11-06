@@ -19,6 +19,7 @@ import {
 import { createLlmJobFailure } from "../modules/llm/provider-failure.ts";
 import { parseTurnlockBatchManifest } from "../modules/turnlock/batch-manifest.ts";
 import { writeCommitJobResult } from "../modules/turnlock/job-result-store.ts";
+import { acknowledgePublicationCheckpoint } from "../modules/turnlock/publication-checkpoint.ts";
 import { isDirectExecution } from "../utils/direct-execution.ts";
 import {
 	buildResumeCommand,
@@ -201,14 +202,9 @@ export async function handleTurnlockDelegation(
 				const payload: BridgeJobPayload = JSON.parse(job.prompt);
 				if (payload.mode === "repair-commit-messages")
 					rejectedPlans = payload.rejectedPlans;
-				if (payload.mode === "checkpoint-push-only") {
-					writeCommitJobResult(job.resultPath, {
-						success: true,
-						id: job.id,
-						commits: [],
-					});
+				if (acknowledgePublicationCheckpoint(payload, job)) {
 					logBridgeMessage(
-						`[Turnlock→LLM] [${job.id}] Durable push-only checkpoint acknowledged.`,
+						`[Turnlock→LLM] [${job.id}] Durable ${payload.mode} acknowledged.`,
 					);
 					return;
 				}

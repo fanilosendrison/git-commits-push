@@ -5,6 +5,16 @@
  * STATUS: STUB — production implementation pending (RED phase).
  */
 
+import type {
+	CreationAnchor,
+	ExplicitCreatePushSnapshot,
+	ExplicitCreateTargetSnapshot,
+} from "./modules/git/creation-types.ts";
+
+export type ExplicitPublicationTargetSnapshot =
+	| ExplicitPushTargetSnapshot
+	| ExplicitCreateTargetSnapshot;
+
 export interface Settings {
 	searchPaths: string[];
 	provider: string;
@@ -50,7 +60,13 @@ export type InvocationScope =
 			readonly repository: string;
 			readonly pushRemote: string;
 			readonly pushRef: string;
-	  };
+	  }
+	| ({
+			readonly kind: "targeted-create";
+			readonly repository: string;
+			readonly pushRemote: string;
+			readonly pushRef: string;
+	  } & CreationAnchor);
 
 export type RepositoryOperation = "commit-and-push" | "push-only";
 
@@ -120,14 +136,17 @@ export interface ExplicitPushSnapshot {
 	readonly pushUrlFingerprint: string;
 }
 
-export type PushSnapshot = TrackedPushSnapshot | ExplicitPushSnapshot;
+export type PushSnapshot =
+	| TrackedPushSnapshot
+	| ExplicitPushSnapshot
+	| ExplicitCreatePushSnapshot;
 
 export interface RepositoryInfo {
 	id: string;
 	path: string;
 	operation?: RepositoryOperation;
 	pushSnapshot?: PushSnapshot;
-	explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot;
+	explicitPushTargetSnapshot?: ExplicitPublicationTargetSnapshot;
 }
 
 export interface CommitMessage {
@@ -255,13 +274,16 @@ export type CommitJobPayload =
 	| CommitPlanningPayload
 	| CommitMessageRepairPayload;
 
-/** Internal Turnlock yield used to persist a push-only snapshot before I/O. */
-export interface PushOnlyCheckpointPayload {
+/** Internal no-effect Turnlock yields persist publication evidence without inference. */
+export type PublicationCheckpointPayload = { repository: string } & (
+	| { mode: "checkpoint-push-only" }
+	| { mode: "checkpoint-creation-outcome" }
+);
+export type PushOnlyCheckpointPayload = PublicationCheckpointPayload & {
 	mode: "checkpoint-push-only";
-	repository: string;
-}
+};
 
-export type BridgeJobPayload = CommitJobPayload | PushOnlyCheckpointPayload;
+export type BridgeJobPayload = CommitJobPayload | PublicationCheckpointPayload;
 
 /** Written by the Turnlock-to-LLM bridge to each job's resultPath on success */
 export interface CommitJobResultSuccess {
@@ -287,7 +309,9 @@ export interface RepoState {
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
 	operation?: RepositoryOperation | undefined;
 	pushSnapshot?: PushSnapshot | undefined;
-	explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot | undefined;
+	explicitPushTargetSnapshot?: ExplicitPublicationTargetSnapshot | undefined;
+	/** Final validated identity/history; required for successful dirty creation. */
+	creationPublicationSnapshot?: ExplicitCreatePushSnapshot | undefined;
 	pushedShas?: string[] | undefined;
 	/** Exact source SHA observed at the frozen remote after publication. */
 	publishedSha?: string | undefined;

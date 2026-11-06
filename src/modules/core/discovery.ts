@@ -1,5 +1,7 @@
 import type { InvocationScope, RepositoryInfo, Settings } from "../../types.ts";
 import { computeRepoId, hasLocalChanges } from "../../utils/git-utils.ts";
+import { buildExplicitCreatePushSnapshot } from "../git/explicit-create-push.ts";
+import { captureExplicitCreateTarget } from "../git/explicit-create-target.ts";
 import { buildExplicitPushSnapshot } from "../git/explicit-push.ts";
 import { captureExplicitPushTargetSnapshot } from "../git/explicit-push-target.ts";
 import { resolveExplicitPushDestination } from "../git/push-destination.ts";
@@ -64,7 +66,10 @@ async function discoverWorktreeRepository(
  * remote baseline predates staging, validation, and every commit effect.
  */
 async function discoverTargetedRepository(
-	invocationScope: Extract<InvocationScope, { kind: "targeted" }>,
+	invocationScope: Extract<
+		InvocationScope,
+		{ kind: "targeted" | "targeted-create" }
+	>,
 ): Promise<RepositoryInfo[]> {
 	assertInvocationScopeCurrent(invocationScope);
 
@@ -75,10 +80,13 @@ async function discoverTargetedRepository(
 			destinationRef: invocationScope.pushRef,
 		},
 	);
-	const explicitPushTargetSnapshot = captureExplicitPushTargetSnapshot(
-		invocationScope.repository,
-		destination,
-	);
+	const explicitPushTargetSnapshot =
+		invocationScope.kind === "targeted-create"
+			? captureExplicitCreateTarget(invocationScope)
+			: captureExplicitPushTargetSnapshot(
+					invocationScope.repository,
+					destination,
+				);
 	const id = await computeRepoId(invocationScope.repository);
 
 	if (hasLocalChanges(invocationScope.repository)) {
@@ -96,10 +104,16 @@ async function discoverTargetedRepository(
 	// contains the frozen baseline. The frozen baseline is absolute: a remote
 	// that advanced, or a local history that no longer contains it, fails closed
 	// because converging them is outside git-commits-push.
-	const pushSnapshot = buildExplicitPushSnapshot(
-		invocationScope.repository,
-		explicitPushTargetSnapshot,
-	);
+	const pushSnapshot =
+		"kind" in explicitPushTargetSnapshot
+			? buildExplicitCreatePushSnapshot(
+					invocationScope.repository,
+					explicitPushTargetSnapshot,
+				)
+			: buildExplicitPushSnapshot(
+					invocationScope.repository,
+					explicitPushTargetSnapshot,
+				);
 	if (!pushSnapshot) return [];
 	return [
 		{

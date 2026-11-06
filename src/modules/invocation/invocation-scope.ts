@@ -16,10 +16,15 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { InvocationScope } from "../../types.ts";
+import { assertLocalCommitObject } from "../git/creation-local-objects.ts";
 import { gitExecArgs } from "../git/git-exec.ts";
+import type { InvocationRequest } from "./targeted-arguments.ts";
 
-const OWNED_FLAGS = ["--repository", "--push-remote", "--push-ref"] as const;
-type OwnedFlag = (typeof OWNED_FLAGS)[number];
+export type {
+	InvocationRequest,
+	ParsedInvocationArguments,
+} from "./targeted-arguments.ts";
+export { parseInvocationArguments } from "./targeted-arguments.ts";
 
 const BRANCH_REF_PREFIX = "refs/heads/";
 
@@ -32,136 +37,20 @@ const BRANCH_REF_PREFIX = "refs/heads/";
  */
 export const GCP_INVOCATION_CWD_ENV = "GCP_INVOCATION_CWD";
 
-/** Uncanonicalized invocation request derived from argv. */
-export type InvocationRequest =
-	| {
-			readonly kind: "worktree";
-	  }
-	| {
-			readonly kind: "targeted";
-			readonly repository: string;
-			readonly pushRemote: string;
-			readonly pushRef: string;
-	  };
-
-export interface ParsedInvocationArguments {
-	readonly request: InvocationRequest;
-	readonly passthroughArguments: readonly string[];
-}
-
-type TargetedInvocationRequest = Extract<
+type TargetedInvocationRequest = Exclude<
 	InvocationRequest,
-	{ kind: "targeted" }
+	{ kind: "worktree" }
 >;
-
 type WorktreeInvocationScope = Extract<InvocationScope, { kind: "worktree" }>;
-type TargetedInvocationScope = Extract<InvocationScope, { kind: "targeted" }>;
-
-const WORKTREE_INVOCATION_REQUEST: InvocationRequest = Object.freeze({
-	kind: "worktree",
-});
+type TargetedInvocationScope = Exclude<
+	InvocationScope,
+	{ kind: "global" | "worktree" }
+>;
 
 /** Legacy persisted-only scope. Never mutate this object. */
 export const GLOBAL_INVOCATION_SCOPE: InvocationScope = Object.freeze({
 	kind: "global",
 });
-
-function isOwnedFlag(value: string): value is OwnedFlag {
-	return (OWNED_FLAGS as readonly string[]).includes(value);
-}
-
-function matchesOwnedEqualsSyntax(value: string): boolean {
-	return OWNED_FLAGS.some((flag) => value.startsWith(`${flag}=`));
-}
-
-/**
- * Parse the atomic targeted argument group out of an argument vector.
- *
- * Owned flags are `--repository`, `--push-remote`, and `--push-ref`. Every
- * other argument is preserved byte-for-byte in original order so Turnlock
- * (`--run-id`, `--resume`, and future flags) keeps seeing exactly what the
- * caller supplied. No owned flag means an ordinary worktree request.
- */
-export function parseInvocationArguments(
-	args: readonly string[],
-): ParsedInvocationArguments {
-	const passthroughArguments: string[] = [];
-	const ownedValues = new Map<OwnedFlag, string>();
-
-	for (let index = 0; index < args.length; index += 1) {
-		const argument = args[index];
-		if (argument === undefined) continue;
-
-		if (matchesOwnedEqualsSyntax(argument)) {
-			throw new Error(
-				`Targeted invocation flag "${argument}" does not accept --flag=value syntax; supply the flag and value as separate arguments.`,
-			);
-		}
-
-		if (!isOwnedFlag(argument)) {
-			passthroughArguments.push(argument);
-			continue;
-		}
-
-		if (ownedValues.has(argument)) {
-			throw new Error(`Duplicate targeted invocation flag: ${argument}.`);
-		}
-
-		const value = args[index + 1];
-		if (value === undefined || value.startsWith("--")) {
-			throw new Error(
-				`Targeted invocation flag ${argument} requires exactly one value.`,
-			);
-		}
-
-		ownedValues.set(argument, value);
-		index += 1;
-	}
-
-	const presentFlags = OWNED_FLAGS.filter((flag) => ownedValues.has(flag));
-
-	if (presentFlags.length === 0) {
-		return {
-			request: WORKTREE_INVOCATION_REQUEST,
-			passthroughArguments,
-		};
-	}
-
-	if (presentFlags.length !== OWNED_FLAGS.length) {
-		throw new Error(
-			"Targeted invocation requires all three flags together: --repository, --push-remote, and --push-ref.",
-		);
-	}
-
-	if (args.includes("--resume")) {
-		throw new Error(
-			"targeted invocation arguments cannot be supplied with --resume; resume uses the persisted invocation scope",
-		);
-	}
-
-	const repository = ownedValues.get("--repository");
-	const pushRemote = ownedValues.get("--push-remote");
-	const pushRef = ownedValues.get("--push-ref");
-	if (
-		repository === undefined ||
-		pushRemote === undefined ||
-		pushRef === undefined
-	) {
-		throw new Error(
-			"Targeted invocation requires all three flags together: --repository, --push-remote, and --push-ref.",
-		);
-	}
-
-	return {
-		request: {
-			kind: "targeted",
-			repository,
-			pushRemote,
-			pushRef,
-		},
-		passthroughArguments,
-	};
-}
 
 function resolveTargetedScope(
 	request: TargetedInvocationRequest,
@@ -227,13 +116,22 @@ function resolveTargetedScope(
 	}
 
 	gitExecArgs(["check-ref-format", request.pushRef], canonicalRepository);
-
-	return Object.freeze({
-		kind: "targeted",
-		repository: canonicalRepository,
-		pushRemote: request.pushRemote,
-		pushRef: request.pushRef,
-	});
+	if (request.pushRemote === ".")
+		throw new Error(
+			"Targeted push remote must be a configured Git remote, not '.'.",
+		);
+	if (request.kind === "targeted-create") {
+		if (
+			!request.baseRef.startsWith(BRANCH_REF_PREFIX) ||
+			request.baseRef === request.pushRef
+		)
+			throw new Error(
+				"Creation requires distinct refs/heads/* source and destination refs.",
+			);
+		gitExecArgs(["check-ref-format", request.baseRef], canonicalRepository);
+		assertLocalCommitObject(canonicalRepository, request.baseSha);
+	}
+	return Object.freeze({ ...request, repository: canonicalRepository });
 }
 
 function readAttachedBranch(repository: string): string | null {
@@ -371,12 +269,7 @@ export function assertInvocationScopeCurrent(scope: InvocationScope): void {
 		return;
 	}
 
-	const resolved = resolveTargetedScope({
-		kind: "targeted",
-		repository: scope.repository,
-		pushRemote: scope.pushRemote,
-		pushRef: scope.pushRef,
-	});
+	const resolved = resolveTargetedScope(scope);
 
 	if (
 		resolved.repository !== scope.repository ||

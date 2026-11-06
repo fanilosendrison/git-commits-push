@@ -1,8 +1,8 @@
-import { execSync } from "node:child_process";
 import * as path from "node:path";
 import type { PhaseIO, PhaseResult } from "turnlock";
 import { readSettings } from "../config/settings.ts";
 import { runDiscovery } from "../modules/core/discovery.ts";
+import { preparePlanningDiff } from "../modules/core/planning-diff.ts";
 import { printReport } from "../modules/core/reporter.ts";
 import { loadSystemPrompt } from "../modules/core/system-prompt-loader.ts";
 import { processRepoValidationAndDiff } from "../modules/core/validators/pre-commit-validators.ts";
@@ -197,25 +197,13 @@ export async function runDiscoveryAndValidationPhase(
 	}
 
 	// Phase 3: Delegate to LLM
-	const maxDiff = settings.maxDiffChars ?? 3_000_000;
 	const planningJobs = validRepos.map((r) => {
-		let diffForLlm = r.diff;
-		if (diffForLlm.length > maxDiff) {
-			let statFallback = "";
-			try {
-				statFallback = execSync("git diff --cached --stat", {
-					cwd: r.path,
-					encoding: "utf-8",
-					stdio: ["pipe", "pipe", "pipe"],
-				}).toString();
-			} catch {
-				// best-effort
-			}
-			diffForLlm =
-				diffForLlm.slice(0, maxDiff) +
-				`\n\n### DIFF TRUNCATED — ${r.diff.length} chars total, showing first ${maxDiff} chars ###` +
-				`\n\n### FULL FILE LIST (git diff --stat) ###\n${statFallback}`;
-		}
+		const diffForLlm = preparePlanningDiff(
+			r.diff,
+			r.path,
+			settings,
+			state.invocationScope.kind === "targeted-create",
+		);
 		const payload: CommitJobPayload = {
 			repository: r.path,
 			diff: diffForLlm,

@@ -3,6 +3,16 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { RepositoryInfo, Settings } from "../../../types.ts";
+import { readCreationStagedDiff } from "../../git/creation-diff.ts";
+import {
+	assertCreationAncestry,
+	assertCreationDirtyInputsLocal,
+} from "../../git/creation-local-objects.ts";
+import { readHeadSha } from "../../git/explicit-push-target.ts";
+import {
+	readCommitPatches,
+	readOrderedOutgoingShas,
+} from "../../git/outgoing-commits.ts";
 import { createSkillStatsLog } from "../../telemetry/stats-logger.ts";
 import { scanDiff } from "../secret-scanner.ts";
 
@@ -208,17 +218,42 @@ export async function processRepoValidationAndDiff(
 		await runTestCascade(repo.path);
 	}
 
-	// Stage internal submodule changes first so that `git add -A` in
-	// the parent picks up the updated gitlink SHAs.
-	execCwd("git submodule foreach --quiet --recursive 'git add -A'", repo.path);
+	const target = repo.explicitPushTargetSnapshot;
+	const creationTarget = target && "kind" in target ? target : undefined;
+	if (creationTarget) {
+		assertCreationDirtyInputsLocal(repo.path);
+		// Validate pre-existing B..HEAD before staging or planning. Keep validation
+		// here rather than importing publication orchestration back into validators.
+		const head = readHeadSha(repo.path);
+		assertCreationAncestry(repo.path, creationTarget.baseSha, head);
+		const outgoing = readOrderedOutgoingShas(
+			repo.path,
+			creationTarget.baseSha,
+			head,
+			true,
+		);
+		await validateDiffForSecrets(
+			repo,
+			readCommitPatches(repo.path, outgoing, true),
+			scanner,
+		);
+	} else {
+		// Historical behavior only; creation never stages inside another repository.
+		execCwd(
+			"git submodule foreach --quiet --recursive 'git add -A'",
+			repo.path,
+		);
+	}
 	execCwd("git add -A", repo.path);
 
-	const diff = execSync("git diff --cached", {
-		cwd: repo.path,
-		encoding: "utf-8",
-		stdio: ["pipe", "pipe", "pipe"],
-		maxBuffer: 50 * 1024 * 1024,
-	});
+	const diff = creationTarget
+		? readCreationStagedDiff(repo.path)
+		: execSync("git diff --cached", {
+				cwd: repo.path,
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+				maxBuffer: 50 * 1024 * 1024,
+			});
 
 	if (!diff.trim()) {
 		throw new Error("No changes found after staging.");

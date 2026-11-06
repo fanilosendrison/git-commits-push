@@ -13,6 +13,7 @@
  * git-commits-push.
  */
 import type {
+	ExplicitPublicationTargetSnapshot,
 	ExplicitPushDestination,
 	ExplicitPushTargetSnapshot,
 	InvocationScope,
@@ -34,11 +35,11 @@ import {
  */
 export function explicitDestinationMovedError(
 	destinationRef: string,
-	expectedSha: string,
+	expectedSha: string | null,
 	observedSha: string | null,
 ): PushError {
 	return new PushError(
-		`Explicit push destination ${destinationRef} no longer matches the frozen baseline: expected ${expectedSha}, observed ${observedSha ?? "missing"}. Remote target moved; automatic merge or rebase is outside git-commits-push.`,
+		`Explicit push destination ${destinationRef} no longer matches the frozen baseline: expected ${expectedSha ?? "ABSENT"}, observed ${observedSha ?? "missing"}. Remote target moved; automatic merge or rebase is outside git-commits-push.`,
 		false,
 	);
 }
@@ -165,9 +166,9 @@ export function assertExplicitPushTargetCurrent(
 export function resolveFrozenExplicitTarget(
 	scope: InvocationScope,
 	repository: string,
-	snapshot: ExplicitPushTargetSnapshot | undefined,
-): ExplicitPushTargetSnapshot | undefined {
-	if (scope.kind !== "targeted") {
+	snapshot: ExplicitPublicationTargetSnapshot | undefined,
+): ExplicitPublicationTargetSnapshot | undefined {
+	if (scope.kind !== "targeted" && scope.kind !== "targeted-create") {
 		if (snapshot) {
 			throw new Error(
 				"A global invocation must not carry a frozen explicit push target.",
@@ -191,6 +192,21 @@ export function resolveFrozenExplicitTarget(
 	) {
 		throw new Error(
 			"Frozen explicit push target no longer matches the persisted targeted invocation scope.",
+		);
+	}
+	if (scope.kind === "targeted-create") {
+		if (
+			!("kind" in snapshot) ||
+			snapshot.kind !== "explicit-create-target" ||
+			snapshot.baseRef !== scope.baseRef ||
+			snapshot.baseSha !== scope.baseSha
+		)
+			throw new Error(
+				"Frozen creation target must match persisted creation authority.",
+			);
+	} else if ("kind" in snapshot) {
+		throw new Error(
+			"Creation target cannot authorize historical targeted updates.",
 		);
 	}
 	return snapshot;

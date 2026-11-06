@@ -12,7 +12,9 @@ import type {
 	Settings,
 } from "../../types.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
+import { captureCreationRetryDiff } from "../git/creation-diff.ts";
 import { reconstructRemainingDiff } from "../git/diff.ts";
+import { preparePlanningDiff } from "./planning-diff.ts";
 
 // ── Module-scope retry queue ─────────────────────────────────────────────────
 
@@ -197,9 +199,16 @@ export function queueRetry(
 		);
 	}
 
+	const creationDiff = captureCreationRetryDiff(
+		repoState,
+		errors.every(
+			(error) => error.kind === "structural" || error.kind === "git",
+		),
+		options.committedShas?.length ?? 0,
+	);
 	if (
 		repoState.attempts?.provider &&
-		!reconstructRemainingDiff(repoState.repository).trim()
+		!(creationDiff ?? reconstructRemainingDiff(repoState.repository)).trim()
 	) {
 		throw new Error("Cannot queue provider fallback: no remaining diff");
 	}
@@ -239,35 +248,36 @@ export function queueRetry(
 	}
 
 	// 3. Reconstruct remaining diff (best-effort)
-	const remainingDiff = reconstructRemainingDiff(
-		repoState.repository,
-		pendingFiles,
-	);
+	const remainingDiff =
+		creationDiff ??
+		reconstructRemainingDiff(repoState.repository, pendingFiles);
 
 	// 3.5 Re-stage files and recompute diffHash
 	let actualDiff = remainingDiff;
-	try {
-		if (pendingFiles && pendingFiles.length > 0) {
-			const quoted = pendingFiles.map((f) => JSON.stringify(f)).join(" ");
-			execSync(`git add -- ${quoted}`, {
+	if (creationDiff === undefined) {
+		try {
+			if (pendingFiles && pendingFiles.length > 0) {
+				const quoted = pendingFiles.map((f) => JSON.stringify(f)).join(" ");
+				execSync(`git add -- ${quoted}`, {
+					cwd: repoState.repository,
+					encoding: "utf-8",
+					stdio: ["pipe", "pipe", "pipe"],
+				});
+			} else {
+				execSync("git add -A", {
+					cwd: repoState.repository,
+					encoding: "utf-8",
+					stdio: ["pipe", "pipe", "pipe"],
+				});
+			}
+			actualDiff = execSync("git diff --cached", {
 				cwd: repoState.repository,
 				encoding: "utf-8",
 				stdio: ["pipe", "pipe", "pipe"],
-			});
-		} else {
-			execSync("git add -A", {
-				cwd: repoState.repository,
-				encoding: "utf-8",
-				stdio: ["pipe", "pipe", "pipe"],
-			});
+			}).toString();
+		} catch {
+			// Fallback to remainingDiff
 		}
-		actualDiff = execSync("git diff --cached", {
-			cwd: repoState.repository,
-			encoding: "utf-8",
-			stdio: ["pipe", "pipe", "pipe"],
-		}).toString();
-	} catch {
-		// Fallback to remainingDiff
 	}
 	const newDiffHash = crypto
 		.createHash("sha256")
@@ -305,7 +315,10 @@ export function queueRetry(
 
 	const payload: CommitJobPayload = {
 		repository: repoState.repository,
-		diff: actualDiff,
+		diff:
+			creationDiff === undefined
+				? actualDiff
+				: preparePlanningDiff(actualDiff, repoState.repository, settings, true),
 		diffHash: newDiffHash,
 		provider: settings.provider,
 		model: settings.model,

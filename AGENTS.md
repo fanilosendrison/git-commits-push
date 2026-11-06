@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.4.0"
+version: "3.5.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -118,8 +118,9 @@ runtime behavior belongs in TypeScript modules.
   publication intent.
 - Targeted scope never widens into recursive, sibling, linked-worktree, or
   common-dir discovery.
-- The three targeted CLI flags are atomic and are consumed before Turnlock
-  parses argv.
+- The three historical targeted CLI flags are atomic and consumed before Turnlock parses argv; that mode still requires an existing remote destination.
+- Conditional remote creation requires the complete additional `--create-if-absent --base-ref <ref> --base-sha <OID>` group and persists `targeted-create` authority. Follow `specs/targeted-destination-creation.md`: keep the authorized history boundary separate from destination absence, verify all B..S against actual commit parentage rather than shallow cutoffs, and publish only the exact validated S under an explicit absence lease. Creation traversal and patch reads share that actual-parent view without fetching or rewriting metadata. Suppress default and ambient legacy graft files in the Git child environment, never globally.
+- Creation is an exact non-coalescing request using coordinator mode `targeted`, without a SQLite schema or payload change.
 - Resume recovers scope from durable Turnlock state and may not redefine it
   through targeted CLI flags.
 - Persisted worktree and targeted scopes are revalidated before resumed work.
@@ -130,9 +131,9 @@ runtime behavior belongs in TypeScript modules.
   observed destination baseline is frozen before any commit effect.
 - Targeted dirty detached worktrees commit directly on the detached HEAD.
 - Targeted clean ahead worktrees publish through explicit push-only snapshots.
-- Explicit publication never creates or changes a branch, an upstream, or any
-  persistent Git configuration, and its remote-tracking synchronization outcome
-  is `not-applicable`.
+- Explicit publication never creates or changes a local branch, an upstream, or persistent Git configuration; its remote-tracking synchronization is `not-applicable`. Historical targeted updates never create a remote branch. Only the explicitly authorized creation mode may create its exact absent remote destination, directly at validated S.
+- Use shared exact transport with `--no-follow-tags` and `--recurse-submodules=no`; do not let ambient Git configuration expand publication beyond the requested ref.
+- In creation mode, qualify local HEAD/index objects before staging and inspect only the exact worktree's index. Share canonical actual-content diff arguments between staged-diff hashing and outgoing scans; do not let textconv, external drivers, binary/color/rename configuration or root suppression hide scan input. Keep child repositories outside parent gitlink diffs. Preserve historical scan semantics; the independent legacy gap is tracked in Issue #20.
 - A destination that moved away from the frozen baseline fails closed: no
   merge, rebase, or automatic recovery is attempted.
 - Targeted publication never advances or mutates a persistent checkout.
@@ -320,6 +321,7 @@ queue execution path. Telemetry failures must never block reconciliation.
 ## State and schema
 
 - Parse persisted Turnlock state through `src/config/state-schema.ts`.
+- For conditional creation only, checkpoint terminal repository/publication evidence through Turnlock before final reporting. The bridge acknowledges `checkpoint-creation-outcome` without inference or Git work; its reporting continuation must never republish.
 - Reconciler schema v4 stores one bounded owner, its invocation mode, and one
   bounded active-execution descriptor in the singleton row; it stores no
   request history, target payload, or execution history.
@@ -363,7 +365,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 76 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 84 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 

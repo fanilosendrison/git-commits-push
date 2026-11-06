@@ -6,7 +6,7 @@ import * as path from "node:path";
 import type {
 	CommitPlan,
 	CommittedSha,
-	ExplicitPushTargetSnapshot,
+	ExplicitPublicationTargetSnapshot,
 	OriginalHead,
 	Settings,
 } from "../../types.ts";
@@ -20,6 +20,10 @@ import {
 } from "../core/errors.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
+import { readCreationStagedDiff } from "./creation-diff.ts";
+import type { ExplicitCreatePushSnapshot } from "./creation-types.ts";
+import { publishExplicitCreateSnapshot } from "./explicit-create-push.ts";
+import { assertExplicitCreateTargetCurrent } from "./explicit-create-target.ts";
 import { publishExplicitTargetSnapshot } from "./explicit-push.ts";
 import { assertExplicitPushTargetCurrent } from "./explicit-push-target.ts";
 import { gitExecArgs } from "./git-exec.ts";
@@ -83,8 +87,9 @@ export async function executeMultiCommitAndPush(
 	plans: CommitPlan[],
 	expectedDiffHash: string,
 	settings: Settings,
-	explicitPushTargetSnapshot?: ExplicitPushTargetSnapshot,
+	explicitPushTargetSnapshot?: ExplicitPublicationTargetSnapshot,
 ): Promise<{
+	creationPublicationSnapshot?: ExplicitCreatePushSnapshot;
 	committedShas: CommittedSha[];
 	originalHead: OriginalHead;
 	pushRetryCount: number;
@@ -124,13 +129,16 @@ export async function executeMultiCommitAndPush(
 	const EMPTY_DIFF_HASH =
 		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 	if (expectedDiffHash !== EMPTY_DIFF_HASH) {
-		const currentDiff = execSync("git diff --cached", {
-			cwd: repoPath,
-			encoding: "utf-8",
-			stdio: ["pipe", "pipe", "pipe"],
-			env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-			maxBuffer: 50 * 1024 * 1024,
-		});
+		const currentDiff =
+			explicitPushTargetSnapshot && "kind" in explicitPushTargetSnapshot
+				? readCreationStagedDiff(repoPath)
+				: execSync("git diff --cached", {
+						cwd: repoPath,
+						encoding: "utf-8",
+						stdio: ["pipe", "pipe", "pipe"],
+						env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+						maxBuffer: 50 * 1024 * 1024,
+					});
 		const currentHash = crypto
 			.createHash("sha256")
 			.update(currentDiff)
@@ -144,7 +152,9 @@ export async function executeMultiCommitAndPush(
 	//    the first history effect, so a remote that advanced during validation can
 	//    never receive a commit built on a stale baseline.
 	if (explicitPushTargetSnapshot) {
-		assertExplicitPushTargetCurrent(repoPath, explicitPushTargetSnapshot);
+		if ("kind" in explicitPushTargetSnapshot)
+			assertExplicitCreateTargetCurrent(repoPath, explicitPushTargetSnapshot);
+		else assertExplicitPushTargetCurrent(repoPath, explicitPushTargetSnapshot);
 	}
 
 	// 5. Capture original HEAD, preserving a proven unborn branch as null.
@@ -275,16 +285,32 @@ export async function executeMultiCommitAndPush(
 	}
 
 	// 8. Publish. Never send landed commits back through LLM planning on failure.
+	let creationPublicationSnapshot: ExplicitCreatePushSnapshot | undefined;
 	let pushRetryCount: number;
 	let publishedSha: string | null;
 	let remoteTrackingRefSynchronization: PushExecutionResult["remoteTrackingRefSynchronization"];
 	try {
 		if (explicitPushTargetSnapshot) {
-			const publication = publishExplicitTargetSnapshot(
-				repoPath,
-				explicitPushTargetSnapshot,
-				gitExecArgs(["rev-parse", "HEAD"], repoPath),
-			);
+			let publication: {
+				readonly retryCount: number;
+				readonly publishedSha: string;
+			};
+			if ("kind" in explicitPushTargetSnapshot) {
+				const creation = await publishExplicitCreateSnapshot(
+					repoPath,
+					explicitPushTargetSnapshot,
+					settings,
+					committedShas.at(-1)?.sha ?? "",
+				);
+				creationPublicationSnapshot = creation.snapshot;
+				publication = creation;
+			} else {
+				publication = publishExplicitTargetSnapshot(
+					repoPath,
+					explicitPushTargetSnapshot,
+					gitExecArgs(["rev-parse", "HEAD"], repoPath),
+				);
+			}
 			pushRetryCount = publication.retryCount;
 			publishedSha = publication.publishedSha;
 			// Explicit publication owns no local remote-tracking projection.
@@ -308,6 +334,7 @@ export async function executeMultiCommitAndPush(
 	}
 
 	return {
+		...(creationPublicationSnapshot ? { creationPublicationSnapshot } : {}),
 		committedShas,
 		originalHead,
 		pushRetryCount,

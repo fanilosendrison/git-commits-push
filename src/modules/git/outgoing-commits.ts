@@ -8,13 +8,31 @@
  * exactly, and must be scannable as patches before any push happens.
  */
 import { PushError } from "../core/errors.ts";
-import { gitExecArgs } from "./git-exec.ts";
+import { CREATION_DIFF_ARGUMENTS } from "./creation-diff.ts";
+import {
+	assertCreationAncestry,
+	assertCreationPatchObjectsLocal,
+	readCreationLocalRevisions,
+} from "./creation-local-objects.ts";
+import { gitExecActualGraphArgs, gitExecArgs } from "./git-exec.ts";
+import { isFullGitObjectId } from "./git-object-id.ts";
 
 /** The durable subset every publication snapshot exposes to the outgoing proof. */
-export interface OutgoingCommitSnapshot {
-	readonly destinationBaselineSha: string;
+export type OutgoingCommitSnapshot = {
 	readonly validatedHeadSha: string;
 	readonly outgoingShas: readonly string[];
+} & (
+	| { readonly destinationBaselineSha: string }
+	| { readonly kind: "explicit-create"; readonly baseSha: string }
+);
+
+/** History boundary is separate from the absent destination expectation. */
+export function outgoingHistoryBaseline(
+	snapshot: OutgoingCommitSnapshot,
+): string {
+	return "baseSha" in snapshot
+		? snapshot.baseSha
+		: snapshot.destinationBaselineSha;
 }
 
 export function isAncestor(
@@ -38,14 +56,22 @@ export function readOrderedOutgoingShas(
 	repoPath: string,
 	baselineSha: string,
 	headSha: string,
+	localOnly = false,
 ): string[] {
-	return gitExecArgs(
-		["rev-list", "--reverse", `${baselineSha}..${headSha}`],
-		repoPath,
-	)
+	const args = ["--reverse", `${baselineSha}..${headSha}`];
+	const result = localOnly
+		? readCreationLocalRevisions(repoPath, args)
+		: gitExecArgs(["rev-list", ...args], repoPath);
+	const shas = result
 		.split("\n")
 		.map((line) => line.trim())
 		.filter(Boolean);
+	if (localOnly && shas.some((sha) => !isFullGitObjectId(sha)))
+		throw new PushError(
+			"Creation prerequisite missing: outgoing commit objects are not all local (no automatic fetch).",
+			false,
+		);
+	return shas;
 }
 
 /**
@@ -60,10 +86,17 @@ export function assertOutgoingCommitsMatch(
 	snapshot: OutgoingCommitSnapshot,
 	label: string,
 ): void {
-	if (
+	const localOnly = "baseSha" in snapshot;
+	if (localOnly)
+		assertCreationAncestry(
+			repoPath,
+			snapshot.baseSha,
+			snapshot.validatedHeadSha,
+		);
+	else if (
 		!isAncestor(
 			repoPath,
-			snapshot.destinationBaselineSha,
+			outgoingHistoryBaseline(snapshot),
 			snapshot.validatedHeadSha,
 		)
 	) {
@@ -74,8 +107,9 @@ export function assertOutgoingCommitsMatch(
 	}
 	const currentOutgoingShas = readOrderedOutgoingShas(
 		repoPath,
-		snapshot.destinationBaselineSha,
+		outgoingHistoryBaseline(snapshot),
 		snapshot.validatedHeadSha,
+		localOnly,
 	);
 	if (
 		currentOutgoingShas.length !== snapshot.outgoingShas.length ||
@@ -94,11 +128,22 @@ export function assertOutgoingCommitsMatch(
 export function readCommitPatches(
 	repoPath: string,
 	outgoingShas: readonly string[],
+	localOnly = false,
 ): string {
+	if (localOnly) assertCreationPatchObjectsLocal(repoPath, outgoingShas);
 	return outgoingShas
 		.map((sha) =>
-			gitExecArgs(
-				["show", "--format=", "--binary", "--no-ext-diff", sha],
+			(localOnly ? gitExecActualGraphArgs : gitExecArgs)(
+				localOnly
+					? [
+							"show",
+							"--format=",
+							"--root",
+							"--patch",
+							...CREATION_DIFF_ARGUMENTS,
+							sha,
+						]
+					: ["show", "--format=", "--binary", "--no-ext-diff", sha],
 				repoPath,
 			),
 		)
