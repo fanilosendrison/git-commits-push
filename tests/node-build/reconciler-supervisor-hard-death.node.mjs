@@ -233,8 +233,23 @@ test("EXEC-INV-6/7 | supervisor SIGKILL cannot orphan descendants into a fresh p
 			const finalDb = reconcilerDb.openReconcilerDb(dbPath);
 			try {
 				const state = reconcilerDb.readReconcilerState(finalDb);
-				assert.strictEqual(state.requestedGeneration, 2);
-				assert.strictEqual(state.completedGeneration, 2);
+				const diagnostics = JSON.stringify(
+					{
+						ownerExitCode: owner.exitCode,
+						followUpExitCode: followUp.exitCode,
+						ownerStderr,
+						followUpStderr,
+						executionEvents: await readEvents(executionEventsPath),
+						telemetry: await readEvents(
+							path.join(root, "telemetry", "events.jsonl"),
+						),
+						state,
+					},
+					null,
+					2,
+				);
+				assert.strictEqual(state.requestedGeneration, 2, diagnostics);
+				assert.strictEqual(state.completedGeneration, 2, diagnostics);
 				assert.strictEqual(state.ownerToken, null);
 				assert.strictEqual(state.activeExecution, null);
 			} finally {
