@@ -17,6 +17,93 @@ after(async () => {
 	await candidate?.cleanup();
 });
 
+for (const boundary of ["shallow", "graft", "ambient-graft"])
+	test(`C07 C21 C34 | installed ${boundary} merged side cannot conceal actual outgoing secrets`, async () => {
+		await withCreateFixture(candidate, async (f) => {
+			const synthetic = `sk-${"A".repeat(48)}`;
+			await writeFile(
+				path.join(f.worktree, "credentials.txt"),
+				`OPENAI_API_KEY=${synthetic}\n`,
+			);
+			runGit(f.worktree, ["add", "credentials.txt"], f.env);
+			runGit(
+				f.worktree,
+				["commit", "--no-verify", "-m", "feat: side material"],
+				f.env,
+			);
+			const U = runGit(f.worktree, ["rev-parse", "HEAD"], f.env);
+			await writeFile(
+				path.join(f.worktree, "credentials.txt"),
+				"safe final content\n",
+			);
+			runGit(f.worktree, ["add", "credentials.txt"], f.env);
+			runGit(
+				f.worktree,
+				["commit", "--no-verify", "-m", "fix: remove side material"],
+				f.env,
+			);
+			const T = runGit(f.worktree, ["rev-parse", "HEAD"], f.env);
+			runGit(
+				f.worktree,
+				["push", "origin", `${T}:refs/heads/retained-side`],
+				f.env,
+			);
+			const tree = runGit(f.worktree, ["rev-parse", `${T}^{tree}`], f.env);
+			const S = runGit(
+				f.worktree,
+				["commit-tree", tree, "-p", f.B, "-p", T, "-m", "Merge side history"],
+				f.env,
+			);
+			runGit(f.worktree, ["reset", "--hard", S], f.env);
+			const shallow = path.resolve(
+				f.worktree,
+				runGit(
+					f.worktree,
+					[
+						"rev-parse",
+						"--git-path",
+						boundary === "shallow"
+							? "shallow"
+							: boundary === "graft"
+								? "info/grafts"
+								: "custom-grafts",
+					],
+					f.env,
+				),
+			);
+			await writeFile(shallow, `${T}\n`);
+			if (boundary === "ambient-graft") f.env.GIT_GRAFT_FILE = shallow;
+			assert.ok(
+				!runGit(f.worktree, ["rev-list", `${f.B}..${S}`], f.env)
+					.split("\n")
+					.includes(U),
+			);
+			const trace = path.join(f.root, "shallow-proof.trace");
+			const result = await startInstalled(candidate, f, f.args, {
+				GIT_TRACE: trace,
+			}).done();
+			assert.notEqual(
+				result.code,
+				0,
+				"a shallow marker must not hide a secret-bearing actual outgoing commit",
+			);
+			assert.match(result.output, /Secret|Security|prerequisite|shallow/iu);
+			assert.ok(!result.output.includes(synthetic));
+			assert.equal(
+				runGit(
+					f.remote,
+					["for-each-ref", "--format=%(objectname)", f.scope.pushRef],
+					f.env,
+				),
+				"",
+			);
+			assert.equal(runGit(f.worktree, ["rev-parse", "HEAD"], f.env), S);
+			assert.equal(await readFile(shallow, "utf8"), `${T}\n`);
+			assert.ok(!/\bfetch\b/u.test(await readFile(trace, "utf8")));
+			assert.deepEqual(await readJsonLines(f.env.MOCK_LLM_REQUEST_LOG), []);
+		});
+	});
+
 for (const mode of ["dirty", "clean-ahead"])
 	test(`C21 C32 C34 | installed ${mode} refuses a secret hidden by ambient textconv`, async () => {
 		await withCreateFixture(candidate, async (f) => {

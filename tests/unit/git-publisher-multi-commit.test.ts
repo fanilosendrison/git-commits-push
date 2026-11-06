@@ -1,6 +1,9 @@
 // tests/unit/git-publisher.test.ts — Unit tests for src/modules/git/publisher.ts
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import type { CommitPlan, Settings } from "../../src/types.ts";
@@ -18,26 +21,50 @@ const NO_PUSH_SETTINGS: Settings = {
 };
 
 describe("U-GE-11 | GIT_TERMINAL_PROMPT=0 is set on all git invocations", () => {
-	test("GIT_TERMINAL_PROMPT env var is exported in GIT_ENV constant (structural check)", async () => {
-		// Structural test: we verify that executing git with GIT_TERMINAL_PROMPT=0
-		// and a bad URL fails immediately (< 2s) rather than hanging
-		const start = Date.now();
-		const result = spawnSync(
-			"git",
-			[
-				"ls-remote",
-				"https://github.com/nonexistent-org-xyz/nonexistent-repo-xyz.git",
-			],
-			{
-				env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-				encoding: "utf-8",
-				timeout: 5000,
-			},
-		);
-		const elapsed = Date.now() - start;
-		// Should fail fast (no interactive prompt) — not necessarily exit 0
-		assert.notStrictEqual(result.status, null);
-		assert.ok(elapsed < 5000);
+	test("all production Git helpers override ambient terminal prompting at the child boundary", () => {
+		const directory = mkdtempSync(path.join(tmpdir(), "gcp-prompt-env-"));
+		try {
+			const executable = path.join(directory, "git");
+			writeFileSync(
+				executable,
+				"#!/bin/sh\nprintf '%s\\n' \"$GIT_TERMINAL_PROMPT\"\n",
+			);
+			chmodSync(executable, 0o755);
+			const helper = new URL(
+				"../../src/modules/git/git-exec.ts",
+				import.meta.url,
+			).href;
+			const program = `
+				import { execFileSync } from "node:child_process";
+				import { gitExec, gitExecArgs, gitExecArgsRaw, gitExecActualGraphArgs } from ${JSON.stringify(helper)};
+				const cwd = ${JSON.stringify(directory)};
+				const control = execFileSync("git", ["probe"], { encoding: "utf8" });
+				const actual = [gitExec("probe", cwd), gitExecArgs(["probe"], cwd), gitExecArgsRaw(["probe"], cwd), gitExecActualGraphArgs(["probe"], cwd)];
+				process.stdout.write(JSON.stringify({ control, actual }));
+			`;
+			const start = Date.now();
+			const result = spawnSync(
+				process.execPath,
+				["--input-type=module", "--eval", program],
+				{
+					env: {
+						...process.env,
+						PATH: `${directory}${path.delimiter}${process.env.PATH ?? ""}`,
+						GIT_TERMINAL_PROMPT: "1",
+					},
+					encoding: "utf8",
+					timeout: 5000,
+				},
+			);
+			assert.equal(result.status, 0, result.stderr || result.error?.message);
+			assert.ok(Date.now() - start < 5000);
+			assert.deepEqual(JSON.parse(result.stdout), {
+				control: "1\n",
+				actual: ["0", "0", "0\n", "0"],
+			});
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 });
 
