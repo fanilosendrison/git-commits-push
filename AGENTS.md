@@ -119,7 +119,7 @@ runtime behavior belongs in TypeScript modules.
 - Targeted scope never widens into recursive, sibling, linked-worktree, or
   common-dir discovery.
 - The three historical targeted CLI flags are atomic and consumed before Turnlock parses argv; that mode still requires an existing remote destination.
-- Conditional remote creation requires the complete additional `--create-if-absent --base-ref <ref> --base-sha <OID>` group and persists `targeted-create` authority. Follow `specs/targeted-destination-creation.md`: keep the authorized history boundary separate from destination absence, verify all B..S, and publish only the exact validated S under an explicit absence lease.
+- Conditional remote creation requires the complete additional `--create-if-absent --base-ref <ref> --base-sha <OID>` group and persists `targeted-create` authority. Follow `specs/targeted-destination-creation.md`: keep the authorized history boundary separate from destination absence, verify all B..S against actual commit parentage rather than shallow cutoffs, and publish only the exact validated S under an explicit absence lease. Creation traversal and patch reads share that actual-parent view without fetching or rewriting metadata. Suppress default and ambient legacy graft files in the Git child environment, never globally.
 - Creation is an exact non-coalescing request using coordinator mode `targeted`, without a SQLite schema or payload change.
 - Resume recovers scope from durable Turnlock state and may not redefine it
   through targeted CLI flags.
