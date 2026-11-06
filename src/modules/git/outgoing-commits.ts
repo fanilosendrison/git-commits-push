@@ -14,7 +14,7 @@ import {
 	assertCreationPatchObjectsLocal,
 	readCreationLocalRevisions,
 } from "./creation-local-objects.ts";
-import { gitExecArgs } from "./git-exec.ts";
+import { gitExecActualGraphArgs, gitExecArgs } from "./git-exec.ts";
 import { isFullGitObjectId } from "./git-object-id.ts";
 
 /** The durable subset every publication snapshot exposes to the outgoing proof. */
@@ -133,10 +133,9 @@ export function readCommitPatches(
 	if (localOnly) assertCreationPatchObjectsLocal(repoPath, outgoingShas);
 	return outgoingShas
 		.map((sha) =>
-			gitExecArgs(
+			(localOnly ? gitExecActualGraphArgs : gitExecArgs)(
 				localOnly
 					? [
-							"--no-replace-objects",
 							"show",
 							"--format=",
 							"--root",

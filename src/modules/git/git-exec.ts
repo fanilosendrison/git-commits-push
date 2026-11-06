@@ -81,12 +81,16 @@ function executeGitArgs(
 	args: readonly string[],
 	cwd: string,
 	processConfig: readonly GitProcessConfigEntry[],
+	actualGraph = false,
 ): string {
 	return execFileSync("git", [...args], {
 		cwd,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
-		env: buildGitEnv(processConfig),
+		env: {
+			...buildGitEnv(processConfig),
+			...(actualGraph ? { GIT_GRAFT_FILE: "" } : {}),
+		},
 		maxBuffer: 50 * 1024 * 1024,
 	});
 }
@@ -98,6 +102,22 @@ export function gitExecArgs(
 	processConfig: readonly GitProcessConfigEntry[] = [],
 ): string {
 	return executeGitArgs(args, cwd, processConfig).trim();
+}
+
+/** Read actual parentage without repository mutation (Git >= 2.17).
+ * Empty shallow/graft overrides suppress both default and ambient graph masks;
+ * callers still own local-object/no-fetch policy for the selected Git command.
+ */
+export function gitExecActualGraphArgs(
+	args: readonly string[],
+	cwd: string,
+): string {
+	return executeGitArgs(
+		["--no-replace-objects", "--shallow-file", "", ...args],
+		cwd,
+		[],
+		true,
+	).trim();
 }
 
 /** Run Git without a shell while preserving machine-readable stdout exactly. */
