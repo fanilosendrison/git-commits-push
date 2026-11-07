@@ -293,6 +293,15 @@ test("NEGATIVE_09: legacy state remains readable without granting witness author
 		},
 	});
 	assert.equal(state.repos.old?.validatedSource, undefined);
+	assert.equal(
+		stateSchema.safeParse({
+			...state,
+			repos: {
+				old: { ...state.repos.old, publisherIndexTreeSha: "a".repeat(40) },
+			},
+		}).success,
+		false,
+	);
 	assert.throws(
 		() => assertValidatedSource("/diagnostic", undefined),
 		/Missing durable/,
