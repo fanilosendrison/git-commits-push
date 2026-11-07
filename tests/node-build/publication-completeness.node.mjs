@@ -111,29 +111,38 @@ for (const boundary of ["compiled", "standalone"])
 			});
 		});
 
-for (const mode of ["targeted", "creation", "ordinary", "retry"])
+for (const mode of [
+	"targeted",
+	"creation",
+	"ordinary",
+	"retry",
+	"mnemonic-targeted",
+	"mnemonic-ordinary",
+])
 	test(`standalone POSITIVE_03/05/06/07: ${mode} verifies complete T and required remote identity`, async () => {
 		await withCreateFixture(candidate, async (f) => {
-			const source = mode === "ordinary" ? f.persistent : f.worktree;
+			const ordinary = mode === "ordinary" || mode === "mnemonic-ordinary";
+			const source = ordinary ? f.persistent : f.worktree;
+			if (mode.startsWith("mnemonic-"))
+				runGit(source, ["config", "diff.mnemonicPrefix", "true"], f.env);
 			const T = await prepare(f, source);
-			if (mode === "ordinary")
+			if (ordinary)
 				await writeFile(
 					f.env.TURNLOCK_SKILL_SETTINGS_PATH,
 					JSON.stringify({ ...f.settings, autoPush: true }),
 				);
-			const args =
-				mode === "ordinary"
-					? []
-					: mode === "creation"
-						? f.args
-						: [
-								"--repository",
-								source,
-								"--push-remote",
-								"origin",
-								"--push-ref",
-								f.baseRef,
-							];
+			const args = ordinary
+				? []
+				: mode === "creation"
+					? f.args
+					: [
+							"--repository",
+							source,
+							"--push-remote",
+							"origin",
+							"--push-ref",
+							f.baseRef,
+						];
 			const batches =
 				mode === "retry"
 					? [
@@ -163,5 +172,14 @@ for (const mode of ["targeted", "creation", "ordinary", "retry"])
 			});
 			assert.equal(repo.publishedSha, Hf);
 			assert.equal(repo.committedShas.length, 2);
+			assert.equal(repo.attempts?.race ?? 0, 0);
+			const requests = (await readFile(f.env.MOCK_LLM_REQUEST_LOG, "utf8"))
+				.trim()
+				.split("\n");
+			assert.equal(
+				requests.length,
+				mode === "retry" ? 2 : 1,
+				"unchanged input must not consume a false race retry",
+			);
 		});
 	});

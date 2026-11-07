@@ -88,6 +88,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/targeted-create-publication.test.ts",
 	"unit/targeted-create-retry.test.ts",
 	"unit/test-runner-cascade.test.ts",
+	"unit/validation-diff-binding.test.ts",
 	"unit/turnlock-batch-manifest.test.ts",
 	"unit/turnlock-run-state-inspection.test.ts",
 	"unit/turnlock-to-llm-bridge-agent.test.ts",
