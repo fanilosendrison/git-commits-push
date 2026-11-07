@@ -220,6 +220,7 @@ export function assertValidatedSource(
 	repository: string,
 	witness: ValidatedSourceWitness | undefined,
 	committed: readonly CommittedSha[] = [],
+	publisherIndexTreeSha?: string,
 ): {
 	witness: ValidatedSourceWitness;
 	remainingPaths: string[];
@@ -228,6 +229,13 @@ export function assertValidatedSource(
 	if (!witness)
 		throw new PublicationCompletenessError(
 			"Missing durable validated-source witness; historical state is diagnostic only.",
+		);
+	if (
+		publisherIndexTreeSha !== undefined &&
+		!isFullGitObjectId(publisherIndexTreeSha)
+	)
+		throw new PublicationCompletenessError(
+			"Malformed publisher index progress identity.",
 		);
 	const currentIdentity = identity(repository);
 	if (
@@ -317,13 +325,18 @@ export function assertValidatedSource(
 	const remainingPaths = expected.filter((file) => !accounted.has(file));
 	const index = readCurrentIndexTree(repository);
 	if (index !== witness.expectedTreeSha) {
+		const ownedIndex =
+			publisherIndexTreeSha !== undefined && index === publisherIndexTreeSha;
 		const staged =
-			committed.length > 0 ? changedPaths(repository, head, index) : undefined;
+			committed.length > 0 || ownedIndex
+				? changedPaths(repository, head, index)
+				: undefined;
 		const differing = new Set(
 			changedPaths(repository, index, witness.expectedTreeSha),
 		);
 		if (
 			!staged ||
+			(publisherIndexTreeSha !== undefined && !ownedIndex) ||
 			staged.some(
 				(file) => !remainingPaths.includes(file) || differing.has(file),
 			)

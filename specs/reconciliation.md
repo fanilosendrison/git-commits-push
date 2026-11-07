@@ -164,7 +164,12 @@ complete local-commit success without invented remote evidence. A commit count,
 remote SHA, empty response or empty result batch alone is never sufficient.
 
 Failures MUST preserve landed commits, actual HEAD, remaining files, T and known
-remote identities. A checkpointed exact partial chain may complete only remaining
+remote identities. `publisherIndexTreeSha` records an exact index transition
+established by admitted publisher reset/staging. It is progress evidence, not a
+new T: a retry before the first successful commit may use it only when the live
+index matches, HEAD remains H0, and staged membership/content is a projection of
+the original remaining source. Other index or HEAD changes MUST fail closed.
+Persist this progress with the original witness through the retry delegation. A checkpointed exact partial chain may complete only remaining
 validated paths; uncheckpointed history or insufficient recovery evidence stops
 without replanning or destructive reset. Historical state lacking a witness stays
 readable but MUST NOT grant new commit authority or complete-success transitions.

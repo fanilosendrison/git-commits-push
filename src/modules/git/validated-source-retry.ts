@@ -12,6 +12,7 @@ export function readValidatedRetryDiff(repo: RepoState): string | undefined {
 		repo.repository,
 		repo.validatedSource,
 		repo.committedShas,
+		repo.publisherIndexTreeSha,
 	);
 	if (repo.committedShas?.length && !source.head)
 		throw new PublicationCompletenessError(

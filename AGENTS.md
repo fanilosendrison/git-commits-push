@@ -245,7 +245,10 @@ registered and exact pre-admission file evidence is revalidated.
   source after validation, reuse that same immutable diff representation for
   publication admission and retries, and persist the witness in Turnlock, never in the
   reconciler. Never rerun discovery on resume to acquire a replacement authority.
-- Keep T unchanged across retries. Reject missing witnesses, source races and
+- Keep T unchanged across retries. Retain `publisherIndexTreeSha` only as proof
+  of an admitted publisher index transition, never as a replacement T. Require
+  exact matching progress plus original content before a zero-commit retry;
+  reject foreign index/HEAD changes. Reject missing witnesses, source races and
   uncheckpointed history before commit effects; read legacy state for diagnosis
   without inventing authority.
 - Admit the complete plan before reset/add/commit/push. Account for each remaining

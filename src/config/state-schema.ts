@@ -62,6 +62,7 @@ const repoStateSchema = z
 	.object({
 		repository: z.string(),
 		validatedSource: validatedSourceWitnessSchema.optional(),
+		publisherIndexTreeSha: gitObjectIdSchema.optional(),
 		commitCompletion: z
 			.object({
 				finalHeadSha: gitObjectIdSchema,
@@ -102,6 +103,11 @@ const repoStateSchema = z
 			repo.explicitPushTargetSnapshot,
 		);
 		if (intentIssue) issue(intentIssue, "validatedSource");
+		if (repo.publisherIndexTreeSha && !repo.validatedSource)
+			issue(
+				"publisher index progress requires the original validated-source witness",
+				"publisherIndexTreeSha",
+			);
 		if (
 			repo.commitCompletion &&
 			(!repo.validatedSource ||

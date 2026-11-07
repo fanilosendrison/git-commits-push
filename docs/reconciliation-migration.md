@@ -120,6 +120,11 @@ its durable required publication evidence; no empty-diff inference or new push
 is used to recover terminal status. Proven partial
 chains retain the original tree and may only complete remaining membership.
 Neither empty output nor landed commits alone can promote a run to success.
+Optional `publisherIndexTreeSha` preserves an admitted publisher index transition
+for bounded first-commit failure recovery. It requires the original witness,
+exact live-index matching and unchanged original HEAD/content; it never
+reconstructs authority from a residual index. Its absence grants no such
+zero-progress retry authority.
 Coordinator schema v4, immutable historical releases, destination authority and
 clean push-only semantics are unchanged. Operational activation remains separate
 from source integration and cannot bypass legacy-global/WAL preflight.

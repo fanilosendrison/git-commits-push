@@ -41,6 +41,7 @@ export function assertCommitCompletion(repo: RepoState): void {
 		repo.repository,
 		repo.validatedSource,
 		repo.committedShas,
+		repo.publisherIndexTreeSha,
 	);
 	const actual = proveCommitCompletion(repo, source);
 	const proof = repo.commitCompletion;
@@ -63,6 +64,7 @@ export function recoverCompletedCommit(repo: RepoState): RepoState | undefined {
 		repo.repository,
 		repo.validatedSource,
 		repo.committedShas,
+		repo.publisherIndexTreeSha,
 	);
 	if (source.remainingPaths.length) return undefined;
 	if (
@@ -75,6 +77,7 @@ export function recoverCompletedCommit(repo: RepoState): RepoState | undefined {
 	return {
 		...repo,
 		status: "SUCCESS",
+		publisherIndexTreeSha: undefined,
 		commitCompletion: proveCommitCompletion(repo, source),
 	};
 }

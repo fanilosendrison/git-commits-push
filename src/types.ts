@@ -317,6 +317,8 @@ export interface CommitCompletionEvidence {
 
 export interface RepoState {
 	validatedSource?: ValidatedSourceWitness | undefined;
+	/** An admitted publisher index transition, never a replacement for validated T. */
+	publisherIndexTreeSha?: string | undefined;
 	commitCompletion?: CommitCompletionEvidence | undefined;
 	repository: string;
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";

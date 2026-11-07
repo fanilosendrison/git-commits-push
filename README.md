@@ -257,8 +257,11 @@ external review identity that was never supplied to it.
 
 **Partial failure handling.** If one commit succeeds and the next one fails,
 the already-created commits are preserved. The skill reports which commits
-landed and which did not. Only a proven durable commit chain can authorize a
-remaining-file retry; uncheckpointed history stops without rewriting commits.
+landed and which did not. An exact publisher-owned index transition is retained
+for a failure before the first commit; it permits the bounded retry without
+replacing validated T. Different external index states still fail closed. Only a
+proven durable commit chain can authorize a remaining-file retry; uncheckpointed
+history stops without rewriting commits.
 Empty LLM output and nonzero commit counts never establish success. An already
 complete durable chain can recover only through independent Git proof and its
 required publication evidence; it never authorizes inference against an empty

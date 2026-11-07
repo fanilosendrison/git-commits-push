@@ -229,7 +229,9 @@ Preserve legacy witness-free state for diagnosis. Do not resume it into new
 commits or complete-success transitions, including by rerunning discovery to
 stage residual files. A complete known chain may recover status only from actual
 Git proof and its durable required publication evidence, never another inference
-or push. For interrupted commits, require actual
+or push. For an admitted failure before the first commit, inspect `publisherIndexTreeSha`
+as exact index-progress evidence only: original H0/T must remain unchanged and
+foreign index/HEAD changes are not authorized. For interrupted commits, require actual
 parentage/content matching the durable chain; unknown progress stops without
 history rewriting. Retain both landed SHAs and any known remote publication on
 failure. A terminal `commit-outcome` or `creation-outcome` reporting continuation

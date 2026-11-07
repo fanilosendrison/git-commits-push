@@ -8,6 +8,7 @@ export type CommitPlanErrorKind =
 	| "nonexistent-file";
 
 interface CommitPlanErrorContext {
+	publisherIndexTreeSha?: string | undefined;
 	committedShas?: CommittedSha[];
 	pendingFiles?: string[];
 }
@@ -52,6 +53,7 @@ export class GitExecError extends Error {
 }
 
 interface PartialCommitErrorContext {
+	publisherIndexTreeSha?: string | undefined;
 	committedShas: CommittedSha[];
 	originalHead: OriginalHead;
 	failedIndex: number;

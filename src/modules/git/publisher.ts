@@ -36,6 +36,7 @@ import {
 	assertValidatedSource,
 	changedPaths,
 	PublicationCompletenessError,
+	readEmptyTree,
 	readOriginalHead,
 } from "./validated-source.ts";
 import { readValidationInputDiff } from "./validation-source-input.ts";
@@ -77,6 +78,7 @@ export async function executeMultiCommitAndPush(
 	explicitPushTargetSnapshot?: ExplicitPublicationTargetSnapshot,
 	completeness?: {
 		readonly witness: ValidatedSourceWitness;
+		readonly publisherIndexTreeSha?: string | undefined;
 		readonly committedShas?: readonly CommittedSha[] | undefined;
 	},
 ): Promise<{
@@ -93,6 +95,7 @@ export async function executeMultiCommitAndPush(
 		repoPath,
 		completeness?.witness,
 		priorCommits,
+		completeness?.publisherIndexTreeSha,
 	);
 	const intentIssue = witnessPublicationIntentIssue(
 		witness,
@@ -136,11 +139,24 @@ export async function executeMultiCommitAndPush(
 
 	// 5. Capture original HEAD, preserving a proven unborn branch as null.
 	const originalHead = witness.baseHeadSha;
-	assertValidatedSource(repoPath, witness, priorCommits);
+	assertValidatedSource(
+		repoPath,
+		witness,
+		priorCommits,
+		completeness?.publisherIndexTreeSha,
+	);
 
 	// 6. Unstage everything so we can re-stage file-by-file. The default mixed
 	//    reset works against both an existing HEAD and Git's empty unborn index.
 	gitExecArgs(["reset", "--mixed"], repoPath);
+	const resetHead = priorCommits.at(-1)?.sha ?? originalHead;
+	let publisherIndexTreeSha =
+		resetHead === null
+			? readEmptyTree(repoPath)
+			: gitExecArgs(
+					["--no-replace-objects", "rev-parse", `${resetHead}^{tree}`],
+					repoPath,
+				);
 
 	// 7. Commits naturally leave index == HEAD; never reset raced input on failure.
 	const committedShas: CommittedSha[] = [];
@@ -183,6 +199,8 @@ export async function executeMultiCommitAndPush(
 						"Staged plan no longer matches validated source content.",
 					);
 
+				publisherIndexTreeSha = stagedTree;
+
 				// Commit with temp message file
 				const message = formatConventionalCommit(plan.commit);
 				const tempMsgPath = path.join(
@@ -217,6 +235,7 @@ export async function executeMultiCommitAndPush(
 						"nonexistent-file",
 						[...fileState.nonexistentFiles],
 						{
+							publisherIndexTreeSha,
 							committedShas: [...committedShas],
 							pendingFiles,
 						},
@@ -228,6 +247,7 @@ export async function executeMultiCommitAndPush(
 						"missing-file",
 						[...fileState.unchangedFiles],
 						{
+							publisherIndexTreeSha,
 							committedShas: [...committedShas],
 							pendingFiles,
 						},
@@ -253,6 +273,7 @@ export async function executeMultiCommitAndPush(
 						`${pendingFiles.length} file(s) still pending.`,
 					{
 						committedShas,
+						publisherIndexTreeSha,
 						originalHead,
 						failedIndex: i,
 						totalCount: plans.length,
@@ -274,16 +295,19 @@ export async function executeMultiCommitAndPush(
 
 	let finalTreeSha: string;
 	try {
-		assertValidatedSource(repoPath, witness, [
-			...priorCommits,
-			...committedShas,
-		]);
+		assertValidatedSource(
+			repoPath,
+			witness,
+			[...priorCommits, ...committedShas],
+			publisherIndexTreeSha,
+		);
 		finalTreeSha = assertFinalTree(repoPath, witness);
 	} catch (error) {
 		throw new PartialCommitError(
 			`Final completeness not demonstrated: ${error instanceof Error ? error.message : String(error)}`,
 			{
 				committedShas,
+				publisherIndexTreeSha,
 				originalHead,
 				failedIndex: plans.length,
 				totalCount: plans.length,

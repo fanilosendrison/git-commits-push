@@ -180,8 +180,10 @@ export async function runCommitAndPushPhase(
 						repoState.repository,
 						repoState.validatedSource,
 						repoState.committedShas,
+						repoState.publisherIndexTreeSha,
 					).witness,
 					committedShas: repoState.committedShas,
+					publisherIndexTreeSha: repoState.publisherIndexTreeSha,
 				},
 			);
 			// Merge with anything that landed in prior retries.
@@ -211,6 +213,7 @@ export async function runCommitAndPushPhase(
 			nextRepos[result.id] = {
 				...repoState,
 				status: "SUCCESS" as const,
+				publisherIndexTreeSha: undefined,
 				commitCompletion,
 				commits: result.commits,
 			};
@@ -222,6 +225,7 @@ export async function runCommitAndPushPhase(
 			} else if (err instanceof PartialCommitError) {
 				repoState = {
 					...repoState,
+					publisherIndexTreeSha: err.context.publisherIndexTreeSha,
 					committedShas: mergeCommittedShas(
 						repoState.committedShas ?? [],
 						err.context.committedShas,
@@ -232,15 +236,13 @@ export async function runCommitAndPushPhase(
 					),
 				};
 				pendingFiles = err.context.pendingFiles;
-			} else if (
-				err instanceof CommitPlanError &&
-				err.context?.committedShas?.length
-			) {
+			} else if (err instanceof CommitPlanError && err.context) {
 				repoState = {
 					...repoState,
+					publisherIndexTreeSha: err.context.publisherIndexTreeSha,
 					committedShas: mergeCommittedShas(
 						repoState.committedShas ?? [],
-						err.context.committedShas,
+						err.context.committedShas ?? [],
 					),
 				};
 				pendingFiles = err.context.pendingFiles;
