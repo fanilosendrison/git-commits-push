@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.2.0"
+version: "4.2.1"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -213,6 +213,31 @@ For package 0.10.0 creation runs, inspect persisted `targeted-create` authority,
 Keep original creation authority on resume. Never replace it with a newly observed destination baseline. An interrupted dirty run without provable final validated identity must stop with commits preserved. Before-commit retries must retain the original raw diff/hash binding and reject changed input before inference, without resetting a raced index or increasing budgets. A recorded successful creation must not recreate a ref deleted later. Local object checks must not lazily fetch from a promisor remote; missing source-proof, dirty HEAD/index or outgoing-patch input objects require an explicit caller-owned prerequisite step. A dirty-at-base run must qualify its diff inputs even though its pre-existing outgoing sequence is empty. Shallow side boundaries and legacy grafts cannot stand in for actual parentage: qualification and patch reads suppress those masks in each Git child, preserve repository metadata and the caller's environment, and stop if required actual ancestors are missing. Creation scans and hashes use actual unconverted content, independent of ambient diff presentation; do not mistake this for repair of the legacy/default weakness tracked in Issue #20. Source progression alone is not an incident requiring convergence. Collisions, unreadable remote state and missing local proof objects require caller action, never automatic fetch, merge, rebase or rights escalation.
 
 Qualify candidates in isolated HOME/XDG through the installed public launcher before integration and activation. The source PR and its candidate qualification do not activate a global release or compatible harness instructions. See [the creation contract](../specs/targeted-destination-creation.md).
+
+## Exact publication completeness inspection
+
+Inspect `validatedSource` for new commit-and-push runs: exact repository and Git
+directory, original HEAD or unborn null, expected tree, changed-path membership
+and required publication intent. Do not recapture a residual tree as authority.
+Hash validation and retries through the same immutable Git representation; cached
+and tree-to-tree mnemonic prefixes are not interchangeable hash inputs.
+Require `commitCompletion` to bind final HEAD/tree to that original tree and,
+when publication was required, matching `publishedSha`. Remote identity alone
+and nonempty `committedShas` do not prove content completeness.
+
+Preserve legacy witness-free state for diagnosis. Do not resume it into new
+commits or complete-success transitions, including by rerunning discovery to
+stage residual files. A complete known chain may recover status only from actual
+Git proof and its durable required publication evidence, never another inference
+or push. For an admitted failure before the first commit, inspect `publisherIndexTreeSha`
+as exact index-progress evidence only: original H0/T must remain unchanged and
+foreign index/HEAD changes are not authorized. For interrupted commits, require actual
+parentage/content matching the durable chain; unknown progress stops without
+history rewriting. Retain both landed SHAs and any known remote publication on
+failure. A terminal `commit-outcome` or `creation-outcome` reporting continuation
+performs no publication. These fields do not alter reconciler schema v4 or waive
+installation, active-execution, legacy-global or WAL gates. Never perform an
+offline apply solely because completeness source tests passed.
 
 ## Evidence to retain
 

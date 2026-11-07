@@ -10,7 +10,7 @@ export function creationRetryStopReason(
 	classified: ReturnType<typeof classifyError>,
 ): string | undefined {
 	if (scope.kind !== "targeted-create") return undefined;
-	if (committed || classified.kind === "success")
+	if (committed)
 		return "Creation stopped without exact publication proof; landed commits are preserved and must not be replanned.";
 	if (classified.error.kind === "race")
 		return "Creation worktree or index changed after validation; refusing to replan unvalidated content.";

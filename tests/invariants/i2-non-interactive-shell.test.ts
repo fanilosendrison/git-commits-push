@@ -6,9 +6,11 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
+import { captureValidatedSource } from "../../src/modules/git/validated-source.ts";
 import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
+import { resumeWithReporting } from "../fixtures/resume-reporting.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoFakeRemote: GitRepoFixture;
@@ -80,7 +82,9 @@ before(async () => {
 		repos: {
 			[repoId]: {
 				repository: repoFakeRemote.dir,
-				status: "SUCCESS",
+				operation: "commit-and-push",
+				validatedSource: captureValidatedSource(repoFakeRemote.dir, true),
+				status: "RUNNING",
 				diffHash,
 			},
 		},
@@ -112,7 +116,7 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 
 	test("I2-01 | process terminates without hitting the fail-safe timeout (no hang)", () => {
 		const start = Date.now();
-		const result = spawnSync(
+		const result = resumeWithReporting(
 			process.execPath,
 			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{
@@ -144,7 +148,7 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 	test("I2-02 | post-commit push failure never delegates another LLM plan", () => {
 		// The exact commit already exists locally. Publication failure is terminal for
 		// this run so a later invocation can use push-only recovery without recreating it.
-		assert.ok(!stdout.includes("action: DELEGATE"));
+		assert.ok(stdout.includes("commit-outcome"));
 		assert.ok(!stdout.includes("commit-jobs-retry"));
 		assert.ok(stdout.includes("action: ERROR"));
 		assert.ok(stderr.includes("Failed."));

@@ -16,10 +16,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import { DiffHashMismatchError } from "../../src/modules/core/errors.ts";
-import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import type { CommitPlan, Settings } from "../../src/types.ts";
 import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
+import { executeMultiCommitAndPush } from "../fixtures/validated-publisher.ts";
 
 const NO_PUSH_SETTINGS: Settings = {
 	searchPaths: [],
@@ -157,7 +157,7 @@ describe("U-GE-18 | diffHash mismatch → DiffHashMismatchError", () => {
 // ── U-GE-19: missing-file (no changes to commit) ────────────────────────────
 
 describe("U-GE-19 | missing-file → CommitPlanError", () => {
-	test("plan referencing only an already-committed file throws missing-file", async () => {
+	test("an unchanged file cannot conceal an omitted validated file", async () => {
 		const repo = GitRepoFixture.create();
 		repo.commit("initial");
 
@@ -180,7 +180,7 @@ describe("U-GE-19 | missing-file → CommitPlanError", () => {
 
 		await assert.rejects(
 			executeMultiCommitAndPush(repo.dir, plans, diffHash, NO_PUSH_SETTINGS),
-			{ kind: "missing-file" },
+			{ kind: "incomplete-coverage" },
 		);
 
 		repo.dispose();

@@ -254,12 +254,12 @@ test("E2E | ordinary worktree invocations serialize without scope coalescing", a
 		assert.equal(nonProtocolBytes(waiterStdout), "");
 		assert.deepEqual(
 			protocolActions(ownerStdout),
-			["DONE"],
+			["DELEGATE", "DONE"],
 			`stdout=${ownerStdout}\nstderr=${ownerStderr}`,
 		);
 		assert.deepEqual(
 			protocolActions(waiterStdout),
-			["DONE"],
+			["DELEGATE", "DONE"],
 			`stdout=${waiterStdout}\nstderr=${waiterStderr}`,
 		);
 		for (const secret of [SYNTHETIC_API_KEY]) {

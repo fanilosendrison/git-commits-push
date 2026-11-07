@@ -5,10 +5,10 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import type { CommitPlan, Settings } from "../../src/types.ts";
 import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
+import { executeMultiCommitAndPush } from "../fixtures/validated-publisher.ts";
 
 const NO_PUSH_SETTINGS: Settings = {
 	searchPaths: [],

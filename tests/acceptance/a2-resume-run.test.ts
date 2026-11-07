@@ -4,9 +4,11 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
+import { captureValidatedSource } from "../../src/modules/git/validated-source.ts";
 import type { CommitJobResultSuccess, Settings } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
+import { resumeWithReporting } from "../fixtures/resume-reporting.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoDirty: GitRepoFixture;
@@ -57,7 +59,9 @@ before(async () => {
 			repos: {
 				[repoId]: {
 					repository: repoDirty.dir,
-					status: "SUCCESS",
+					operation: "commit-and-push",
+					validatedSource: captureValidatedSource(repoDirty.dir, false),
+					status: "RUNNING",
 					diffHash,
 				},
 			},
@@ -96,7 +100,7 @@ describe("A2 — End-to-End Resume Run", () => {
 	let exitCode: number;
 
 	test("A2-01 | skill process exits with code 0 on --resume", () => {
-		const result = spawnSync(
+		const result = resumeWithReporting(
 			process.execPath,
 			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{

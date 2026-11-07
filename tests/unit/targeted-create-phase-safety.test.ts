@@ -47,6 +47,7 @@ for (const scenario of [
 				status: "RUNNING",
 				explicitPushTargetSnapshot: repo.explicitPushTargetSnapshot,
 				diffHash: validation.diffHash,
+				validatedSource: validation.validatedSource,
 			};
 			if (
 				scenario === "empty-after-partial" ||

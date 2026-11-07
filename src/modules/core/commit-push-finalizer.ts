@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PhaseIO, PhaseResult } from "turnlock";
 import type { GlobalState, RepoState } from "../../types.ts";
+import { qualifyCommitOutcomes } from "../git/commit-completion.ts";
 import type { SkillStatsLog } from "../telemetry/stats-events.ts";
 import { printReport } from "./reporter.ts";
 
@@ -13,6 +14,11 @@ export function finalizeCommitPushPhase(
 	loopCount: number,
 	skillLog: SkillStatsLog,
 ): PhaseResult<GlobalState, unknown> {
+	nextRepos = qualifyCommitOutcomes(nextRepos);
+	loopCount = Math.max(
+		loopCount,
+		Object.values(nextRepos).filter((repo) => repo.loopDetected).length,
+	);
 	printReport(nextRepos);
 
 	const successCount = Object.values(nextRepos).filter(

@@ -3,10 +3,12 @@ import type { CommittedSha, OriginalHead } from "../../types.ts";
 export type CommitPlanErrorKind =
 	| "duplicate-file"
 	| "empty-plans"
+	| "incomplete-coverage"
 	| "missing-file"
 	| "nonexistent-file";
 
 interface CommitPlanErrorContext {
+	publisherIndexTreeSha?: string | undefined;
 	committedShas?: CommittedSha[];
 	pendingFiles?: string[];
 }
@@ -51,6 +53,7 @@ export class GitExecError extends Error {
 }
 
 interface PartialCommitErrorContext {
+	publisherIndexTreeSha?: string | undefined;
 	committedShas: CommittedSha[];
 	originalHead: OriginalHead;
 	failedIndex: number;

@@ -1,6 +1,7 @@
 import { PushError } from "../core/errors.ts";
-import { gitExecActualGraphArgs, gitExecArgs } from "./git-exec.ts";
+import { gitExecArgs } from "./git-exec.ts";
 import { isFullGitObjectId } from "./git-object-id.ts";
+import { readLocalObjectRevisions } from "./local-object-revisions.ts";
 
 function missingLocalObjects(): PushError {
 	return new PushError(
@@ -15,10 +16,7 @@ export function readCreationLocalRevisions(
 	args: readonly string[],
 ): string {
 	try {
-		return gitExecActualGraphArgs(
-			["rev-list", "--missing=print", ...args, "--"],
-			repository,
-		);
+		return readLocalObjectRevisions(repository, args);
 	} catch {
 		throw missingLocalObjects();
 	}

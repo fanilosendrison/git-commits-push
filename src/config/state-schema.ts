@@ -9,6 +9,10 @@ import {
 	gitObjectIdSchema,
 	pushSnapshotSchema,
 } from "./publication-state-schema.ts";
+import {
+	validatedSourceWitnessSchema,
+	witnessPublicationIntentIssue,
+} from "./validated-source-state-schema.ts";
 
 const commitMessageStateSchema = z.object({
 	type: z.string(),
@@ -57,6 +61,15 @@ const attemptsSchema = z.preprocess(
 const repoStateSchema = z
 	.object({
 		repository: z.string(),
+		validatedSource: validatedSourceWitnessSchema.optional(),
+		publisherIndexTreeSha: gitObjectIdSchema.optional(),
+		commitCompletion: z
+			.object({
+				finalHeadSha: gitObjectIdSchema,
+				finalTreeSha: gitObjectIdSchema,
+			})
+			.strict()
+			.optional(),
 		status: z.enum(["PENDING", "RUNNING", "SUCCESS", "FAILED"]),
 		operation: z.enum(["commit-and-push", "push-only"]).optional(),
 		pushSnapshot: pushSnapshotSchema.optional(),
@@ -85,6 +98,52 @@ const repoStateSchema = z
 	.superRefine((repo, context) => {
 		const issue = (message: string, field: string) =>
 			context.addIssue({ code: z.ZodIssueCode.custom, message, path: [field] });
+		const intentIssue = witnessPublicationIntentIssue(
+			repo.validatedSource,
+			repo.explicitPushTargetSnapshot,
+		);
+		if (intentIssue) issue(intentIssue, "validatedSource");
+		if (repo.publisherIndexTreeSha && !repo.validatedSource)
+			issue(
+				"publisher index progress requires the original validated-source witness",
+				"publisherIndexTreeSha",
+			);
+		if (
+			repo.commitCompletion &&
+			(!repo.validatedSource ||
+				repo.commitCompletion.finalTreeSha !==
+					repo.validatedSource.expectedTreeSha)
+		)
+			issue(
+				"completion requires the original validated complete tree",
+				"commitCompletion",
+			);
+		if (
+			repo.validatedSource &&
+			(repo.validatedSource.repository !== repo.repository ||
+				repo.operation !== "commit-and-push")
+		)
+			issue(
+				"validated source must bind its exact commit-and-push repository",
+				"validatedSource",
+			);
+		if (
+			repo.validatedSource &&
+			repo.status === "SUCCESS" &&
+			(!repo.commitCompletion ||
+				(repo.validatedSource.publicationRequired &&
+					repo.publishedSha !== repo.commitCompletion.finalHeadSha))
+		)
+			issue(
+				"successful witnessed state requires complete content and required publication evidence",
+				"commitCompletion",
+			);
+		if (
+			repo.validatedSource &&
+			repo.originalHead !== undefined &&
+			repo.originalHead !== repo.validatedSource.baseHeadSha
+		)
+			issue("original HEAD must retain the validated baseline", "originalHead");
 		if (repo.remoteTrackingRefSynchronization && !repo.publishedSha)
 			issue(
 				"remote-tracking synchronization evidence requires a verified publication SHA",

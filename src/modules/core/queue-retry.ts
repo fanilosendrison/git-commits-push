@@ -14,6 +14,7 @@ import type {
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { captureCreationRetryDiff } from "../git/creation-diff.ts";
 import { reconstructRemainingDiff } from "../git/diff.ts";
+import { readValidatedRetryDiff } from "../git/validated-source-retry.ts";
 import { preparePlanningDiff } from "./planning-diff.ts";
 
 // ── Module-scope retry queue ─────────────────────────────────────────────────
@@ -199,16 +200,18 @@ export function queueRetry(
 		);
 	}
 
-	const creationDiff = captureCreationRetryDiff(
-		repoState,
-		errors.every(
-			(error) => error.kind === "structural" || error.kind === "git",
-		),
-		options.committedShas?.length ?? 0,
-	);
+	const preservedDiff =
+		readValidatedRetryDiff(repoState) ??
+		captureCreationRetryDiff(
+			repoState,
+			errors.every(
+				(error) => error.kind === "structural" || error.kind === "git",
+			),
+			options.committedShas?.length ?? 0,
+		);
 	if (
 		repoState.attempts?.provider &&
-		!(creationDiff ?? reconstructRemainingDiff(repoState.repository)).trim()
+		!(preservedDiff ?? reconstructRemainingDiff(repoState.repository)).trim()
 	) {
 		throw new Error("Cannot queue provider fallback: no remaining diff");
 	}
@@ -249,12 +252,12 @@ export function queueRetry(
 
 	// 3. Reconstruct remaining diff (best-effort)
 	const remainingDiff =
-		creationDiff ??
+		preservedDiff ??
 		reconstructRemainingDiff(repoState.repository, pendingFiles);
 
 	// 3.5 Re-stage files and recompute diffHash
 	let actualDiff = remainingDiff;
-	if (creationDiff === undefined) {
+	if (preservedDiff === undefined) {
 		try {
 			if (pendingFiles && pendingFiles.length > 0) {
 				const quoted = pendingFiles.map((f) => JSON.stringify(f)).join(" ");
@@ -316,9 +319,15 @@ export function queueRetry(
 	const payload: CommitJobPayload = {
 		repository: repoState.repository,
 		diff:
-			creationDiff === undefined
+			preservedDiff === undefined
 				? actualDiff
-				: preparePlanningDiff(actualDiff, repoState.repository, settings, true),
+				: preparePlanningDiff(
+						actualDiff,
+						repoState.repository,
+						settings,
+						!!repoState.explicitPushTargetSnapshot &&
+							"kind" in repoState.explicitPushTargetSnapshot,
+					),
 		diffHash: newDiffHash,
 		provider: settings.provider,
 		model: settings.model,

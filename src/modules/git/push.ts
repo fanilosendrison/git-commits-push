@@ -209,10 +209,33 @@ export interface PushExecutionResult {
 	readonly remoteTrackingRefSynchronization: RemoteTrackingRefSynchronization | null;
 }
 
+function resolveSanitizedPushDestination(
+	repository: string,
+): ReturnType<typeof resolveCurrentPushDestination> {
+	try {
+		return resolveCurrentPushDestination(repository);
+	} catch (error) {
+		const rawMessage = error instanceof Error ? error.message : String(error);
+		throw new PushError(
+			`Cannot resolve push destination: ${sanitizePushDiagnostic(rawMessage)}`,
+			false,
+		);
+	}
+}
+
+/** Freeze the historical optional-publication policy, including the no-remote local-only case. */
+export function isTrackedPublicationRequired(
+	repository: string,
+	autoPush: boolean,
+): boolean {
+	return autoPush && resolveSanitizedPushDestination(repository) !== null;
+}
+
 /** Publish the exact current HEAD to one resolved endpoint with a remote lease. */
 export function executePush(
 	repository: string,
 	autoPush: boolean,
+	expectedHeadSha?: string,
 ): PushExecutionResult {
 	if (!autoPush) {
 		return {
@@ -222,16 +245,7 @@ export function executePush(
 		};
 	}
 
-	let destination: ReturnType<typeof resolveCurrentPushDestination>;
-	try {
-		destination = resolveCurrentPushDestination(repository);
-	} catch (error) {
-		const rawMessage = error instanceof Error ? error.message : String(error);
-		throw new PushError(
-			`Cannot resolve push destination: ${sanitizePushDiagnostic(rawMessage)}`,
-			false,
-		);
-	}
+	const destination = resolveSanitizedPushDestination(repository);
 	if (!destination) {
 		return {
 			retryCount: 0,
@@ -254,6 +268,11 @@ export function executePush(
 	let sourceSha: string;
 	try {
 		sourceSha = gitExecArgs(["rev-parse", "HEAD"], repository);
+		if (expectedHeadSha && sourceSha !== expectedHeadSha)
+			throw new Error(
+				"HEAD changed after complete-tree validation; refusing unvalidated publication.",
+			);
+		sourceSha = expectedHeadSha ?? sourceSha;
 	} catch (error) {
 		const rawMessage = error instanceof Error ? error.message : String(error);
 		throw new PushError(

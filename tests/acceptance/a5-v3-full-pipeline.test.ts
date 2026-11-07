@@ -72,7 +72,8 @@ before(() => {
 			PI_SESSION_ID: "a5-v3-full-pipeline",
 		},
 		encoding: "utf-8",
-		timeout: 60_000,
+		// The extra durable outcome and Git completeness checks cross real processes.
+		timeout: 180_000,
 	});
 	stdout = result.stdout ?? "";
 	stderr = result.stderr ?? "";

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, test } from "node:test";
+import { captureValidatedSource } from "../../src/modules/git/validated-source.ts";
 import type {
 	CommitJobResultSuccess,
 	CommitPlan,
@@ -10,6 +10,7 @@ import type {
 } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
+import { resumeWithReporting } from "../fixtures/resume-reporting.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 const SKILL_ENTRYPOINT = path.resolve(
@@ -70,7 +71,7 @@ function readLatestRetryManifest(runDir: string): RetryManifest {
 }
 
 function launchResume(env: MockTurnlockEnvironment) {
-	return spawnSync(
+	return resumeWithReporting(
 		process.execPath,
 		[SKILL_ENTRYPOINT, "--resume", "--run-id", RUN_ID],
 		{
@@ -133,6 +134,11 @@ describe("A3 — validation repair retry bounds", () => {
 				repos: {
 					[repoId]: {
 						repository: activeRepository.dir,
+						operation: "commit-and-push",
+						validatedSource: captureValidatedSource(
+							activeRepository.dir,
+							false,
+						),
 						status: "RUNNING",
 						diffHash,
 						attempts: { validation: 0 },
@@ -184,7 +190,7 @@ describe("A3 — validation repair retry bounds", () => {
 
 		const fourth = launchResume(activeEnvironment);
 		assert.match(fourth.stdout, /action: ERROR/u);
-		assert.ok(!fourth.stdout.includes("action: DELEGATE"));
+		assert.ok(fourth.stdout.includes("commit-outcome"));
 		assert.strictEqual(listRetryManifests(activeEnvironment.runDir).length, 3);
 	});
 });

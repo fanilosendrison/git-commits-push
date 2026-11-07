@@ -43,21 +43,6 @@ export function handleLlmJobFailure({
 	const retrySettings =
 		llmKind === "provider" ? buildFallbackSettings(settings) : settings;
 	if (llmKind === null) {
-		const isLlmEmptyPlans =
-			llmError.includes("empty") || llmError.includes("non-empty JSON array");
-		if (
-			!result.providerFailureKind &&
-			isLlmEmptyPlans &&
-			(repoState.committedShas?.length ?? 0) > 0
-		) {
-			return {
-				...repoState,
-				status: "SUCCESS",
-				commits: [],
-				error:
-					"LLM returned an empty plan after partial commits completed; treating as success.",
-			};
-		}
 		skillLog.logRepoOutcome({
 			runId,
 			repoId: result.id,
@@ -66,7 +51,7 @@ export function handleLlmJobFailure({
 			error: llmError,
 			attempts: repoState.attempts ?? {},
 			totalRetries: retryCount(repoState),
-			committedCount: 0,
+			committedCount: repoState.committedShas?.length ?? 0,
 		});
 		return {
 			...repoState,

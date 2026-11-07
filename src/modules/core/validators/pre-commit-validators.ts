@@ -2,8 +2,11 @@ import { execFileSync, execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { RepositoryInfo, Settings } from "../../../types.ts";
-import { readCreationStagedDiff } from "../../git/creation-diff.ts";
+import type {
+	RepositoryInfo,
+	Settings,
+	ValidatedSourceWitness,
+} from "../../../types.ts";
 import {
 	assertCreationAncestry,
 	assertCreationDirtyInputsLocal,
@@ -13,6 +16,16 @@ import {
 	readCommitPatches,
 	readOrderedOutgoingShas,
 } from "../../git/outgoing-commits.ts";
+import { isTrackedPublicationRequired } from "../../git/push.ts";
+import {
+	assertValidatedSource,
+	captureValidatedSource,
+	readIndexSource,
+} from "../../git/validated-source.ts";
+import {
+	assertSameValidationInput,
+	readValidationInputDiff,
+} from "../../git/validation-source-input.ts";
 import { createSkillStatsLog } from "../../telemetry/stats-logger.ts";
 import { scanDiff } from "../secret-scanner.ts";
 
@@ -213,7 +226,11 @@ export async function processRepoValidationAndDiff(
 	repo: RepositoryInfo,
 	settings: Settings,
 	scanner: SecretScanner = defaultScanner,
-): Promise<{ diff: string; diffHash: string }> {
+): Promise<{
+	diff: string;
+	diffHash: string;
+	validatedSource: ValidatedSourceWitness;
+}> {
 	if (!settings.skipTests) {
 		await runTestCascade(repo.path);
 	}
@@ -246,14 +263,8 @@ export async function processRepoValidationAndDiff(
 	}
 	execCwd("git add -A", repo.path);
 
-	const diff = creationTarget
-		? readCreationStagedDiff(repo.path)
-		: execSync("git diff --cached", {
-				cwd: repo.path,
-				encoding: "utf-8",
-				stdio: ["pipe", "pipe", "pipe"],
-				maxBuffer: 50 * 1024 * 1024,
-			});
+	const input = readIndexSource(repo.path);
+	const diff = readValidationInputDiff(repo.path, input, !!creationTarget);
 
 	if (!diff.trim()) {
 		throw new Error("No changes found after staging.");
@@ -262,6 +273,13 @@ export async function processRepoValidationAndDiff(
 	const diffHash = crypto.createHash("sha256").update(diff).digest("hex");
 
 	await validateDiffForSecrets(repo, diff, scanner);
+	const validatedSource = captureValidatedSource(
+		repo.path,
+		!!repo.explicitPushTargetSnapshot ||
+			isTrackedPublicationRequired(repo.path, settings.autoPush),
+	);
+	assertSameValidationInput(input, validatedSource);
+	assertValidatedSource(repo.path, validatedSource);
 
-	return { diff, diffHash };
+	return { diff, diffHash, validatedSource };
 }

@@ -21,7 +21,12 @@ let runStartEpochMs = 0;
 export async function runDiscoveryAndValidationPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
+	isResume: boolean,
 ): Promise<PhaseResult<GlobalState, unknown>> {
+	if (isResume || Object.keys(state.repos).length > 0)
+		throw new Error(
+			"Discovery resume cannot establish a new validated-source authority; inspect preserved state and use a fresh invocation instead.",
+		);
 	const settings = readSettings(path.resolve(import.meta.dirname, "../config"));
 
 	// ── Log run_start on first invocation ───────────────────────────
@@ -108,15 +113,14 @@ export async function runDiscoveryAndValidationPhase(
 					prompt: JSON.stringify(checkpointPayload),
 				});
 			} else {
-				const { diff, diffHash } = await processRepoValidationAndDiff(
-					repo,
-					settings,
-				);
+				const { diff, diffHash, validatedSource } =
+					await processRepoValidationAndDiff(repo, settings);
 				validRepos.push({ id: repo.id, path: repo.path, diff, diffHash });
 				nextRepos[repo.id] = {
 					repository: repo.path,
 					status: "PENDING" as const,
 					operation: "commit-and-push",
+					validatedSource,
 					diffHash,
 					...(repo.explicitPushTargetSnapshot
 						? {

@@ -6,9 +6,11 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
+import { captureValidatedSource } from "../../src/modules/git/validated-source.ts";
 import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
+import { resumeWithReporting } from "../fixtures/resume-reporting.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoSource: GitRepoFixture;
@@ -63,7 +65,9 @@ before(async () => {
 		repos: {
 			[repoId]: {
 				repository: repoSource.dir,
-				status: "SUCCESS",
+				operation: "commit-and-push",
+				validatedSource: captureValidatedSource(repoSource.dir, true),
+				status: "RUNNING",
 				diffHash,
 			},
 		},
@@ -96,7 +100,7 @@ describe("P3 — Git Push Upstream Fallback", () => {
 	let stderr: string;
 
 	test("P3-01 | process exits with code 0", () => {
-		const result = spawnSync(
+		const result = resumeWithReporting(
 			process.execPath,
 			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{

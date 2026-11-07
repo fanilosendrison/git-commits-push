@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.5.0"
+version: "3.5.1"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -236,6 +236,32 @@ registered and exact pre-admission file evidence is revalidated.
   disables tests. Any unrelated failure discovered during validation must be
   fixed rather than ignored.
 
+## Exact publication completeness
+
+- Capture `validatedSource` after staging and validation, before the first
+  delegation: exact worktree/Git-directory identity, original HEAD or unborn
+  absence, complete index tree T, literal changed-path membership and required
+  publication intent. Validate the diff from immutable H0/T input, compare the
+  source after validation, reuse that same immutable diff representation for
+  publication admission and retries, and persist the witness in Turnlock, never in the
+  reconciler. Never rerun discovery on resume to acquire a replacement authority.
+- Keep T unchanged across retries. Retain `publisherIndexTreeSha` only as proof
+  of an admitted publisher index transition, never as a replacement T. Require
+  exact matching progress plus original content before a zero-commit retry;
+  reject foreign index/HEAD changes. Reject missing witnesses, source races and
+  uncheckpointed history before commit effects; read legacy state for diagnosis
+  without inventing authority.
+- Admit the complete plan before reset/add/commit/push. Account for each remaining
+  validated path exactly once using actual Git commit evidence, not LLM claims,
+  directory expansion or patch-header parsing.
+- Require the final HEAD tree to equal T before publication, and matching remote
+  identity when publication is required. Neither commits, remote SHA nor empty
+  output alone permits success. Preserve effects and remote evidence on failure.
+- Persist terminal results through a no-effect Turnlock checkpoint. Reporting
+  continuations must never republish. Recover complete progress only through the
+  same Git/publication proof, never by empty-diff inference. Preserve legitimate `autoPush=false`
+  local-commit success and unchanged clean push-only behavior.
+
 ## LLM safety
 
 - Validate and authorize Turnlock delegation manifests before reading job payloads. New v3 manifests must target exactly `worker("git-commit-generator")`; bounded v2 compatibility accepts only that historical worker. Unknown targets and compatibility markers fail closed.
@@ -365,7 +391,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 84 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 89 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 

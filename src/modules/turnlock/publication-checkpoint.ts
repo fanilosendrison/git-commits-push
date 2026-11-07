@@ -11,7 +11,8 @@ export function acknowledgePublicationCheckpoint(
 ): payload is PublicationCheckpointPayload {
 	if (
 		payload.mode !== "checkpoint-push-only" &&
-		payload.mode !== "checkpoint-creation-outcome"
+		payload.mode !== "checkpoint-creation-outcome" &&
+		payload.mode !== "checkpoint-commit-outcome"
 	)
 		return false;
 	writeCommitJobResult(job.resultPath, {

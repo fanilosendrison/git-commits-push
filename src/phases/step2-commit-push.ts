@@ -2,7 +2,6 @@ import * as path from "node:path";
 import type { PhaseIO, PhaseResult } from "turnlock";
 import { readSettings } from "../config/settings.ts";
 import { commitJobResultSchema } from "../config/state-schema.ts";
-import { finalizeCommitPushPhase } from "../modules/core/commit-push-finalizer.ts";
 import {
 	mergeCommittedShas,
 	mergePostCommitPushFailure,
@@ -15,13 +14,15 @@ import {
 	PostCommitPushError,
 } from "../modules/core/errors.ts";
 import { handleLlmJobFailure } from "../modules/core/llm-job-failure-handler.ts";
+import { retryPublicationPlan } from "../modules/core/publication-plan-retry.ts";
 import {
 	MAX_ATTEMPTS_BY_KIND,
-	queueRetry,
 	retryJobs,
 } from "../modules/core/queue-retry.ts";
 import { loadSystemPrompt } from "../modules/core/system-prompt-loader.ts";
 import { handleValidationRetry } from "../modules/core/validation-retry-handler.ts";
+import { recoverCompletedCommit } from "../modules/git/commit-completion.ts";
+import { checkpointCommitOutcome } from "../modules/git/commit-outcome-checkpoint.ts";
 import { checkpointCreationOutcome } from "../modules/git/creation-outcome-checkpoint.ts";
 import {
 	creationResumeStopReason,
@@ -30,7 +31,7 @@ import {
 import { resolveFrozenExplicitTarget } from "../modules/git/explicit-push-target.ts";
 import { executeMultiCommitAndPush } from "../modules/git/publisher.ts";
 import { handlePushOnlyCheckpointResult } from "../modules/git/push-only-checkpoint.ts";
-import { resetIndexForRetry } from "../modules/git/reset-index.ts";
+import { assertValidatedSource } from "../modules/git/validated-source.ts";
 import {
 	assertExecutableInvocationScope,
 	assertInvocationScopeCurrent,
@@ -78,16 +79,11 @@ export async function runCommitAndPushPhase(
 	// R26 invariant: only safe if Turnlock guarantees single-instance execution.
 	retryJobs.length = 0;
 
-	let loopCount = 0;
-
 	for (const result of results) {
 		let repoState = nextRepos[result.id];
 		if (!repoState) continue;
-		if (
-			state.invocationScope.kind === "targeted-create" &&
-			repoState.status === "SUCCESS"
-		)
-			continue;
+		// A terminal checkpoint grants reporting authority only, never another publication.
+		if (repoState.status === "SUCCESS") continue;
 
 		if (state.invocationScope.kind === "targeted-create") {
 			const reason = creationResumeStopReason(repoState);
@@ -109,6 +105,21 @@ export async function runCommitAndPushPhase(
 				settings,
 				skillLog,
 			});
+			continue;
+		}
+
+		try {
+			const completed = recoverCompletedCommit(repoState);
+			if (completed) {
+				nextRepos[result.id] = completed;
+				continue;
+			}
+		} catch (error) {
+			nextRepos[result.id] = {
+				...repoState,
+				status: "FAILED",
+				error: error instanceof Error ? error.message : String(error),
+			};
 			continue;
 		}
 
@@ -135,7 +146,6 @@ export async function runCommitAndPushPhase(
 			skillLog,
 		});
 		if (validationResult.handled) {
-			loopCount += validationResult.loopCountDelta;
 			nextRepos[result.id] = validationResult.repoState;
 			continue;
 		}
@@ -153,6 +163,7 @@ export async function runCommitAndPushPhase(
 			);
 			const {
 				creationPublicationSnapshot,
+				commitCompletion,
 				committedShas,
 				originalHead,
 				pushRetryCount,
@@ -164,6 +175,16 @@ export async function runCommitAndPushPhase(
 				repoState.diffHash,
 				settings,
 				frozenExplicitTarget,
+				{
+					witness: assertValidatedSource(
+						repoState.repository,
+						repoState.validatedSource,
+						repoState.committedShas,
+						repoState.publisherIndexTreeSha,
+					).witness,
+					committedShas: repoState.committedShas,
+					publisherIndexTreeSha: repoState.publisherIndexTreeSha,
+				},
 			);
 			// Merge with anything that landed in prior retries.
 			repoState = {
@@ -192,6 +213,8 @@ export async function runCommitAndPushPhase(
 			nextRepos[result.id] = {
 				...repoState,
 				status: "SUCCESS" as const,
+				publisherIndexTreeSha: undefined,
+				commitCompletion,
 				commits: result.commits,
 			};
 		} catch (err) {
@@ -202,6 +225,7 @@ export async function runCommitAndPushPhase(
 			} else if (err instanceof PartialCommitError) {
 				repoState = {
 					...repoState,
+					publisherIndexTreeSha: err.context.publisherIndexTreeSha,
 					committedShas: mergeCommittedShas(
 						repoState.committedShas ?? [],
 						err.context.committedShas,
@@ -212,15 +236,13 @@ export async function runCommitAndPushPhase(
 					),
 				};
 				pendingFiles = err.context.pendingFiles;
-			} else if (
-				err instanceof CommitPlanError &&
-				err.context?.committedShas?.length
-			) {
+			} else if (err instanceof CommitPlanError && err.context) {
 				repoState = {
 					...repoState,
+					publisherIndexTreeSha: err.context.publisherIndexTreeSha,
 					committedShas: mergeCommittedShas(
 						repoState.committedShas ?? [],
-						err.context.committedShas,
+						err.context.committedShas ?? [],
 					),
 				};
 				pendingFiles = err.context.pendingFiles;
@@ -243,100 +265,22 @@ export async function runCommitAndPushPhase(
 				continue;
 			}
 
-			// R57 fix (C1): historical empty-plans with committedShas = SUCCESS
-			if (classified.kind === "success") {
-				nextRepos[result.id] = {
-					...repoState,
-					status: "SUCCESS" as const,
-					commits: [],
-					error:
-						"LLM returned an empty plan after partial commits completed; treating as success.",
-				};
-				continue;
-			}
-
 			const errKind = classified.error.kind;
 			const attempts = repoState.attempts?.[errKind] ?? 0;
 			const maxAttempts = MAX_ATTEMPTS_BY_KIND[errKind];
 
 			if (classified.kind === "retry" && attempts < maxAttempts) {
-				if (state.invocationScope.kind !== "targeted-create")
-					resetIndexForRetry(repoState.repository);
-
-				repoState = {
-					...repoState,
-					attempts: {
-						...(repoState.attempts ?? {}),
-						[errKind]: attempts + 1,
-					},
-				};
-
-				const retryResult = queueRetry(
-					result.id,
-					repoState,
-					[classified.error],
-					{ committedShas: repoState.committedShas, pendingFiles },
+				nextRepos[result.id] = retryPublicationPlan({
+					repoId: result.id,
+					repo: repoState,
+					error: classified.error,
+					pendingFiles,
 					settings,
 					systemPrompt,
-					result.commits,
-				);
-
-				if (retryResult.kind === "loop-detected") {
-					loopCount++;
-					skillLog.logLoopDetected({
-						runId: currentRunId,
-						repoId: result.id,
-						kind: errKind,
-						planHash: retryResult.repoState.lastPlanHash ?? "",
-					});
-					nextRepos[result.id] = {
-						...retryResult.repoState,
-						status: "FAILED" as const,
-						error: `Loop detected: LLM returned an identical plan on two consecutive attempts for kind "${errKind}".`,
-						loopDetected: {
-							kind: errKind,
-							planHash: retryResult.repoState.lastPlanHash ?? "",
-						},
-					};
-					skillLog.logRepoOutcome({
-						runId: currentRunId,
-						repoId: result.id,
-						repository: repoState.repository,
-						status: "FAILED",
-						error: `Loop detected for kind ${errKind}`,
-						attempts: repoState.attempts ?? {},
-						totalRetries: Object.values(repoState.attempts ?? {}).reduce(
-							(a, b) => a + b,
-							0,
-						),
-						loopDetected: {
-							kind: errKind,
-							planHash: retryResult.repoState.lastPlanHash ?? "",
-						},
-						committedCount: repoState.committedShas?.length ?? 0,
-					});
-					continue;
-				}
-
-				skillLog.logDelegation({
+					plans: result.commits,
 					runId: currentRunId,
-					repoId: result.id,
-					repository: repoState.repository,
-					isRetry: true,
-					retryKind: errKind,
-					attempt: attempts + 1,
-					model: settings.model,
-					thinking: settings.thinking ?? false,
-					diffHash: retryResult.repoState.diffHash ?? "",
-					diffSizeBytes: null,
-					previousDiffHash: repoState.diffHash ?? "",
-					diffChanged:
-						(repoState.diffHash ?? "") !==
-						(retryResult.repoState.diffHash ?? ""),
-					pendingFilesCount: pendingFiles?.length ?? null,
-					feedbackHistoryItems: (repoState.feedbackHistory ?? []).length,
+					skillLog,
 				});
-				nextRepos[result.id] = retryResult.repoState;
 				continue;
 			}
 
@@ -386,11 +330,5 @@ export async function runCommitAndPushPhase(
 
 	if (state.invocationScope.kind === "targeted-create")
 		return checkpointCreationOutcome(state, nextRepos, io);
-	return finalizeCommitPushPhase(
-		nextRepos,
-		io,
-		currentRunId,
-		loopCount,
-		skillLog,
-	);
+	return checkpointCommitOutcome(state, nextRepos, io);
 }

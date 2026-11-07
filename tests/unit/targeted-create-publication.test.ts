@@ -4,13 +4,13 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { runDiscovery } from "../../src/modules/core/discovery.ts";
 import { processRepoValidationAndDiff } from "../../src/modules/core/validators/pre-commit-validators.ts";
-import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import { handlePushOnlyCheckpointResult } from "../../src/modules/git/push-only-checkpoint.ts";
 import {
 	CREATE_SETTINGS,
 	createFixture,
 	git,
 } from "../fixtures/targeted-create.ts";
+import { executeMultiCommitAndPush } from "../fixtures/validated-publisher.ts";
 
 for (const ahead of [false, true])
 	test(`C${ahead ? "11" : "12"} | clean creation publishes exact HEAD without commits or LLM`, async () => {
