@@ -242,7 +242,8 @@ registered and exact pre-admission file evidence is revalidated.
   delegation: exact worktree/Git-directory identity, original HEAD or unborn
   absence, complete index tree T, literal changed-path membership and required
   publication intent. Validate the diff from immutable H0/T input, compare the
-  source after validation, and persist the witness in Turnlock, never in the
+  source after validation, reuse that same immutable diff representation for
+  publication admission and retries, and persist the witness in Turnlock, never in the
   reconciler. Never rerun discovery on resume to acquire a replacement authority.
 - Keep T unchanged across retries. Reject missing witnesses, source races and
   uncheckpointed history before commit effects; read legacy state for diagnosis
@@ -387,7 +388,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 88 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 89 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 

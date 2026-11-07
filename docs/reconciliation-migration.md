@@ -103,7 +103,9 @@ The coordinator still uses mode `targeted` and schema v4, without creation/targe
 
 New commit-and-push runs retain `validatedSource` in the first Turnlock delegation:
 worktree/Git-directory identity, original HEAD, full validated index tree, literal
-changed paths and required publication intent. `commitCompletion` binds the final
+changed paths and required publication intent. Validation, publisher admission
+and retry hashes use one immutable tree-to-tree representation; Git's different
+cached-view mnemonic prefixes cannot consume a false race retry. `commitCompletion` binds the final
 HEAD and tree, with separate exact publication evidence. Terminal ordinary and
 targeted outcomes now use a no-effect `commit-outcome` checkpoint; conditional
 creation retains its existing outcome phase with the same completeness gate.

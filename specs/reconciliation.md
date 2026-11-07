@@ -143,7 +143,10 @@ unborn branch); T is the validated index tree; F is Git's literal, NUL-delimited
 no-rename changed-path membership between H0 and T. The durable Turnlock witness
 binds these identities to the exact worktree and its Git directory before the
 first inference delegation. Validation MUST read the diff from pinned H0/T
-objects, then confirm the same source before issuing the witness. Retries MUST
+objects, then confirm the same source before issuing the witness. Validation,
+publisher admission and retries MUST share the same immutable diff representation;
+unchanged input MUST NOT consume a race retry merely because Git uses different
+prefixes for cached and tree-to-tree views. Retries MUST
 NOT replace T with residual input. A resumed discovery phase MUST refuse before
 staging rather than capture a replacement source authority.
 

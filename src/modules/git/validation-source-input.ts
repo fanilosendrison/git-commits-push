@@ -12,7 +12,7 @@ import {
  */
 export function readValidationInputDiff(
 	repository: string,
-	input: IndexSourceSnapshot,
+	input: Pick<IndexSourceSnapshot, "baseHeadSha" | "expectedTreeSha">,
 	creation: boolean,
 ): string {
 	try {

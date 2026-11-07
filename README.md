@@ -241,7 +241,9 @@ The skill respects the plan exactly — each commit in the plan gets its own
 **Exact validated source.** Before inference, Turnlock retains the original
 HEAD (or unborn absence), index tree T, exact changed paths and worktree identity.
 Validation reads its diff from pinned H0/T objects and rejects changed source
-before issuing the durable witness. Discovery is not rerun on resume to recapture
+before issuing the durable witness. Admission and retries use the same immutable
+diff representation, including under Git mnemonic-prefix settings, rather than
+mixing cached and tree-to-tree hashes. Discovery is not rerun on resume to recapture
 residual input. The publisher checks complete, non-duplicated plan coverage before
 resetting or staging. An omitted file is a structural failure, not permission to publish less.
 Retries retain T; changed HEAD, index or working input fails closed rather than

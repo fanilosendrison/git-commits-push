@@ -219,6 +219,8 @@ Qualify candidates in isolated HOME/XDG through the installed public launcher be
 Inspect `validatedSource` for new commit-and-push runs: exact repository and Git
 directory, original HEAD or unborn null, expected tree, changed-path membership
 and required publication intent. Do not recapture a residual tree as authority.
+Hash validation and retries through the same immutable Git representation; cached
+and tree-to-tree mnemonic prefixes are not interchangeable hash inputs.
 Require `commitCompletion` to bind final HEAD/tree to that original tree and,
 when publication was required, matching `publishedSha`. Remote identity alone
 and nonempty `committedShas` do not prove content completeness.

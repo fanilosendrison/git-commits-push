@@ -24,7 +24,6 @@ import {
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { assertCommitPlanCoverage } from "./commit-plan-coverage.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
-import { readCreationStagedDiff } from "./creation-diff.ts";
 import type { ExplicitCreatePushSnapshot } from "./creation-types.ts";
 import { publishExplicitCreateSnapshot } from "./explicit-create-push.ts";
 import { assertExplicitCreateTargetCurrent } from "./explicit-create-target.ts";
@@ -39,6 +38,7 @@ import {
 	PublicationCompletenessError,
 	readOriginalHead,
 } from "./validated-source.ts";
+import { readValidationInputDiff } from "./validation-source-input.ts";
 
 function collectPendingFiles(
 	plans: readonly CommitPlan[],
@@ -106,24 +106,16 @@ export async function executeMultiCommitAndPush(
 		witness.expectedChangedPaths,
 	);
 
-	// 3. DiffHash race-condition guard
-	// R73: skip guard when the stored hash is the empty-diff hash (e3b0c44...)
-	// This happens when the index was cleared between step1 and step2 due to
-	// a prior retry resetting the staging area. An empty expected hash means
-	// there is no staged content to race against.
+	// 3. Compare the same pinned representation used during validation.
+	// Historical empty hashes never waive witness/HEAD/index/worktree checks.
 	const EMPTY_DIFF_HASH =
 		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 	if (priorCommits.length === 0 && expectedDiffHash !== EMPTY_DIFF_HASH) {
-		const currentDiff =
-			explicitPushTargetSnapshot && "kind" in explicitPushTargetSnapshot
-				? readCreationStagedDiff(repoPath)
-				: execSync("git diff --cached", {
-						cwd: repoPath,
-						encoding: "utf-8",
-						stdio: ["pipe", "pipe", "pipe"],
-						env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-						maxBuffer: 50 * 1024 * 1024,
-					});
+		const currentDiff = readValidationInputDiff(
+			repoPath,
+			witness,
+			!!explicitPushTargetSnapshot && "kind" in explicitPushTargetSnapshot,
+		);
 		const currentHash = crypto
 			.createHash("sha256")
 			.update(currentDiff)
