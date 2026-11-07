@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.1.2"
+version: "4.1.3"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -135,6 +135,46 @@ adopt old execution.
 
 Owner death is not evidence of execution death. Heartbeat age, expected signal
 handling, elapsed time, and supervisor exit are not execution-death proof.
+
+## Commit-and-push completeness authority
+
+For commit-and-push, H0 is the exact pre-commit HEAD (null only for a proven
+unborn branch); T is the validated index tree; F is Git's literal, NUL-delimited,
+no-rename changed-path membership between H0 and T. The durable Turnlock witness
+binds these identities to the exact worktree and its Git directory before the
+first inference delegation. Validation MUST read the diff from pinned H0/T
+objects, then confirm the same source before issuing the witness. Retries MUST
+NOT replace T with residual input. A resumed discovery phase MUST refuse before
+staging rather than capture a replacement source authority.
+
+Before reset, staging, commits or push, the publisher MUST revalidate the witness,
+HEAD, index and working input, establish actual checkpointed commit parentage and
+content, derive remaining F and require exact once-only plan coverage. Unchanged
+companion paths cannot conceal an omission; directories and pathspec patterns
+never implicitly account for files. Incomplete coverage uses the existing bounded
+structural retry policy and cannot become success when that budget is exhausted.
+
+After planned commits, HEAD's actual tree MUST equal T before publication.
+Complete success requires coverage, final-tree equality and, when requested,
+verified publication of that exact final HEAD. Ordinary `autoPush=false` retains
+complete local-commit success without invented remote evidence. A commit count,
+remote SHA, empty response or empty result batch alone is never sufficient.
+
+Failures MUST preserve landed commits, actual HEAD, remaining files, T and known
+remote identities. A checkpointed exact partial chain may complete only remaining
+validated paths; uncheckpointed history or insufficient recovery evidence stops
+without replanning or destructive reset. Historical state lacking a witness stays
+readable but MUST NOT grant new commit authority or complete-success transitions.
+A fully accounted durable chain may recover complete status only through actual
+Git tree proof and already durable required publication evidence (or permitted
+local-only success). It MUST NOT trigger empty-diff inference or a new push.
+Terminal outcomes are persisted through no-effect Turnlock checkpoints; reporting
+continuations never repeat publication. Clean push-only snapshots keep their
+existing contract. This is a Turnlock application-state extension, not a change to
+coordinator schema, permissions, scopes or publication destinations.
+
+The guarantee concerns the publisher's own validated source. It does not bind an
+external review tree that was not supplied to the publisher.
 
 ## Durable singleton state
 

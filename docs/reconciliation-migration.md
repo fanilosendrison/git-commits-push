@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "4.2.0"
+version: "4.2.1"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -98,6 +98,29 @@ Package 0.10.0 adds `targeted-create` invocation authority, a distinct `explicit
 New creation runs resume only with persisted authority. A clean push-only checkpoint revalidates its exact final identity and full outgoing history; a dirty interrupted execution without provable final identity stops preserving commits, never recapturing a destination as an update baseline. Creation success/failure evidence is durably retained through a no-effect Turnlock outcome checkpoint before terminal reporting; the bridge acknowledgement invokes neither inference nor Git. Successful publication evidence does not authorize recreation after deletion. Creation qualifies direct commit identities, ancestry, dirty HEAD/index inputs and outgoing patch inputs through local-only Git traversal, without implicit promisor fetch or replacement-object substitution. Creation graph and patch reads use Git's process-local empty shallow-file and graft-file overrides to expose actual parentage, so shallow or grafted merged sides cannot hide outgoing ancestors. Missing actual proof objects still fail closed; repository metadata and the caller's environment are preserved. Only the invocation worktree's index participates. Canonical actual-content diff arguments are shared by creation hashing and scans, so ambient text conversion or presentation configuration cannot mask relevant content; historical/default scan semantics remain separately tracked in Issue #20. Creation retries preserve the original raw diff/hash and stop on changed input before inference; the existing planning cap and attempt budgets remain unchanged. No historical runs are migrated in place and no immutable release is edited.
 
 The coordinator still uses mode `targeted` and schema v4, without creation/target/history payload. Shared exact pushes disable tag following and submodule push recursion, including historical publication paths. See [the creation contract](../specs/targeted-destination-creation.md).
+
+## Exact publication witness compatibility
+
+New commit-and-push runs retain `validatedSource` in the first Turnlock delegation:
+worktree/Git-directory identity, original HEAD, full validated index tree, literal
+changed paths and required publication intent. `commitCompletion` binds the final
+HEAD and tree, with separate exact publication evidence. Terminal ordinary and
+targeted outcomes now use a no-effect `commit-outcome` checkpoint; conditional
+creation retains its existing outcome phase with the same completeness gate.
+Reporting continuations do not publish.
+
+The fields are optional for historical parsing, not for new commit authority.
+Missing witnesses and uncheckpointed commit progress stop with history and
+artifacts preserved. Resumed discovery refuses before staging, including when
+historical data has no pending delegation. No residual-tree migration is performed.
+Already complete progress requires the original witness, actual Git proof and
+its durable required publication evidence; no empty-diff inference or new push
+is used to recover terminal status. Proven partial
+chains retain the original tree and may only complete remaining membership.
+Neither empty output nor landed commits alone can promote a run to success.
+Coordinator schema v4, immutable historical releases, destination authority and
+clean push-only semantics are unchanged. Operational activation remains separate
+from source integration and cannot bypass legacy-global/WAL preflight.
 
 ## Safety changes
 

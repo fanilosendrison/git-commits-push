@@ -3,12 +3,15 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { witnessPublicationIntentIssue } from "../../config/validated-source-state-schema.ts";
 import type {
+	CommitCompletionEvidence,
 	CommitPlan,
 	CommittedSha,
 	ExplicitPublicationTargetSnapshot,
 	OriginalHead,
 	Settings,
+	ValidatedSourceWitness,
 } from "../../types.ts";
 import {
 	CommitPlanError,
@@ -19,6 +22,7 @@ import {
 	PushError,
 } from "../core/errors.ts";
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
+import { assertCommitPlanCoverage } from "./commit-plan-coverage.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
 import { readCreationStagedDiff } from "./creation-diff.ts";
 import type { ExplicitCreatePushSnapshot } from "./creation-types.ts";
@@ -28,13 +32,13 @@ import { publishExplicitTargetSnapshot } from "./explicit-push.ts";
 import { assertExplicitPushTargetCurrent } from "./explicit-push-target.ts";
 import { gitExecArgs } from "./git-exec.ts";
 import { executePush, type PushExecutionResult } from "./push.ts";
-
-/**
- * Helper to normalize file paths for the duplicate file check.
- */
-function normalizePath(p: string): string {
-	return path.posix.normalize(p).replace(/\/+$/, "");
-}
+import {
+	assertFinalTree,
+	assertValidatedSource,
+	changedPaths,
+	PublicationCompletenessError,
+	readOriginalHead,
+} from "./validated-source.ts";
 
 function collectPendingFiles(
 	plans: readonly CommitPlan[],
@@ -49,23 +53,6 @@ function collectPendingFiles(
 			seen.add(file);
 			return true;
 		});
-}
-
-function readOriginalHead(repository: string): OriginalHead {
-	try {
-		return gitExecArgs(["rev-parse", "--verify", "HEAD"], repository);
-	} catch (error) {
-		const symbolicHead = gitExecArgs(
-			["symbolic-ref", "--quiet", "HEAD"],
-			repository,
-		);
-		const referencedHead = gitExecArgs(
-			["for-each-ref", "--format=%(objectname)", "--", symbolicHead],
-			repository,
-		);
-		if (!referencedHead) return null;
-		throw error;
-	}
 }
 
 /**
@@ -88,38 +75,36 @@ export async function executeMultiCommitAndPush(
 	expectedDiffHash: string,
 	settings: Settings,
 	explicitPushTargetSnapshot?: ExplicitPublicationTargetSnapshot,
+	completeness?: {
+		readonly witness: ValidatedSourceWitness;
+		readonly committedShas?: readonly CommittedSha[] | undefined;
+	},
 ): Promise<{
 	creationPublicationSnapshot?: ExplicitCreatePushSnapshot;
+	commitCompletion: CommitCompletionEvidence;
 	committedShas: CommittedSha[];
 	originalHead: OriginalHead;
 	pushRetryCount: number;
 	publishedSha: string | null;
 	remoteTrackingRefSynchronization: PushExecutionResult["remoteTrackingRefSynchronization"];
 }> {
-	// 1. Empty-plans guard
-	if (plans.length === 0) {
-		throw new CommitPlanError(
-			"executeMultiCommitAndPush: received an empty plans array.",
-			"empty-plans",
-		);
-	}
-
-	// 2. Duplicate file guard with path normalization
-	const seen = new Set<string>();
-	for (const plan of plans) {
-		for (const file of plan.files) {
-			const normalized = normalizePath(file);
-			if (seen.has(normalized)) {
-				throw new CommitPlanError(
-					`Invalid commit plan: file "${file}" appears in multiple plans. ` +
-						`Files that contain multiple concerns must be grouped into a single Fat Commit plan.`,
-					"duplicate-file",
-					[file],
-				);
-			}
-			seen.add(normalized);
-		}
-	}
+	const priorCommits = completeness?.committedShas ?? [];
+	const { witness, remainingPaths } = assertValidatedSource(
+		repoPath,
+		completeness?.witness,
+		priorCommits,
+	);
+	const intentIssue = witnessPublicationIntentIssue(
+		witness,
+		explicitPushTargetSnapshot,
+	);
+	if (intentIssue) throw new PublicationCompletenessError(intentIssue);
+	assertCommitPlanCoverage(
+		repoPath,
+		plans,
+		remainingPaths,
+		witness.expectedChangedPaths,
+	);
 
 	// 3. DiffHash race-condition guard
 	// R73: skip guard when the stored hash is the empty-diff hash (e3b0c44...)
@@ -128,7 +113,7 @@ export async function executeMultiCommitAndPush(
 	// there is no staged content to race against.
 	const EMPTY_DIFF_HASH =
 		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-	if (expectedDiffHash !== EMPTY_DIFF_HASH) {
+	if (priorCommits.length === 0 && expectedDiffHash !== EMPTY_DIFF_HASH) {
 		const currentDiff =
 			explicitPushTargetSnapshot && "kind" in explicitPushTargetSnapshot
 				? readCreationStagedDiff(repoPath)
@@ -158,24 +143,53 @@ export async function executeMultiCommitAndPush(
 	}
 
 	// 5. Capture original HEAD, preserving a proven unborn branch as null.
-	const originalHead = readOriginalHead(repoPath);
+	const originalHead = witness.baseHeadSha;
+	assertValidatedSource(repoPath, witness, priorCommits);
 
 	// 6. Unstage everything so we can re-stage file-by-file. The default mixed
 	//    reset works against both an existing HEAD and Git's empty unborn index.
 	gitExecArgs(["reset", "--mixed"], repoPath);
 
-	// 7. Commit loop (inter-commit reset after each commit)
+	// 7. Commits naturally leave index == HEAD; never reset raced input on failure.
 	const committedShas: CommittedSha[] = [];
 
 	try {
 		for (const [i, plan] of plans.entries()) {
 			const pendingFiles = collectPendingFiles(plans, i);
 			try {
+				const beforeHead = readOriginalHead(repoPath);
+				if (
+					beforeHead !==
+					(committedShas.at(-1)?.sha ??
+						priorCommits.at(-1)?.sha ??
+						originalHead)
+				)
+					throw new PublicationCompletenessError(
+						"HEAD changed during commit execution.",
+					);
 				// Stage the plan's files
 				gitExecArgs(
 					["--literal-pathspecs", "add", "--", ...plan.files],
 					repoPath,
 				);
+
+				const stagedTree = gitExecArgs(["write-tree"], repoPath);
+				const stagedPaths = changedPaths(repoPath, beforeHead, stagedTree);
+				const wrongContent = new Set(
+					changedPaths(repoPath, stagedTree, witness.expectedTreeSha),
+				);
+				if (
+					stagedPaths.some(
+						(file) => !plan.files.includes(file) || wrongContent.has(file),
+					) ||
+					plan.files.some(
+						(file) =>
+							remainingPaths.includes(file) && !stagedPaths.includes(file),
+					)
+				)
+					throw new PublicationCompletenessError(
+						"Staged plan no longer matches validated source content.",
+					);
 
 				// Commit with temp message file
 				const message = formatConventionalCommit(plan.commit);
@@ -204,17 +218,6 @@ export async function executeMultiCommitAndPush(
 				}).trim();
 				committedShas.push({ sha, files: [...plan.files] });
 			} catch (commitErr) {
-				try {
-					gitExecArgs(["reset", "--mixed"], repoPath);
-				} catch (resetErr) {
-					throw new GitExecError(
-						`reset HEAD failed during cleanup: ${resetErr instanceof Error ? resetErr.message : String(resetErr)}. ` +
-							`Original commit error: ${commitErr instanceof Error ? commitErr.message : String(commitErr)}`,
-						"reset",
-						1,
-					);
-				}
-
 				const fileState = inspectCommitPlanFileState(repoPath, plan.files);
 				if (fileState.nonexistentFiles.length > 0) {
 					throw new CommitPlanError(
@@ -265,13 +268,6 @@ export async function executeMultiCommitAndPush(
 					},
 				);
 			}
-
-			// Clear staging between plans
-			try {
-				gitExecArgs(["reset", "--mixed"], repoPath);
-			} catch {
-				/* best-effort */
-			}
 		}
 	} catch (err) {
 		if (err instanceof CommitPlanError || err instanceof PartialCommitError) {
@@ -284,7 +280,37 @@ export async function executeMultiCommitAndPush(
 		);
 	}
 
-	// 8. Publish. Never send landed commits back through LLM planning on failure.
+	let finalTreeSha: string;
+	try {
+		assertValidatedSource(repoPath, witness, [
+			...priorCommits,
+			...committedShas,
+		]);
+		finalTreeSha = assertFinalTree(repoPath, witness);
+	} catch (error) {
+		throw new PartialCommitError(
+			`Final completeness not demonstrated: ${error instanceof Error ? error.message : String(error)}`,
+			{
+				committedShas,
+				originalHead,
+				failedIndex: plans.length,
+				totalCount: plans.length,
+				pendingFiles: changedPaths(
+					repoPath,
+					readOriginalHead(repoPath),
+					witness.expectedTreeSha,
+				),
+			},
+		);
+	}
+
+	const finalHeadSha = committedShas.at(-1)?.sha;
+	if (!finalHeadSha)
+		throw new PublicationCompletenessError(
+			"No established final commit identity.",
+		);
+
+	// 8. Publish the proven commit, never a newly re-resolved HEAD.
 	let creationPublicationSnapshot: ExplicitCreatePushSnapshot | undefined;
 	let pushRetryCount: number;
 	let publishedSha: string | null;
@@ -300,7 +326,7 @@ export async function executeMultiCommitAndPush(
 					repoPath,
 					explicitPushTargetSnapshot,
 					settings,
-					committedShas.at(-1)?.sha ?? "",
+					finalHeadSha,
 				);
 				creationPublicationSnapshot = creation.snapshot;
 				publication = creation;
@@ -308,7 +334,7 @@ export async function executeMultiCommitAndPush(
 				publication = publishExplicitTargetSnapshot(
 					repoPath,
 					explicitPushTargetSnapshot,
-					gitExecArgs(["rev-parse", "HEAD"], repoPath),
+					finalHeadSha,
 				);
 			}
 			pushRetryCount = publication.retryCount;
@@ -320,8 +346,14 @@ export async function executeMultiCommitAndPush(
 				retryCount: pushRetryCount,
 				publishedSha,
 				remoteTrackingRefSynchronization,
-			} = executePush(repoPath, !!settings.autoPush));
+			} = executePush(repoPath, witness.publicationRequired, finalHeadSha));
 		}
+		if (witness.publicationRequired && publishedSha !== finalHeadSha)
+			throw new PushError(
+				"Required exact publication was not verified; local commits are preserved.",
+				false,
+				pushRetryCount,
+			);
 	} catch (error) {
 		if (error instanceof PushError) {
 			throw new PostCommitPushError(error, {
@@ -334,6 +366,7 @@ export async function executeMultiCommitAndPush(
 	}
 
 	return {
+		commitCompletion: { finalHeadSha, finalTreeSha },
 		...(creationPublicationSnapshot ? { creationPublicationSnapshot } : {}),
 		committedShas,
 		originalHead,

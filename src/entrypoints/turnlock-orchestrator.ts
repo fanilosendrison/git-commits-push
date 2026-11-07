@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { OrchestratorConfig } from "turnlock";
 import { stateSchema } from "../config/state-schema.ts";
+import { finalizeCommitOutcomePhase } from "../modules/git/commit-outcome-checkpoint.ts";
 import { finalizeCreationOutcomePhase } from "../modules/git/creation-outcome-checkpoint.ts";
 import { GCP_TURNLOCK_ORCHESTRATOR_NAME } from "../modules/reconciliation/legacy-global-run-paths.ts";
 import { runDiscoveryAndValidationPhase } from "../phases/step1-discovery-validation.ts";
@@ -17,9 +18,8 @@ import { buildResumeCommand } from "../utils/runtime-launch.ts";
 
 if (isDirectExecution(import.meta.url)) {
 	// 1. Run bootstrap synchronously to set process.argv before Turnlock is imported
-	const initialInvocationScope = bootstrapOrchestratorRun(
-		process.argv.slice(2),
-	);
+	const { invocationScope: initialInvocationScope, isResume } =
+		bootstrapOrchestratorRun(process.argv.slice(2));
 
 	// 2. Dynamically import Turnlock so it parses the mutated process.argv
 	const { definePhase, runOrchestrator } = await import("turnlock");
@@ -35,9 +35,12 @@ if (isDirectExecution(import.meta.url)) {
 		runDirRoot: path.join(os.homedir(), ".turnlock", "runs"),
 		stateSchema,
 		phases: {
-			"discovery-and-validation": definePhase(runDiscoveryAndValidationPhase),
+			"discovery-and-validation": definePhase<GlobalState>((state, io) =>
+				runDiscoveryAndValidationPhase(state, io, isResume),
+			),
 			"commit-and-push": definePhase(runCommitAndPushPhase),
 			"creation-outcome": definePhase(finalizeCreationOutcomePhase),
+			"commit-outcome": definePhase(finalizeCommitOutcomePhase),
 		},
 	};
 

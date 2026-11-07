@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.5.0"
+version: "3.5.1"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -238,13 +238,32 @@ repo (one per logical change), or one commit covering several related files.
 The skill respects the plan exactly — each commit in the plan gets its own
 `git commit` with the proposed message and the specified set of files.
 
-**Race detection.** Before each commit, the skill checks if the staged diff
-still matches the original `diffHash`. If it changed (e.g., a background tool
-staged something else), the repo is re-validated from scratch.
+**Exact validated source.** Before inference, Turnlock retains the original
+HEAD (or unborn absence), index tree T, exact changed paths and worktree identity.
+Validation reads its diff from pinned H0/T objects and rejects changed source
+before issuing the durable witness. Discovery is not rerun on resume to recapture
+residual input. The publisher checks complete, non-duplicated plan coverage before
+resetting or staging. An omitted file is a structural failure, not permission to publish less.
+Retries retain T; changed HEAD, index or working input fails closed rather than
+silently adopting a new source.
+
+After all commits, HEAD's tree must equal T before publication. Success also
+requires the exact verified remote SHA when publication was requested. With
+ordinary `autoPush=false`, complete local commits do not imply a remote push.
+This proves completeness against the publisher's own validated source, not an
+external review identity that was never supplied to it.
 
 **Partial failure handling.** If one commit succeeds and the next one fails,
 the already-created commits are preserved. The skill reports which commits
-landed and which didn't, then retries the remainder.
+landed and which did not. Only a proven durable commit chain can authorize a
+remaining-file retry; uncheckpointed history stops without rewriting commits.
+Empty LLM output and nonzero commit counts never establish success. An already
+complete durable chain can recover only through independent Git proof and its
+required publication evidence; it never authorizes inference against an empty
+diff or another publication. Terminal
+commit/publication evidence is checkpointed through Turnlock before reporting.
+Historical states without the source witness remain readable, but cannot grant
+new commit effects or a new complete-success claim.
 
 **Initial commits.** A dirty repository with a proven unborn branch is supported.
 The CLI records the absence of a prior commit, builds the initial commit from the

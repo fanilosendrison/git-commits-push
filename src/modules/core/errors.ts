@@ -3,6 +3,7 @@ import type { CommittedSha, OriginalHead } from "../../types.ts";
 export type CommitPlanErrorKind =
 	| "duplicate-file"
 	| "empty-plans"
+	| "incomplete-coverage"
 	| "missing-file"
 	| "nonexistent-file";
 

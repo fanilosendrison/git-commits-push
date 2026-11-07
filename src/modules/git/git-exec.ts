@@ -82,14 +82,18 @@ function executeGitArgs(
 	cwd: string,
 	processConfig: readonly GitProcessConfigEntry[],
 	actualGraph = false,
+	indexPath?: string,
+	input?: string,
 ): string {
 	return execFileSync("git", [...args], {
 		cwd,
 		encoding: "utf-8",
 		stdio: ["pipe", "pipe", "pipe"],
+		...(input === undefined ? {} : { input }),
 		env: {
 			...buildGitEnv(processConfig),
 			...(actualGraph ? { GIT_GRAFT_FILE: "" } : {}),
+			...(indexPath ? { GIT_INDEX_FILE: indexPath } : {}),
 		},
 		maxBuffer: 50 * 1024 * 1024,
 	});
@@ -118,6 +122,23 @@ export function gitExecActualGraphArgs(
 		[],
 		true,
 	).trim();
+}
+
+/** Inspect an immutable source through a private index, never the caller's index. */
+export function gitExecIndexArgs(
+	args: readonly string[],
+	cwd: string,
+	indexPath: string,
+	input?: string,
+): string {
+	return executeGitArgs(
+		["--no-replace-objects", "--no-optional-locks", ...args],
+		cwd,
+		[],
+		false,
+		indexPath,
+		input,
+	);
 }
 
 /** Run Git without a shell while preserving machine-readable stdout exactly. */

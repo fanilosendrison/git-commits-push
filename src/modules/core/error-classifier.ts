@@ -11,12 +11,9 @@ import {
 
 export function classifyError(
 	err: unknown,
-	committedShasExist: boolean,
-): { kind: "retry" | "fail"; error: FeedbackError } | { kind: "success" } {
+	_committedShasExist: boolean,
+): { kind: "retry" | "fail"; error: FeedbackError } {
 	if (err instanceof CommitPlanError) {
-		if (err.kind === "empty-plans" && committedShasExist) {
-			return { kind: "success" };
-		}
 		return {
 			kind: "retry",
 			error: {
@@ -96,8 +93,10 @@ export function getResolutionHint(kind: CommitPlanErrorKind): string {
 			return "The file has no changes to commit (already committed or empty). Remove it from the plan.";
 		case "nonexistent-file":
 			return "The file path does not exist on disk in the working directory. Use only paths that appear in the staged diff (the `diff` parameter). Remove the path from the plan or fix the path spelling.";
+		case "incomplete-coverage":
+			return "Generate plans covering every remaining validated path exactly once; do not omit files or invent a catch-up commit.";
 		case "empty-plans":
-			return "If pending_files is empty AND committed_shas covers everything, return an empty array []. Otherwise, generate plans that cover the pending_files exactly (plus any files you regroup via Fat Commit).";
+			return "An empty plan is not completion evidence. Generate a complete plan for the validated remaining paths.";
 		default: {
 			const _exhaustive: never = kind;
 			return _exhaustive;

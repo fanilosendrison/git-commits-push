@@ -1,9 +1,4 @@
-/**
- * src/types.ts — Type contracts shared between production code and tests.
- * This file must reflect the schemas defined in NIB-S §3 (Data Structures).
- *
- * STATUS: STUB — production implementation pending (RED phase).
- */
+/** Shared runtime and durable-state contracts; parsed through config/state-schema.ts. */
 
 import type {
 	CreationAnchor,
@@ -278,6 +273,7 @@ export type CommitJobPayload =
 export type PublicationCheckpointPayload = { repository: string } & (
 	| { mode: "checkpoint-push-only" }
 	| { mode: "checkpoint-creation-outcome" }
+	| { mode: "checkpoint-commit-outcome" }
 );
 export type PushOnlyCheckpointPayload = PublicationCheckpointPayload & {
 	mode: "checkpoint-push-only";
@@ -304,7 +300,24 @@ export interface CommitJobResultError {
 
 export type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
 
+/** Immutable Git authority captured before inference and retained across every retry. */
+export interface ValidatedSourceWitness {
+	readonly repository: string;
+	readonly gitDirectory: string;
+	readonly baseHeadSha: OriginalHead;
+	readonly expectedTreeSha: string;
+	readonly expectedChangedPaths: readonly string[];
+	readonly publicationRequired: boolean;
+}
+
+export interface CommitCompletionEvidence {
+	readonly finalHeadSha: string;
+	readonly finalTreeSha: string;
+}
+
 export interface RepoState {
+	validatedSource?: ValidatedSourceWitness | undefined;
+	commitCompletion?: CommitCompletionEvidence | undefined;
 	repository: string;
 	status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
 	operation?: RepositoryOperation | undefined;

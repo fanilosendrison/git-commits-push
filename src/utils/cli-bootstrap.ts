@@ -33,9 +33,14 @@ function logRequestStarted(runId: string, identity: RequestIdentity): void {
 	}
 }
 
+export interface OrchestratorBootstrap {
+	readonly invocationScope: InvocationScope;
+	readonly isResume: boolean;
+}
+
 export function bootstrapOrchestratorRun(
 	args: readonly string[],
-): InvocationScope {
+): OrchestratorBootstrap {
 	const parsed = parseInvocationArguments(args);
 	process.argv.splice(
 		2,
@@ -51,7 +56,7 @@ export function bootstrapOrchestratorRun(
 	if (isResume) {
 		// Resume never redefines scope: the parser rejects targeted flags with
 		// --resume, and persisted Turnlock state overrides this fallback.
-		return GLOBAL_INVOCATION_SCOPE;
+		return { invocationScope: GLOBAL_INVOCATION_SCOPE, isResume: true };
 	}
 
 	const invocationScope = resolveInvocationScope(
@@ -68,5 +73,5 @@ export function bootstrapOrchestratorRun(
 	const identity = resolveRequestIdentity();
 	logRequestStarted(runId, identity);
 
-	return invocationScope;
+	return { invocationScope, isResume: false };
 }

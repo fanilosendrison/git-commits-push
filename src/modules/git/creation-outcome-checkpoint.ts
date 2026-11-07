@@ -10,6 +10,7 @@ import type {
 } from "../../types.ts";
 import { finalizeCommitPushPhase } from "../core/commit-push-finalizer.ts";
 import { createSkillStatsLog } from "../telemetry/stats-logger.ts";
+import { qualifyCommitOutcomes } from "./commit-completion.ts";
 
 /** Persist exact success/failure evidence through Turnlock before terminal reporting. */
 export function checkpointCreationOutcome(
@@ -18,7 +19,7 @@ export function checkpointCreationOutcome(
 	io: PhaseIO<GlobalState>,
 ): PhaseResult<GlobalState, unknown> {
 	const terminalRepos = Object.fromEntries(
-		Object.entries(repos).map(([id, repo]) => [
+		Object.entries(qualifyCommitOutcomes(repos)).map(([id, repo]) => [
 			id,
 			repo.status === "SUCCESS" || repo.status === "FAILED"
 				? repo
