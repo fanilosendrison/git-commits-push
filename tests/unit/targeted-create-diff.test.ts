@@ -5,7 +5,6 @@ import { test } from "node:test";
 import { runDiscovery } from "../../src/modules/core/discovery.ts";
 import { processRepoValidationAndDiff } from "../../src/modules/core/validators/pre-commit-validators.ts";
 import { validateAndPushExplicitSnapshot } from "../../src/modules/git/explicit-push.ts";
-import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import {
 	parseInvocationArguments,
 	resolveInvocationScope,
@@ -15,6 +14,7 @@ import {
 	createFixture,
 	git,
 } from "../fixtures/targeted-create.ts";
+import { executeMultiCommitAndPush } from "../fixtures/validated-publisher.ts";
 
 function observedScope(f: ReturnType<typeof createFixture>, B = f.baseSha) {
 	const args = [...f.args];

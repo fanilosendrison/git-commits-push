@@ -7,7 +7,7 @@
 // freezes the destination and yields for the LLM; the resume without any
 // targeted flag commits on the detached HEAD and publishes the exact result.
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -15,6 +15,7 @@ import { after, before, describe, test } from "node:test";
 import type { CommitJobResultSuccess, Settings } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
+import { resumeWithReporting } from "../fixtures/resume-reporting.ts";
 
 const SKILL_ENTRYPOINT = path.resolve(
 	import.meta.dirname,
@@ -109,7 +110,7 @@ function captureCheckoutState(
 }
 
 function runOrchestrator(extraArguments: readonly string[]): RunReceipt {
-	const result = spawnSync(
+	const result = resumeWithReporting(
 		process.execPath,
 		[SKILL_ENTRYPOINT, ...extraArguments],
 		{ env: { ...process.env, ...env.env() }, encoding: "utf-8" },

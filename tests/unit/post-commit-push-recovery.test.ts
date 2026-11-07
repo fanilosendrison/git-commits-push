@@ -9,7 +9,6 @@ import {
 	PostCommitPushError,
 	PushError,
 } from "../../src/modules/core/errors.ts";
-import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
 import { classifyTransient } from "../../src/modules/git/push.ts";
 import {
 	captureTrackedPushSnapshot,
@@ -19,6 +18,7 @@ import { mergePostCommitPushFailure } from "../../src/phases/step2-commit-push.t
 import type { CommitPlan, Settings } from "../../src/types.ts";
 import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
+import { executeMultiCommitAndPush } from "../fixtures/validated-publisher.ts";
 
 const SETTINGS: Settings = {
 	searchPaths: [],

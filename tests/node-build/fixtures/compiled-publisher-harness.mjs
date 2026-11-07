@@ -7,6 +7,9 @@ if (!compiledPublisherPath || !repositoryPath || !expectedDiffHash) {
 }
 
 const { executeMultiCommitAndPush } = await import(compiledPublisherPath);
+const { captureValidatedSource } = await import(
+	new URL("./validated-source.js", compiledPublisherPath).href
+);
 await executeMultiCommitAndPush(
 	repositoryPath,
 	[
@@ -29,4 +32,6 @@ await executeMultiCommitAndPush(
 		systemPromptPath: "unused-by-publisher",
 		temperature: 0,
 	},
+	undefined,
+	{ witness: captureValidatedSource(repositoryPath, false) },
 );

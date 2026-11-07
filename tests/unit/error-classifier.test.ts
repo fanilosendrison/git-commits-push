@@ -26,17 +26,18 @@ import {
 describe("classifyError", () => {
 	// ── CommitPlanError ────────────────────────────────────────────────────
 
-	test("CommitPlanError(empty-plans) + committedShasExist=true → success", () => {
+	test("CommitPlanError(empty-plans) + landed commits still requires proof", () => {
 		const err = new CommitPlanError("empty plans", "empty-plans");
 		const result = classifyError(err, true);
-		assert.deepStrictEqual(result, { kind: "success" });
+		assert.equal(result.kind, "retry");
+		assert.equal(result.error.kind, "structural");
 	});
 
 	test("CommitPlanError(empty-plans) + committedShasExist=false → structural retry", () => {
 		const err = new CommitPlanError("empty plans", "empty-plans");
 		const result = classifyError(err, false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "retry");
 			assert.strictEqual(result.error.kind, "structural");
 			assert.strictEqual(result.error.message, "empty plans");
@@ -52,7 +53,7 @@ describe("classifyError", () => {
 			const err = new CommitPlanError(`test ${kind}`, kind, [...files]);
 			const result = classifyError(err, true);
 			assert.notDeepStrictEqual(result, { kind: "success" });
-			if (result.kind !== "success") {
+			if ("error" in result) {
 				assert.strictEqual(result.kind, "retry");
 				assert.strictEqual(result.error.kind, "structural");
 				assert.strictEqual(result.error.message, `test ${kind}`);
@@ -68,7 +69,7 @@ describe("classifyError", () => {
 		const err = new DiffHashMismatchError();
 		const result = classifyError(err, false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "retry");
 			assert.strictEqual(result.error.kind, "race");
 			assert.ok(result.error.message.includes("DiffHash mismatch"));
@@ -89,7 +90,7 @@ describe("classifyError", () => {
 		const err = new PartialCommitError("commit 2/3 failed", ctx);
 		const result = classifyError(err, false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "retry");
 			assert.strictEqual(result.error.kind, "git");
 			assert.ok(result.error.message.includes("commit 2/3 failed"));
@@ -103,7 +104,7 @@ describe("classifyError", () => {
 		const err = new GitExecError("fatal: index.lock", "git commit", 128);
 		const result = classifyError(err, false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "fail");
 			assert.strictEqual(result.error.kind, "git");
 			assert.strictEqual(result.error.message, "fatal: index.lock");
@@ -116,7 +117,7 @@ describe("classifyError", () => {
 		const err = new PushError("network timeout", true);
 		const result = classifyError(err, false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "retry");
 			assert.strictEqual(result.error.kind, "network");
 			assert.strictEqual(result.error.message, "network timeout");
@@ -127,7 +128,7 @@ describe("classifyError", () => {
 		const err = new PushError("auth failed", false);
 		const result = classifyError(err, false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "fail");
 			assert.strictEqual(result.error.kind, "network");
 			assert.strictEqual(result.error.message, "auth failed");
@@ -140,7 +141,7 @@ describe("classifyError", () => {
 		const err = new Error("something unexpected");
 		const result = classifyError(err, false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "fail");
 			assert.strictEqual(result.error.kind, "git");
 			assert.strictEqual(result.error.message, "something unexpected");
@@ -150,7 +151,7 @@ describe("classifyError", () => {
 	test("non-Error value → git fail with string message", () => {
 		const result = classifyError("string error", false);
 		assert.notDeepStrictEqual(result, { kind: "success" });
-		if (result.kind !== "success") {
+		if ("error" in result) {
 			assert.strictEqual(result.kind, "fail");
 			assert.strictEqual(result.error.kind, "git");
 			assert.strictEqual(result.error.message, "string error");
@@ -186,7 +187,7 @@ describe("getResolutionHint", () => {
 		const hint = getResolutionHint("empty-plans");
 		assert.ok(hint);
 		assert.strictEqual(typeof hint, "string");
-		assert.ok(hint.includes("empty array"));
+		assert.ok(hint.includes("empty plan"));
 	});
 });
 

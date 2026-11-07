@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, test } from "node:test";
+import { captureValidatedSource } from "../../src/modules/git/validated-source.ts";
 import type {
 	CommitJobResultSuccess,
 	CommitPlan,
@@ -11,6 +11,7 @@ import type {
 } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
+import { resumeWithReporting } from "../fixtures/resume-reporting.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 const SKILL_ENTRYPOINT = path.resolve(
@@ -148,6 +149,8 @@ describe("A3 — Fallback model escalation", () => {
 				repos: {
 					[repoId]: {
 						repository: repo.dir,
+						operation: "commit-and-push",
+						validatedSource: captureValidatedSource(repo.dir, false),
 						status: "RUNNING",
 						diffHash,
 						attempts: {
@@ -180,7 +183,7 @@ describe("A3 — Fallback model escalation", () => {
 		};
 		env.writeLLMResult(repoId, llmResult, runId);
 
-		const result = spawnSync(
+		const result = resumeWithReporting(
 			process.execPath,
 			[SKILL_ENTRYPOINT, "--resume", "--run-id", runId],
 			{
@@ -277,6 +280,8 @@ describe("A3 — Fallback model escalation", () => {
 				repos: {
 					[repoId]: {
 						repository: repo.dir,
+						operation: "commit-and-push",
+						validatedSource: captureValidatedSource(repo.dir, false),
 						status: "RUNNING",
 						diffHash,
 						attempts: { validation: 1 },
@@ -294,7 +299,7 @@ describe("A3 — Fallback model escalation", () => {
 		env.writeLLMResult(repoId, llmResult, runId);
 		const activeEnvironment = env;
 		const launch = (env: MockTurnlockEnvironment) =>
-			spawnSync(
+			resumeWithReporting(
 				process.execPath,
 				[SKILL_ENTRYPOINT, "--resume", "--run-id", runId],
 				{
@@ -330,7 +335,7 @@ describe("A3 — Fallback model escalation", () => {
 			secondResult.stdout.includes("action: ERROR"),
 			`stderr=${secondResult.stderr}\nstdout=${secondResult.stdout}`,
 		);
-		assert.ok(!secondResult.stdout.includes("action: DELEGATE"));
+		assert.ok(secondResult.stdout.includes("commit-outcome"));
 		const state = readPersistedState(env.runDir, runId);
 		assert.strictEqual(state.data.repos[repoId]?.fallbackAttempted, true);
 	});

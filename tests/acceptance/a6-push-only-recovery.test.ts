@@ -143,7 +143,7 @@ describe("A6 — clean tracked push-only recovery", () => {
 			status?: string;
 		};
 		assert.strictEqual(persistedRepository.operation, "push-only");
-		assert.strictEqual(persistedRepository.status, "RUNNING");
+		assert.strictEqual(persistedRepository.status, "SUCCESS");
 		assert.strictEqual(
 			persistedRepository.pushSnapshot?.validatedHeadSha,
 			expectedHead,

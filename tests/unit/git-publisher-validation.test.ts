@@ -16,15 +16,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
-import {
-	CommitPlanError,
-	PartialCommitError,
-} from "../../src/modules/core/errors.ts";
-import { executeMultiCommitAndPush } from "../../src/modules/git/publisher.ts";
+import { CommitPlanError } from "../../src/modules/core/errors.ts";
 import { classifyTransient } from "../../src/modules/git/push.ts";
 import type { CommitPlan, Settings } from "../../src/types.ts";
 import { extractDiff } from "../../src/utils/git-utils.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
+import { executeMultiCommitAndPush } from "../fixtures/validated-publisher.ts";
 
 const NO_PUSH_SETTINGS: Settings = {
 	searchPaths: [],
@@ -127,8 +124,8 @@ describe("classifyTransient", () => {
 
 // ── U-GE-16: Mid-loop failure with context.committedShas (R59) ───────────
 
-describe("U-GE-16 | mid-loop failure preserves committed SHAs in context", () => {
-	test("plan 1 commits, plan 2 ghost file → context carries landed SHA", async () => {
+describe("U-GE-16 | full-plan admission rejects a later nonexistent path", () => {
+	test("plan 2 ghost file rejects before plan 1 can commit", async () => {
 		const repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage("a.ts", "export const a = 1;\n");
@@ -165,27 +162,15 @@ describe("U-GE-16 | mid-loop failure preserves committed SHAs in context", () =>
 		assert.ok(caught instanceof CommitPlanError);
 		if (caught instanceof CommitPlanError) {
 			assert.strictEqual(caught.kind, "nonexistent-file");
-			// R59: context captures plan 1's landed commit
-			const context = caught.context;
-			assert.ok(context);
-			const committedShas = context.committedShas;
-			const pendingFiles = context.pendingFiles;
-			assert.ok(committedShas);
-			assert.ok(pendingFiles);
-			assert.strictEqual(committedShas.length, 1);
-			assert.deepStrictEqual(committedShas[0]?.files, ["a.ts"]);
-			assert.ok(pendingFiles.includes("c.ts"));
-			assert.ok(!pendingFiles.includes("a.ts"));
-			// ghost.ts from the failed plan IS in pendingFiles (planned but not committed)
-			assert.ok(pendingFiles.includes("ghost.ts"));
+			assert.equal(caught.context?.committedShas?.length ?? 0, 0);
 		}
 
-		// Verify plan 1's commit landed in git history
+		// Actual mid-loop failures are covered independently in publication-partial-recovery.
 		const log = execSync("git log --oneline", {
 			cwd: repo.dir,
 			encoding: "utf-8",
 		});
-		assert.ok(log.includes("add a"));
+		assert.ok(!log.includes("add a"));
 
 		repo.dispose();
 	});
@@ -247,24 +232,36 @@ describe("machine-readable planned-file classification", () => {
 					},
 					files: ["*.ts"],
 				},
+				{
+					commit: {
+						type: "test",
+						description: "stage remaining source",
+						isBreaking: false,
+					},
+					files: ["other.ts"],
+				},
 			],
 			diffHash,
 			NO_PUSH_SETTINGS,
 		);
 
 		assert.strictEqual(
-			execSync("git show --name-only --format= HEAD", {
+			execSync("git show --name-only --format= HEAD~1", {
 				cwd: repo.dir,
 				encoding: "utf-8",
 			}).trim(),
 			"*.ts",
 		);
-		assert.match(
-			execSync("git status --porcelain", {
+		assert.equal(
+			execSync("git show --name-only --format= HEAD", {
 				cwd: repo.dir,
-				encoding: "utf-8",
-			}),
-			/other\.ts/u,
+				encoding: "utf8",
+			}).trim(),
+			"other.ts",
+		);
+		assert.equal(
+			execSync("git status --porcelain", { cwd: repo.dir, encoding: "utf8" }),
+			"",
 		);
 		repo.dispose();
 	});
@@ -304,7 +301,7 @@ describe("machine-readable planned-file classification", () => {
 		repo.dispose();
 	});
 
-	test("leaves ignored-path staging failures as partial commit errors", async () => {
+	test("rejects unvalidated ignored paths before commit effects", async () => {
 		const repo = GitRepoFixture.create();
 		repo.commit("initial");
 		repo.writeAndStage(".gitignore", "ignored.ts\n");
@@ -328,7 +325,7 @@ describe("machine-readable planned-file classification", () => {
 				diffHash,
 				NO_PUSH_SETTINGS,
 			),
-			PartialCommitError,
+			{ kind: "nonexistent-file" },
 		);
 		repo.dispose();
 	});

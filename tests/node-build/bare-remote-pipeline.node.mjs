@@ -254,7 +254,7 @@ test("compiled supervisor commits and pushes through a local bare remote", async
 		assert.equal(pipeline.signal, null);
 		assert.deepEqual(
 			protocolActions(pipeline.stdout),
-			["DELEGATE", "DONE"],
+			["DELEGATE", "DELEGATE", "DONE"],
 			`stdout=${pipeline.stdout}\nstderr=${pipeline.stderr}`,
 		);
 		assert.equal(nonProtocolBytes(pipeline.stdout), "");

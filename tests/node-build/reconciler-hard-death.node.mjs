@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+import assert, { deepStrictEqual as deepEqual } from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import {
@@ -372,7 +372,7 @@ test("EXEC-INV-4/8/10 | a dead ordinary worktree owner is fenced and never repla
 				false,
 			);
 			assert.strictEqual(nonProtocolBytes(ownerBOutput.stdout()), "");
-			assert.deepStrictEqual(protocolActions(ownerBOutput.stdout()), ["DONE"]);
+			deepEqual(protocolActions(ownerBOutput.stdout()), ["DELEGATE", "DONE"]);
 		} finally {
 			if (ownerA && ownerA.exitCode === null && ownerA.signalCode === null) {
 				ownerA.kill("SIGKILL");
@@ -658,7 +658,7 @@ test("EXEC-INV-4/8/10 | a dead targeted owner is fenced and never replayed", {
 				targetA.baseline,
 			);
 			assert.strictEqual(nonProtocolBytes(ownerBOutput.stdout()), "");
-			assert.deepStrictEqual(protocolActions(ownerBOutput.stdout()), ["DONE"]);
+			deepEqual(protocolActions(ownerBOutput.stdout()), ["DELEGATE", "DONE"]);
 		} finally {
 			if (ownerA && ownerA.exitCode === null && ownerA.signalCode === null) {
 				ownerA.kill("SIGKILL");
