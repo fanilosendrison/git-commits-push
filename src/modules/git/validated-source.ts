@@ -15,6 +15,7 @@ import type {
 import { gitExecArgs, gitExecArgsRaw, gitExecIndexArgs } from "./git-exec.ts";
 import { isFullGitObjectId } from "./git-object-id.ts";
 import { readLocalObjectRevisions } from "./local-object-revisions.ts";
+import { assertPreparedMergeCommit } from "./prepared-merge-source.ts";
 
 /** Completeness cannot be established; no retry may adopt a different source tree. */
 export class PublicationCompletenessError extends Error {
@@ -271,6 +272,10 @@ export function assertValidatedSource(
 			"Validated changed-path membership is incoherent.",
 		);
 	const expectedSet = new Set(expected);
+	if (witness.preparedMerge && committed.length > 1)
+		throw new PublicationCompletenessError(
+			"Prepared merge cannot split the validated source across commits.",
+		);
 	let parent = witness.baseHeadSha;
 	const accounted = new Set<string>();
 	for (const commit of committed) {
@@ -278,6 +283,8 @@ export function assertValidatedSource(
 			throw new PublicationCompletenessError(
 				"Malformed durable commit identity.",
 			);
+		if (witness.preparedMerge)
+			assertPreparedMergeCommit(repository, commit.sha, witness);
 		const parents = readLocalObjectRevisions(repository, [
 			"--parents",
 			"--no-walk",
@@ -285,7 +292,14 @@ export function assertValidatedSource(
 		]).split(" ");
 		if (
 			parents[0] !== commit.sha ||
-			!samePaths(parents.slice(1), parent ? [parent] : [])
+			!samePaths(
+				parents.slice(1),
+				witness.preparedMerge
+					? [parent ?? "", witness.preparedMerge.secondParentSha]
+					: parent
+						? [parent]
+						: [],
+			)
 		)
 			throw new PublicationCompletenessError(
 				"Landed commit chain does not extend the validated HEAD exactly.",

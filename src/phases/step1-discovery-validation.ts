@@ -12,6 +12,7 @@ import type {
 	GlobalState,
 	PushOnlyCheckpointPayload,
 } from "../types.ts";
+import { prepareMergePublication } from "./prepared-merge-publication.ts";
 
 const skillLog = createSkillStatsLog();
 const currentParentModel = process.env.PI_PARENT_MODEL || "unknown";
@@ -28,6 +29,8 @@ export async function runDiscoveryAndValidationPhase(
 			"Discovery resume cannot establish a new validated-source authority; inspect preserved state and use a fresh invocation instead.",
 		);
 	const settings = readSettings(path.resolve(import.meta.dirname, "../config"));
+	if (state.invocationScope.kind === "prepared-merge")
+		return prepareMergePublication(state, io, settings);
 
 	// ── Log run_start on first invocation ───────────────────────────
 	const currentRunId = io.runId;

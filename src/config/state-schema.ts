@@ -3,6 +3,7 @@ import type { AttemptsByKind, CommitPlan, GlobalState } from "../types.ts";
 import { REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES } from "../types.ts";
 import { validateCreationStateRelations } from "./creation-state-relations.ts";
 import { invocationScopeWithGlobalDefault } from "./invocation-state-schema.ts";
+import { validatePreparedMergeRelations } from "./prepared-merge-state-schema.ts";
 import {
 	explicitCreatePushSnapshotSchema,
 	explicitPushTargetSnapshotSchema,
@@ -197,7 +198,19 @@ export const stateSchema: z.ZodSchema<GlobalState> = z
 	})
 	.superRefine((state, context) => {
 		const scope = state.invocationScope;
-		if (scope.kind === "targeted-create" && Object.keys(state.repos).length > 1)
+		if (
+			scope.kind === "prepared-merge" &&
+			scope.firstParent === scope.secondParent
+		)
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: "Prepared merge requires distinct ordered parents.",
+				path: ["invocationScope"],
+			});
+		if (
+			(scope.kind === "targeted-create" || scope.kind === "prepared-merge") &&
+			Object.keys(state.repos).length > 1
+		)
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
 				message: "creation state may contain only one exact repository record",
@@ -215,6 +228,7 @@ export const stateSchema: z.ZodSchema<GlobalState> = z
 					`a ${scope.kind} invocation may only persist state for its exact worktree`,
 					"repository",
 				);
+			validatePreparedMergeRelations(scope, repo, issue);
 			validateCreationStateRelations(scope, repo, issue);
 			if (scope.kind === "targeted-create") continue;
 			if (scope.kind === "global" || scope.kind === "worktree") {

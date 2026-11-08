@@ -4,6 +4,7 @@ import { buildExplicitCreatePushSnapshot } from "../git/explicit-create-push.ts"
 import { captureExplicitCreateTarget } from "../git/explicit-create-target.ts";
 import { buildExplicitPushSnapshot } from "../git/explicit-push.ts";
 import { captureExplicitPushTargetSnapshot } from "../git/explicit-push-target.ts";
+import { assertNoPreparedMerge } from "../git/prepared-merge-source.ts";
 import { resolveExplicitPushDestination } from "../git/push-destination.ts";
 import { captureTrackedPushSnapshot } from "../git/push-only.ts";
 import {
@@ -16,6 +17,11 @@ export async function runDiscovery(
 	invocationScope: InvocationScope,
 ): Promise<RepositoryInfo[]> {
 	assertExecutableInvocationScope(invocationScope);
+	if (invocationScope.kind === "prepared-merge")
+		throw new Error(
+			"Prepared merge requires dedicated exact-source discovery.",
+		);
+	assertNoPreparedMerge(invocationScope.repository);
 
 	if (invocationScope.kind === "worktree") {
 		return discoverWorktreeRepository(invocationScope, settings);

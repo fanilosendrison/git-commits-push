@@ -129,6 +129,7 @@ export function readCommitPatches(
 	repoPath: string,
 	outgoingShas: readonly string[],
 	localOnly = false,
+	allMergeParents = false,
 ): string {
 	if (localOnly) assertCreationPatchObjectsLocal(repoPath, outgoingShas);
 	return outgoingShas
@@ -137,6 +138,7 @@ export function readCommitPatches(
 				localOnly
 					? [
 							"show",
+							...(allMergeParents ? ["-m"] : []),
 							"--format=",
 							"--root",
 							"--patch",

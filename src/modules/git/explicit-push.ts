@@ -31,7 +31,7 @@ import {
 	readExplicitDestinationSha,
 	readHeadSha,
 } from "./explicit-push-target.ts";
-import { gitExecArgs } from "./git-exec.ts";
+import { type GitHookPolicy, gitExecArgs } from "./git-exec.ts";
 import {
 	assertOutgoingCommitsMatch,
 	isAncestor,
@@ -65,9 +65,11 @@ export function publishExactExplicitTarget(
 	destinationRef: string,
 	destinationBaselineSha: string | null,
 	sourceSha: string,
+	qualifySource?: () => void,
 ): ExplicitTargetPublication {
 	const observedSha = readExplicitDestinationSha(pushEndpoint, destinationRef);
 	if (observedSha === sourceSha) {
+		qualifySource?.();
 		return { retryCount: 0, publishedSha: sourceSha };
 	}
 	if (observedSha !== destinationBaselineSha) {
@@ -83,6 +85,7 @@ export function publishExactExplicitTarget(
 		destinationRef,
 		destinationBaselineSha,
 		sourceSha,
+		qualifySource,
 	);
 	const postflightSha = readExplicitDestinationSha(
 		pushEndpoint,
@@ -95,6 +98,7 @@ export function publishExactExplicitTarget(
 			retryCount,
 		);
 	}
+	qualifySource?.();
 	return { retryCount, publishedSha: sourceSha };
 }
 
@@ -103,14 +107,21 @@ export function publishExplicitTargetSnapshot(
 	repository: string,
 	snapshot: ExplicitPushTargetSnapshot,
 	sourceSha: string,
+	qualifySource?: () => void,
+	hookPolicy: GitHookPolicy = "inherit",
 ): ExplicitTargetPublication {
-	const pushEndpoint = openFrozenExplicitEndpoint(repository, snapshot);
+	const pushEndpoint = openFrozenExplicitEndpoint(
+		repository,
+		snapshot,
+		hookPolicy,
+	);
 	return publishExactExplicitTarget(
 		repository,
 		pushEndpoint,
 		snapshot.destinationRef,
 		snapshot.destinationBaselineSha,
 		sourceSha,
+		qualifySource,
 	);
 }
 

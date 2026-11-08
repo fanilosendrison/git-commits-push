@@ -10,6 +10,7 @@ const FRESH_INVOCATION_RECONCILIATION_MODES: Readonly<
 	worktree: "targeted",
 	targeted: "targeted",
 	"targeted-create": "targeted",
+	"prepared-merge": "targeted",
 });
 
 /** Pure pre-admission classification: every fresh exact request is non-coalescing. */

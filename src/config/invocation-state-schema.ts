@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { z } from "zod";
 import type { InvocationScope } from "../types.ts";
+import { preparedMergeMessageSchema } from "./prepared-merge-state-schema.ts";
 import {
 	destinationRefSchema,
 	gitObjectIdSchema,
@@ -21,6 +22,10 @@ const target = {
 const noCreation = {
 	baseRef: z.never().optional(),
 	baseSha: z.never().optional(),
+	firstParent: z.never().optional(),
+	secondParent: z.never().optional(),
+	indexTree: z.never().optional(),
+	mergeMessage: z.never().optional(),
 };
 /** Pure structural authority. Runtime scope resolution separately proves Git membership. */
 const invocationScopeSchema = z.discriminatedUnion("kind", [
@@ -33,6 +38,16 @@ const invocationScopeSchema = z.discriminatedUnion("kind", [
 			...target,
 			baseRef: destinationRefSchema,
 			baseSha: gitObjectIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("prepared-merge"),
+			...target,
+			firstParent: gitObjectIdSchema,
+			secondParent: gitObjectIdSchema,
+			indexTree: gitObjectIdSchema,
+			mergeMessage: preparedMergeMessageSchema,
 		})
 		.strict(),
 ]);

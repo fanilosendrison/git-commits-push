@@ -16,6 +16,7 @@ import {
 	readCommitPatches,
 	readOrderedOutgoingShas,
 } from "../../git/outgoing-commits.ts";
+import { assertNoPreparedMerge } from "../../git/prepared-merge-source.ts";
 import { isTrackedPublicationRequired } from "../../git/push.ts";
 import {
 	assertValidatedSource,
@@ -231,10 +232,12 @@ export async function processRepoValidationAndDiff(
 	diffHash: string;
 	validatedSource: ValidatedSourceWitness;
 }> {
+	assertNoPreparedMerge(repo.path);
 	if (!settings.skipTests) {
 		await runTestCascade(repo.path);
 	}
 
+	assertNoPreparedMerge(repo.path);
 	const target = repo.explicitPushTargetSnapshot;
 	const creationTarget = target && "kind" in target ? target : undefined;
 	if (creationTarget) {
@@ -256,11 +259,13 @@ export async function processRepoValidationAndDiff(
 		);
 	} else {
 		// Historical behavior only; creation never stages inside another repository.
+		assertNoPreparedMerge(repo.path);
 		execCwd(
 			"git submodule foreach --quiet --recursive 'git add -A'",
 			repo.path,
 		);
 	}
+	assertNoPreparedMerge(repo.path);
 	execCwd("git add -A", repo.path);
 
 	const input = readIndexSource(repo.path);

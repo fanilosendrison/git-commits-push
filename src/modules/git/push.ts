@@ -87,7 +87,9 @@ export function publishWithFrozenEndpoint(
 	destinationRef: string,
 	destinationBaselineSha: string | null,
 	sourceSha: string,
+	qualifySource?: () => void,
 ): number {
+	qualifySource?.();
 	try {
 		pushEndpoint.pushExact(sourceSha, destinationRef, destinationBaselineSha);
 		return 0;
@@ -111,9 +113,11 @@ export function publishWithFrozenEndpoint(
 			retryCount,
 		)
 	) {
+		qualifySource?.();
 		return retryCount;
 	}
 
+	qualifySource?.();
 	try {
 		pushEndpoint.pushExact(sourceSha, destinationRef, destinationBaselineSha);
 	} catch (error) {
@@ -136,6 +140,7 @@ export function publishWithFrozenEndpoint(
 				retryCount,
 			)
 		) {
+			qualifySource?.();
 			return retryCount;
 		}
 		throw finalError;

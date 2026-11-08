@@ -3,6 +3,7 @@ import type {
 	ExplicitPublicationTargetSnapshot,
 	ValidatedSourceWitness,
 } from "../types.ts";
+import { preparedMergeSourceSchema } from "./prepared-merge-state-schema.ts";
 import { gitObjectIdSchema } from "./publication-state-schema.ts";
 
 /** Optional only for historical parsing, never optional commit authority. */
@@ -16,6 +17,7 @@ export const validatedSourceWitnessSchema = z
 			.array(z.string().min(1))
 			.refine((paths) => new Set(paths).size === paths.length),
 		publicationRequired: z.boolean(),
+		preparedMerge: preparedMergeSourceSchema.optional(),
 	})
 	.strict();
 

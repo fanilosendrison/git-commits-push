@@ -6,9 +6,18 @@ const VALUE_FLAGS = [
 	"--push-ref",
 	"--base-ref",
 	"--base-sha",
+	"--first-parent",
+	"--second-parent",
+	"--index-tree",
+	"--merge-message",
 ] as const;
 const CREATE_FLAG = "--create-if-absent";
-const OWNED_FLAGS: readonly string[] = [...VALUE_FLAGS, CREATE_FLAG];
+const MERGE_FLAG = "--publish-prepared-merge";
+const OWNED_FLAGS: readonly string[] = [
+	...VALUE_FLAGS,
+	CREATE_FLAG,
+	MERGE_FLAG,
+];
 type ValueFlag = (typeof VALUE_FLAGS)[number];
 
 export type InvocationRequest =
@@ -40,11 +49,11 @@ export function parseInvocationArguments(
 		if (seen.has(argument))
 			throw new Error(`Duplicate targeted invocation flag: ${argument}.`);
 		seen.add(argument);
-		if (argument === CREATE_FLAG) {
+		if (argument === CREATE_FLAG || argument === MERGE_FLAG) {
 			const next = args[index + 1];
 			if (next !== undefined && !next.startsWith("--"))
 				throw new Error(
-					"--create-if-absent is a presence-only boolean without a value.",
+					`${argument} is a presence-only boolean without a value.`,
 				);
 			continue;
 		}
@@ -72,6 +81,44 @@ export function parseInvocationArguments(
 		throw new Error(
 			"Targeted invocation requires all three flags together: --repository, --push-remote, and --push-ref.",
 		);
+	const mergeFlags = [
+		"--first-parent",
+		"--second-parent",
+		"--index-tree",
+		"--merge-message",
+	] as const;
+	if (seen.has(MERGE_FLAG) || mergeFlags.some((flag) => seen.has(flag))) {
+		const firstParent = values.get("--first-parent");
+		const secondParent = values.get("--second-parent");
+		const indexTree = values.get("--index-tree");
+		const mergeMessage = values.get("--merge-message");
+		if (
+			!seen.has(MERGE_FLAG) ||
+			!firstParent ||
+			!secondParent ||
+			!indexTree ||
+			!mergeMessage ||
+			seen.has(CREATE_FLAG) ||
+			seen.has("--base-ref") ||
+			seen.has("--base-sha")
+		)
+			throw new Error(
+				"Prepared merge requires its complete exclusive atomic group: --publish-prepared-merge, --first-parent, --second-parent, --index-tree, --merge-message and all targeted flags.",
+			);
+		return {
+			request: {
+				kind: "prepared-merge",
+				repository,
+				pushRemote,
+				pushRef,
+				firstParent,
+				secondParent,
+				indexTree,
+				mergeMessage,
+			},
+			passthroughArguments,
+		};
+	}
 	const baseRef = values.get("--base-ref");
 	const baseSha = values.get("--base-sha");
 	const create = seen.has(CREATE_FLAG);

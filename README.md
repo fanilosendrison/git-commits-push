@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.5.1"
+version: "3.6.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -176,6 +176,36 @@ Publication uses the final validated SHA directly under an explicit absence leas
 Creation-mode diff hardening does not silently change historical scan inputs. The independently validated legacy textconv weakness is tracked in [Issue #20](https://github.com/fanilosendrison/git-commits-push/issues/20); this feature must not be presented as a repair of that default-path defect.
 
 To update a branch after publication, use historical targeted mode without creation flags. Resume uses only persisted authority and must not be mixed with targeted CLI options. An interrupted dirty creation whose final validated identity cannot be proven stops with commits preserved rather than replanning; confirmed successful creation is not authority to recreate a later-deleted branch. See [the creation contract](specs/targeted-destination-creation.md) for uncertainty, compatibility and retry boundaries.
+
+#### Caller-prepared two-parent merge
+
+Package 0.11.0 adds a separate explicit operation for an already prepared, fully
+resolved merge. The caller chooses histories, prepares the merge and resolves
+conflicts; GCP never runs merge, rebase or conflict resolution.
+
+```bash
+"$HOME/.local/bin/git-commits-push" --repository "/absolute/exact/worktree" --push-remote "origin" --push-ref "refs/heads/destination" --publish-prepared-merge --first-parent "<full-D-OID>" --second-parent "<full-C-OID>" --index-tree "<full-resolved-tree-OID>" --merge-message "feat: integrate caller-approved histories"
+```
+
+All eight options are mandatory together. The destination must already exist.
+The exact Conventional Commit subject is supplied by the caller, not an LLM.
+GCP binds HEAD=D, the sole MERGE_HEAD=C and resolved index=T, runs validation
+without staging/resetting that index, and creates one commit with ordered parents
+[D,C] and tree T. Commit hooks and signing are disabled process-locally in this
+mode so they cannot transform the frozen message or input. No persistent Git
+configuration changes. Historical modes refuse MERGE_HEAD without this authority.
+
+Turnlock persists source authority and frozen author/committer identities before
+requesting the commit, then persists the exact resulting SHA before requesting
+publication. These effects execute through Turnlock's existing External Request
+protocol, not inside a freely executing resumable phase. Git commit-tree receives
+explicit ordered parents and T; expected-old ref installation preserves exact M.
+Recovery recognizes that deterministic object/current direct child and never
+replans a landed commit.
+Ambiguous publication observes the exact target before bounded retries. Success
+leaves HEAD at that merge, index/tree T and no active MERGE_HEAD. Resume supplies
+only persisted authority, not fresh merge flags. See the
+[bounded merge contract](specs/caller-prepared-merge-publication.md).
 
 ### 2. Validation
 

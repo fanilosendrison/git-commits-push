@@ -7,6 +7,7 @@ import {
 	TRUSTED_MARKER_VALUE,
 	TRUSTED_TOKEN_ENV,
 } from "@git-commits-push/trust";
+import type { FrozenCommitIdentity } from "./prepared-merge-identity.ts";
 
 function testOnlyGravityTelemetryEnv(): Record<string, string> {
 	if (
@@ -28,6 +29,11 @@ export interface GitProcessConfigEntry {
 	readonly key: string;
 	readonly value: string;
 }
+
+export type GitHookPolicy = "inherit" | "disabled";
+/** POSIX-only execution boundary: prepared effects must not run ambient repository hooks. */
+export const HOOK_DISABLED_PROCESS_CONFIGURATION: readonly GitProcessConfigEntry[] =
+	Object.freeze([{ key: "core.hooksPath", value: "/dev/null" }]);
 
 function quoteGitConfigParameter(entry: GitProcessConfigEntry): string {
 	const parameter = `${entry.key}=${entry.value}`;
@@ -84,6 +90,10 @@ function executeGitArgs(
 	actualGraph = false,
 	indexPath?: string,
 	input?: string,
+	identities?: {
+		readonly author: FrozenCommitIdentity;
+		readonly committer: FrozenCommitIdentity;
+	},
 ): string {
 	return execFileSync("git", [...args], {
 		cwd,
@@ -94,9 +104,65 @@ function executeGitArgs(
 			...buildGitEnv(processConfig),
 			...(actualGraph ? { GIT_GRAFT_FILE: "" } : {}),
 			...(indexPath ? { GIT_INDEX_FILE: indexPath } : {}),
+			...(identities
+				? {
+						GIT_AUTHOR_NAME: identities.author.name,
+						GIT_AUTHOR_EMAIL: identities.author.email,
+						GIT_AUTHOR_DATE: `@${identities.author.date}`,
+						GIT_COMMITTER_NAME: identities.committer.name,
+						GIT_COMMITTER_EMAIL: identities.committer.email,
+						GIT_COMMITTER_DATE: `@${identities.committer.date}`,
+					}
+				: {}),
 		},
 		maxBuffer: 50 * 1024 * 1024,
 	});
+}
+
+/** Supply literal stdin through the same governed Git subprocess boundary. */
+export function gitExecInputArgs(
+	args: readonly string[],
+	cwd: string,
+	input: string,
+): string {
+	return executeGitArgs(args, cwd, [], false, undefined, input);
+}
+
+/** Create one deterministic object from explicit parents/tree, never optional merge metadata. */
+export function gitCreatePreparedCommit(
+	repository: string,
+	tree: string,
+	parents: readonly [string, string],
+	messageFile: string,
+	identities: {
+		readonly author: FrozenCommitIdentity;
+		readonly committer: FrozenCommitIdentity;
+	},
+): string {
+	return executeGitArgs(
+		[
+			"--no-replace-objects",
+			"commit-tree",
+			tree,
+			"-p",
+			parents[0],
+			"-p",
+			parents[1],
+			"--no-gpg-sign",
+			"-F",
+			messageFile,
+		],
+		repository,
+		[
+			...HOOK_DISABLED_PROCESS_CONFIGURATION,
+			{ key: "i18n.commitEncoding", value: "UTF-8" },
+			{ key: "commit.gpgSign", value: "false" },
+		],
+		false,
+		undefined,
+		undefined,
+		identities,
+	).trim();
 }
 
 /** Run Git without a shell and return stdout with surrounding whitespace removed. */
