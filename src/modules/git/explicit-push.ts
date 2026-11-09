@@ -31,7 +31,7 @@ import {
 	readExplicitDestinationSha,
 	readHeadSha,
 } from "./explicit-push-target.ts";
-import { gitExecArgs } from "./git-exec.ts";
+import { type GitExecutionPolicy, gitExecArgs } from "./git-exec.ts";
 import {
 	assertOutgoingCommitsMatch,
 	isAncestor,
@@ -42,6 +42,7 @@ import {
 	assertFastForwardPublication,
 	classifyTransient,
 	publishWithFrozenEndpoint,
+	qualifyObservedPublication,
 } from "./push.ts";
 import { sanitizePushDiagnostic } from "./push-diagnostic-sanitizer.ts";
 import type { ResolvedPushEndpoint } from "./push-endpoint.ts";
@@ -65,9 +66,11 @@ export function publishExactExplicitTarget(
 	destinationRef: string,
 	destinationBaselineSha: string | null,
 	sourceSha: string,
+	qualifySource?: () => void,
 ): ExplicitTargetPublication {
 	const observedSha = readExplicitDestinationSha(pushEndpoint, destinationRef);
 	if (observedSha === sourceSha) {
+		qualifyObservedPublication(sourceSha, qualifySource);
 		return { retryCount: 0, publishedSha: sourceSha };
 	}
 	if (observedSha !== destinationBaselineSha) {
@@ -83,6 +86,7 @@ export function publishExactExplicitTarget(
 		destinationRef,
 		destinationBaselineSha,
 		sourceSha,
+		qualifySource,
 	);
 	const postflightSha = readExplicitDestinationSha(
 		pushEndpoint,
@@ -95,6 +99,7 @@ export function publishExactExplicitTarget(
 			retryCount,
 		);
 	}
+	qualifyObservedPublication(sourceSha, qualifySource);
 	return { retryCount, publishedSha: sourceSha };
 }
 
@@ -103,14 +108,21 @@ export function publishExplicitTargetSnapshot(
 	repository: string,
 	snapshot: ExplicitPushTargetSnapshot,
 	sourceSha: string,
+	qualifySource?: () => void,
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): ExplicitTargetPublication {
-	const pushEndpoint = openFrozenExplicitEndpoint(repository, snapshot);
+	const pushEndpoint = openFrozenExplicitEndpoint(
+		repository,
+		snapshot,
+		executionPolicy,
+	);
 	return publishExactExplicitTarget(
 		repository,
 		pushEndpoint,
 		snapshot.destinationRef,
 		snapshot.destinationBaselineSha,
 		sourceSha,
+		qualifySource,
 	);
 }
 

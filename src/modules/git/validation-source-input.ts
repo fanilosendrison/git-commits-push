@@ -1,5 +1,9 @@
 import { CREATION_DIFF_ARGUMENTS } from "./creation-diff.ts";
-import { gitExecArgsRaw } from "./git-exec.ts";
+import {
+	type GitExecutionPolicy,
+	gitExecArgsRaw,
+	gitExecutionProcessConfiguration,
+} from "./git-exec.ts";
 import { readLocalObjectRevisions } from "./local-object-revisions.ts";
 import {
 	type IndexSourceSnapshot,
@@ -14,16 +18,21 @@ export function readValidationInputDiff(
 	repository: string,
 	input: Pick<IndexSourceSnapshot, "baseHeadSha" | "expectedTreeSha">,
 	creation: boolean,
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): string {
 	try {
 		if (
-			readLocalObjectRevisions(repository, [
-				"--quiet",
-				"--objects",
-				"--no-walk",
-				input.expectedTreeSha,
-				...(input.baseHeadSha ? [input.baseHeadSha] : []),
-			]) !== ""
+			readLocalObjectRevisions(
+				repository,
+				[
+					"--quiet",
+					"--objects",
+					"--no-walk",
+					input.expectedTreeSha,
+					...(input.baseHeadSha ? [input.baseHeadSha] : []),
+				],
+				executionPolicy,
+			) !== ""
 		)
 			throw new Error("Missing local validation input.");
 	} catch {
@@ -42,6 +51,7 @@ export function readValidationInputDiff(
 			"--",
 		],
 		repository,
+		gitExecutionProcessConfiguration(executionPolicy),
 	);
 }
 

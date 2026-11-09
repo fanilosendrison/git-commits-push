@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.5.2"
+version: "3.6.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -116,6 +116,31 @@ runtime behavior belongs in TypeScript modules.
   run is physically revoked from its canonical Turnlock namespace.
 - Targeted scope names one exact canonical worktree plus explicit remote/ref
   publication intent.
+- Treat `prepared-merge` as separate explicit caller authority. Follow
+  `specs/caller-prepared-merge-publication.md`: never prepare/resolve a merge,
+  restage/reset its index or infer authority from MERGE_HEAD. Bind ordered D/C,
+  complete T, exact message and existing target; create one independently verified
+  merge commit using explicit Git commit-tree parent/tree arguments and guarded
+  ref installation. Freeze author/committer identities, expected M and the exact
+  HEAD reference before effects. Keep source and exact-M checkpoints in Turnlock,
+  not the reconciler. On failure retain independently proven landed M and any
+  verified exact remote M, without converting those facts into operation success.
+  Execute these effects as consumer-owned External Requests;
+  verify their current SQLite-backed manifest digest, scope and exact payload
+  before any Git work. Accept only the three prepared commit/publish/report
+  request types, never arbitrary external operations. Reporting is no-effect.
+  Requalify source/endpoint after remote observations before
+  every send/retry and require absent MERGE_HEAD/full index proof at reporting.
+  Disable all repository hooks/signing process-locally for this operation,
+  including reference-transaction/pre-push hooks and ambient commit/push signing
+  programs on ref effects/transport and private-index source proofs. Propagate
+  the explicit policy through every private-index write/comparison and verify
+  that its comparison tree remains T. Disable filesystem-monitor hooks and
+  untracked-cache trust in that policy using Git-2.17-compatible configuration.
+  Keep one prepared Git execution policy.
+  Preserve inherited hook behavior in historical modes. Recognize lost
+  acknowledgement only through exact current-child Git proof. Historical modes
+  refuse prepared merge state before staging or reset.
 - Targeted scope never widens into recursive, sibling, linked-worktree, or
   common-dir discovery.
 - The three historical targeted CLI flags are atomic and consumed before Turnlock parses argv; that mode still requires an existing remote destination.
@@ -397,7 +422,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 91 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 104 test files in `tests/run-tests.mjs`.
 Installer concurrency tests build a test-only SQLite VFS extension with `cc` and
 SDK SQLite development headers. It delegates native operations unchanged and
 schedules lock promotions over control pipes; it links no replacement SQLite

@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "4.2.2"
+version: "4.3.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -128,6 +128,35 @@ zero-progress retry authority.
 Coordinator schema v4, immutable historical releases, destination authority and
 clean push-only semantics are unchanged. Operational activation remains separate
 from source integration and cannot bypass legacy-global/WAL preflight.
+
+## Prepared-merge application compatibility
+
+Package 0.11.0 adds explicit `prepared-merge` scope and a strictly validated
+prepared-source extension binding second parent, exact message and complete
+index-entry digest, frozen author/committer identities, HEAD reference and
+expected deterministic M. It retains the original completeness witness and
+existing explicit destination snapshot. Existing Turnlock External Requests
+separate source admission, consumer-owned commit creation and exact publication;
+a third reporting request persists terminal evidence without effects. The original
+witness can recognize only the exact current ordered two-parent child after lost
+acknowledgement; wrong/further history stops without replanning. Reporting consumes
+only the final no-effect resolution and cannot recreate a deleted target.
+
+Historical readers reject the new scope/witness rather than infer authority.
+Prepared effects use one process-local policy suppressing repository hooks and
+both commit/push signing programs, including all private-index source-proof
+operations. The private comparison tree remains T. Historical modes inherit their
+existing policy; no process-global policy state is introduced.
+Historical modes now refuse MERGE_HEAD before staging/resetting caller state.
+Failed prepared outcomes retain independently proven landed M and known exact
+remote M even when changed local input forbids continuation; these observations
+do not promote a failure to complete success. Existing application evidence fields
+are reused, without an execution-history ledger or new reconciler payload.
+No historical run is migrated into prepared-merge authority and no immutable
+release is edited. Coordinator schema v4 and exact non-coalescing ownership are
+unchanged. The cutover inspector recognizes this additional exact scope as
+non-global and preserves it. See the
+[prepared-merge contract](../specs/caller-prepared-merge-publication.md).
 
 ## Safety changes
 

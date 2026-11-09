@@ -19,7 +19,15 @@ import {
 import { createLlmJobFailure } from "../modules/llm/provider-failure.ts";
 import { parseTurnlockBatchManifest } from "../modules/turnlock/batch-manifest.ts";
 import { writeCommitJobResult } from "../modules/turnlock/job-result-store.ts";
+import { handlePreparedMergeRequest } from "../modules/turnlock/prepared-merge-request.ts";
+import {
+	extractTurnlockBlocks,
+	parseSerializedValue,
+} from "../modules/turnlock/protocol-blocks.ts";
 import { acknowledgePublicationCheckpoint } from "../modules/turnlock/publication-checkpoint.ts";
+
+export { parseSerializedValue } from "../modules/turnlock/protocol-blocks.ts";
+
 import { isDirectExecution } from "../utils/direct-execution.ts";
 import {
 	buildResumeCommand,
@@ -48,59 +56,6 @@ import type {
 	CommitJobResult,
 	CommitPlan,
 } from "../types.ts";
-
-export function parseSerializedValue(val: string): string {
-	if (val.startsWith('"') && val.endsWith('"')) {
-		try {
-			return JSON.parse(val);
-		} catch {
-			return val.slice(1, -1);
-		}
-	}
-	return val;
-}
-
-/**
- * Parse TURNLOCK protocol blocks from a string and extract manifest/resume_cmd.
- */
-function extractTurnlockBlocks(output: string): {
-	manifestPath: string | null;
-	resumeCmd: string | null;
-} {
-	let manifestPath: string | null = null;
-	let resumeCmd: string | null = null;
-	let inBlock = false;
-	const blockLines: string[] = [];
-
-	for (const line of output.split("\n")) {
-		const trimmed = line.trim();
-		if (trimmed === "@@TURNLOCK@@") {
-			inBlock = true;
-			blockLines.length = 0;
-			continue;
-		}
-		if (trimmed === "@@END@@") {
-			inBlock = false;
-			for (const bl of blockLines) {
-				const matchManifest = bl.match(/^manifest: (.*)$/);
-				if (matchManifest && matchManifest[1] !== undefined) {
-					manifestPath = parseSerializedValue(matchManifest[1]);
-				}
-				const matchResume = bl.match(/^resume_cmd: (.*)$/);
-				if (matchResume && matchResume[1] !== undefined) {
-					resumeCmd = parseSerializedValue(matchResume[1]);
-				}
-			}
-			blockLines.length = 0;
-			continue;
-		}
-		if (inBlock) {
-			blockLines.push(line);
-		}
-	}
-
-	return { manifestPath, resumeCmd };
-}
 
 class ResumeExecutionError extends Error {
 	readonly stdout: string;
@@ -188,6 +143,17 @@ export async function handleTurnlockDelegation(
 	}
 
 	const manifestContent = fs.readFileSync(manifestPath, "utf-8");
+	const envelope: unknown = JSON.parse(manifestContent);
+	if (
+		typeof envelope === "object" &&
+		envelope !== null &&
+		"kind" in envelope &&
+		envelope.kind === "external-request"
+	) {
+		const manifest = handlePreparedMergeRequest(manifestPath, manifestContent);
+		await resumeAndProcess(manifest.runId, resumeCmd, execFn, dependencies);
+		return;
+	}
 	const manifest = parseTurnlockBatchManifest(manifestContent);
 
 	logBridgeMessage(
@@ -298,12 +264,21 @@ export async function handleTurnlockDelegation(
 		`\n[Turnlock→LLM] All jobs processed. Resuming orchestrator with command: ${resumeCmd}\n`,
 	);
 
+	await resumeAndProcess(manifest.runId, resumeCmd, execFn, dependencies);
+}
+
+async function resumeAndProcess(
+	runId: string,
+	resumeCmd: string,
+	execFn: ((cmd: string) => string | Promise<string>) | undefined,
+	dependencies: BridgeDependencies,
+): Promise<void> {
 	// Print the resumed orchestrator's output even if it fails (report is in stdout)
 	let output = "";
 	try {
 		output = execFn
 			? await execFn(resumeCmd)
-			: await executeResumeCommand(resumeCmd, manifest.runId);
+			: await executeResumeCommand(resumeCmd, runId);
 	} catch (e: unknown) {
 		// Resume execution captures stdout before throwing — preserve it for display.
 		output =

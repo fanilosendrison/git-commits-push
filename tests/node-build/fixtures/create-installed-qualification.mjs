@@ -55,14 +55,14 @@ export async function installCreateQualification() {
 		},
 	});
 	await rm(deploymentSource, { recursive: true });
-	assert.match(installation.releaseName, /^0\.10\.2-[a-f0-9]{64}$/u);
+	assert.match(installation.releaseName, /^0\.11\.0-[a-f0-9]{64}$/u);
 	const manifest = JSON.parse(
 		await readFile(
 			path.join(installation.releaseDirectory, "package.json"),
 			"utf8",
 		),
 	);
-	assert.equal(manifest.version, "0.10.2");
+	assert.equal(manifest.version, "0.11.0");
 	assert.equal(
 		await realpath(installation.paths.publicExecutablePath),
 		path.join(installation.releaseDirectory, "bin/git-commits-push.mjs"),

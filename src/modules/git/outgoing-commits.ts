@@ -14,7 +14,12 @@ import {
 	assertCreationPatchObjectsLocal,
 	readCreationLocalRevisions,
 } from "./creation-local-objects.ts";
-import { gitExecActualGraphArgs, gitExecArgs } from "./git-exec.ts";
+import {
+	type GitExecutionPolicy,
+	gitExecActualGraphArgs,
+	gitExecArgs,
+	gitExecutionProcessConfiguration,
+} from "./git-exec.ts";
 import { isFullGitObjectId } from "./git-object-id.ts";
 
 /** The durable subset every publication snapshot exposes to the outgoing proof. */
@@ -57,11 +62,16 @@ export function readOrderedOutgoingShas(
 	baselineSha: string,
 	headSha: string,
 	localOnly = false,
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): string[] {
 	const args = ["--reverse", `${baselineSha}..${headSha}`];
 	const result = localOnly
-		? readCreationLocalRevisions(repoPath, args)
-		: gitExecArgs(["rev-list", ...args], repoPath);
+		? readCreationLocalRevisions(repoPath, args, executionPolicy)
+		: gitExecArgs(
+				["rev-list", ...args],
+				repoPath,
+				gitExecutionProcessConfiguration(executionPolicy),
+			);
 	const shas = result
 		.split("\n")
 		.map((line) => line.trim())
@@ -129,14 +139,26 @@ export function readCommitPatches(
 	repoPath: string,
 	outgoingShas: readonly string[],
 	localOnly = false,
+	allMergeParents = false,
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): string {
-	if (localOnly) assertCreationPatchObjectsLocal(repoPath, outgoingShas);
+	if (localOnly)
+		assertCreationPatchObjectsLocal(repoPath, outgoingShas, executionPolicy);
+	const readPatch = (args: readonly string[]): string =>
+		localOnly
+			? gitExecActualGraphArgs(args, repoPath, executionPolicy)
+			: gitExecArgs(
+					args,
+					repoPath,
+					gitExecutionProcessConfiguration(executionPolicy),
+				);
 	return outgoingShas
 		.map((sha) =>
-			(localOnly ? gitExecActualGraphArgs : gitExecArgs)(
+			readPatch(
 				localOnly
 					? [
 							"show",
+							...(allMergeParents ? ["-m"] : []),
 							"--format=",
 							"--root",
 							"--patch",
@@ -144,7 +166,6 @@ export function readCommitPatches(
 							sha,
 						]
 					: ["show", "--format=", "--binary", "--no-ext-diff", sha],
-				repoPath,
 			),
 		)
 		.join("\n");

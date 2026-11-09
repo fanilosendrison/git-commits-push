@@ -15,9 +15,11 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { preparedMergeMessageSchema } from "../../config/prepared-merge-state-schema.ts";
 import type { InvocationScope } from "../../types.ts";
 import { assertLocalCommitObject } from "../git/creation-local-objects.ts";
 import { gitExecArgs } from "../git/git-exec.ts";
+import { isFullGitObjectId } from "../git/git-object-id.ts";
 import type { InvocationRequest } from "./targeted-arguments.ts";
 
 export type {
@@ -130,6 +132,26 @@ function resolveTargetedScope(
 			);
 		gitExecArgs(["check-ref-format", request.baseRef], canonicalRepository);
 		assertLocalCommitObject(canonicalRepository, request.baseSha);
+	}
+	if (request.kind === "prepared-merge") {
+		if (
+			request.firstParent === request.secondParent ||
+			!isFullGitObjectId(request.indexTree)
+		)
+			throw new Error(
+				"Prepared merge requires distinct parents and a full index tree identity.",
+			);
+		assertLocalCommitObject(
+			canonicalRepository,
+			request.firstParent,
+			"prepared-merge",
+		);
+		assertLocalCommitObject(
+			canonicalRepository,
+			request.secondParent,
+			"prepared-merge",
+		);
+		preparedMergeMessageSchema.parse(request.mergeMessage);
 	}
 	return Object.freeze({ ...request, repository: canonicalRepository });
 }

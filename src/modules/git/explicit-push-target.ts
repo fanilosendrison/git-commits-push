@@ -19,7 +19,7 @@ import type {
 	InvocationScope,
 } from "../../types.ts";
 import { PushError } from "../core/errors.ts";
-import { gitExecArgs } from "./git-exec.ts";
+import { type GitExecutionPolicy, gitExecArgs } from "./git-exec.ts";
 import { classifyTransient } from "./push.ts";
 import { resolveExplicitPushDestination } from "./push-destination.ts";
 import { sanitizePushDiagnostic } from "./push-diagnostic-sanitizer.ts";
@@ -117,12 +117,17 @@ export function openFrozenExplicitEndpoint(
 		ExplicitPushTargetSnapshot,
 		"remote" | "destinationRef" | "pushUrlFingerprint"
 	>,
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): ResolvedPushEndpoint {
 	const resolved = resolveExplicitPushDestination(repository, {
 		remote: snapshot.remote,
 		destinationRef: snapshot.destinationRef,
 	});
-	const pushEndpoint = resolveSinglePushEndpoint(repository, resolved.remote);
+	const pushEndpoint = resolveSinglePushEndpoint(
+		repository,
+		resolved.remote,
+		executionPolicy,
+	);
 	if (pushEndpoint.fingerprint !== snapshot.pushUrlFingerprint) {
 		throw new PushError(
 			`Explicit remote push URL changed after ${snapshot.destinationRef} was frozen; refusing stale explicit publication.`,

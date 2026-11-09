@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.1.4"
+version: "4.2.0"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -22,7 +22,7 @@ the durable coordinator mode:
 
 ```text
 domain InvocationScope:
-  legacy-global | worktree | targeted-explicit | targeted-create
+  legacy-global | worktree | targeted-explicit | targeted-create | prepared-merge
 
 durable coordinator mode:
   global | targeted
@@ -202,6 +202,28 @@ coordinator schema, permissions, scopes or publication destinations.
 
 The guarantee concerns the publisher's own validated source. It does not bind an
 external review tree that was not supplied to the publisher.
+
+## Caller-prepared merge application state
+
+The additive `prepared-merge` operation maps to existing non-coalescing
+coordinator mode `targeted`. Its complete caller authority, validated source,
+second parent, full-index membership digest, exact message and established merge
+SHA belong only to one Turnlock run. Follow
+[caller-prepared merge publication](caller-prepared-merge-publication.md).
+A source checkpoint precedes the commit External Request; an exact-M checkpoint
+precedes the publication External Request; terminal reporting is a third no-effect
+External Request. The consumer confronts each manifest against current digest-
+verified Turnlock SQLite authority before executing its closed operation type.
+Turnlock is suspended/free while the controller-contained consumer performs Git;
+no freely executing Turnlock phase is replayed or given stronger recovery rules.
+Actual object proof requires ordered [D,C], T and the frozen message, not the
+historical single-parent chain rule. Historical witnesses never acquire this
+authority and historical modes refuse MERGE_HEAD. Prepared Git effects suppress
+ambient hooks/monitors and commit/push signing through an explicit process-local
+policy propagated into private-index proofs; their comparison tree remains T.
+No caller configuration is rewritten. Failed application outcomes retain proven
+landed M and known exact remote M separately from complete-success qualification.
+No coordinator schema, fencing, scheduling, scope coalescing or replay rule changes.
 
 ## Durable singleton state
 

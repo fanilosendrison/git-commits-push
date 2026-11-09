@@ -1,5 +1,9 @@
 import { PushError } from "../core/errors.ts";
-import { gitExecArgs } from "./git-exec.ts";
+import {
+	type GitExecutionPolicy,
+	gitExecArgs,
+	gitExecutionProcessConfiguration,
+} from "./git-exec.ts";
 import { isFullGitObjectId } from "./git-object-id.ts";
 import { readLocalObjectRevisions } from "./local-object-revisions.ts";
 
@@ -14,26 +18,41 @@ function missingLocalObjects(): PushError {
 export function readCreationLocalRevisions(
 	repository: string,
 	args: readonly string[],
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): string {
 	try {
-		return readLocalObjectRevisions(repository, args);
+		return readLocalObjectRevisions(repository, args, executionPolicy);
 	} catch {
 		throw missingLocalObjects();
 	}
 }
 
 /** Require a direct, locally present commit OID, not a revision expression or peeled tag. */
-export function assertLocalCommitObject(repository: string, sha: string): void {
+export function assertLocalCommitObject(
+	repository: string,
+	sha: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): void {
 	if (!isFullGitObjectId(sha))
 		throw new PushError(
 			"Creation base requires a full nonzero commit object ID.",
 			false,
 		);
-	const head = gitExecArgs(["rev-parse", "--verify", "HEAD"], repository);
+	const head = gitExecArgs(
+		["rev-parse", "--verify", "HEAD"],
+		repository,
+		gitExecutionProcessConfiguration(executionPolicy),
+	);
 	if (head.length !== sha.length) throw missingLocalObjects();
 	// A tag prints its peeled commit rather than its own OID; a non-commit cannot
 	// produce this exact one-commit result. Unlike cat-file, this cannot lazy fetch.
-	if (readCreationLocalRevisions(repository, ["--no-walk", sha]) !== sha)
+	if (
+		readCreationLocalRevisions(
+			repository,
+			["--no-walk", sha],
+			executionPolicy,
+		) !== sha
+	)
 		throw missingLocalObjects();
 }
 
@@ -42,15 +61,16 @@ export function assertCreationAncestry(
 	repository: string,
 	baseSha: string,
 	descendantSha: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): void {
-	assertLocalCommitObject(repository, baseSha);
+	assertLocalCommitObject(repository, baseSha, executionPolicy);
 	if (baseSha === descendantSha) return;
-	assertLocalCommitObject(repository, descendantSha);
-	const entries = readCreationLocalRevisions(repository, [
-		"--ancestry-path",
-		"--boundary",
-		`${baseSha}..${descendantSha}`,
-	])
+	assertLocalCommitObject(repository, descendantSha, executionPolicy);
+	const entries = readCreationLocalRevisions(
+		repository,
+		["--ancestry-path", "--boundary", `${baseSha}..${descendantSha}`],
+		executionPolicy,
+	)
 		.split("\n")
 		.filter(Boolean);
 	if (
@@ -62,7 +82,11 @@ export function assertCreationAncestry(
 		throw missingLocalObjects();
 	if (entries.includes(`-${baseSha}`)) return;
 	if (
-		gitExecArgs(["rev-parse", "--is-shallow-repository"], repository) === "true"
+		gitExecArgs(
+			["rev-parse", "--is-shallow-repository"],
+			repository,
+			gitExecutionProcessConfiguration(executionPolicy),
+		) === "true"
 	)
 		throw missingLocalObjects();
 	throw new PushError(
@@ -72,20 +96,31 @@ export function assertCreationAncestry(
 }
 
 /** Qualify only this worktree's HEAD/index before staging or reading a dirty diff. */
-export function assertCreationDirtyInputsLocal(repository: string): void {
-	const head = gitExecArgs(["rev-parse", "--verify", "HEAD"], repository);
-	assertLocalCommitObject(repository, head);
+export function assertCreationDirtyInputsLocal(
+	repository: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): void {
+	const head = gitExecArgs(
+		["rev-parse", "--verify", "HEAD"],
+		repository,
+		gitExecutionProcessConfiguration(executionPolicy),
+	);
+	assertLocalCommitObject(repository, head, executionPolicy);
 	// --indexed-objects otherwise inspects every linked worktree. This explicit
 	// selector preserves the exact invocation scope and never reads a sibling index.
 	if (
-		readCreationLocalRevisions(repository, [
-			"--quiet",
-			"--objects",
-			"--no-walk",
-			"--single-worktree",
-			"--indexed-objects",
-			head,
-		]) !== ""
+		readCreationLocalRevisions(
+			repository,
+			[
+				"--quiet",
+				"--objects",
+				"--no-walk",
+				"--single-worktree",
+				"--indexed-objects",
+				head,
+			],
+			executionPolicy,
+		) !== ""
 	)
 		throw missingLocalObjects();
 }
@@ -94,25 +129,25 @@ export function assertCreationDirtyInputsLocal(repository: string): void {
 export function assertCreationPatchObjectsLocal(
 	repository: string,
 	outgoingShas: readonly string[],
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): void {
 	for (const sha of outgoingShas) {
 		if (!isFullGitObjectId(sha)) throw missingLocalObjects();
-		const roots = readCreationLocalRevisions(repository, [
-			"--no-walk",
-			"--parents",
-			sha,
-		]).split(/\s+/u);
+		const roots = readCreationLocalRevisions(
+			repository,
+			["--no-walk", "--parents", sha],
+			executionPolicy,
+		).split(/\s+/u);
 		if (roots[0] !== sha || roots.some((root) => !isFullGitObjectId(root)))
 			throw missingLocalObjects();
 		// --quiet suppresses ordinary object/path output, but --missing=print still
 		// emits ?OID records. No earlier commit content is audited or fetched.
 		if (
-			readCreationLocalRevisions(repository, [
-				"--quiet",
-				"--objects",
-				"--no-walk",
-				...roots,
-			]) !== ""
+			readCreationLocalRevisions(
+				repository,
+				["--quiet", "--objects", "--no-walk", ...roots],
+				executionPolicy,
+			) !== ""
 		)
 			throw missingLocalObjects();
 	}

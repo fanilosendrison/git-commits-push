@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.2.2"
+version: "4.3.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -259,6 +259,33 @@ failure. A terminal `commit-outcome` or `creation-outcome` reporting continuatio
 performs no publication. These fields do not alter reconciler schema v4 or waive
 installation, active-execution, legacy-global or WAL gates. Never perform an
 offline apply solely because completeness source tests passed.
+
+## Prepared-merge inspection
+
+Inspect the explicit `prepared-merge` scope, exact worktree/Git directory,
+original first parent, sole second parent, expected complete tree, canonical
+membership, index-entry digest, frozen message and existing endpoint/baseline.
+The source checkpoint precedes a consumer-owned commit External Request and the
+exact M checkpoint precedes the publication External Request. Check their current
+SQLite-backed manifest digests and payload equality; a freed Turnlock owner alone
+does not grant Git authority. The controller still fences the consumer process. Confirm the prepared-operation
+policy suppresses both repository hooks and commit/push signing programs without
+rewriting caller configuration. The same explicit policy must reach private-index
+source proofs; post-index-change or filesystem-monitor hooks cannot replace
+comparison authority T, and untracked-cache state cannot waive source inspection. An unacknowledged local effect permits recognition only of the exact current
+direct child with ordered parents and matching tree/message. Foreign or further
+history stops; never reset, recapture input or ask the planner for another message.
+An interrupted push observes that same M and frozen endpoint before existing
+bounded retries. Changed input can require FAILED while retaining proven landed
+M and verified remote M; inspect these separate effects rather than treating
+failure as proof of non-execution or remote SHA as complete success. Terminal prepared-merge reporting is a third no-effect External Request and never republishes.
+
+Preserve these exact-scope runs at their canonical paths during legacy-global
+cutover. Their new application fields do not change schema v4, release-integrity,
+WAL, offline confirmation or ownership gates. Source integration is not activation;
+qualify an isolated installed candidate and the actually activated public launcher
+separately. The runtime never prepares a merge or resolves conflicts. See the
+[prepared-merge contract](../specs/caller-prepared-merge-publication.md).
 
 ## Evidence to retain
 

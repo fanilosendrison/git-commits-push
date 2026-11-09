@@ -1,5 +1,5 @@
 import type { RemoteTrackingRefSynchronization } from "../../types.ts";
-import { PushError } from "../core/errors.ts";
+import { ObservedPublicationSourceError, PushError } from "../core/errors.ts";
 import { gitExecArgs } from "./git-exec.ts";
 import {
 	type LocalTrackingRefCandidate,
@@ -82,12 +82,26 @@ function assertUnchangedOrPublished(
 	);
 }
 
+/** Keep verified remote evidence when requalification refuses local continuation. */
+export function qualifyObservedPublication(
+	sourceSha: string,
+	qualifySource?: () => void,
+): void {
+	try {
+		qualifySource?.();
+	} catch (error) {
+		throw new ObservedPublicationSourceError(sourceSha, error);
+	}
+}
+
 export function publishWithFrozenEndpoint(
 	pushEndpoint: ResolvedPushEndpoint,
 	destinationRef: string,
 	destinationBaselineSha: string | null,
 	sourceSha: string,
+	qualifySource?: () => void,
 ): number {
+	qualifySource?.();
 	try {
 		pushEndpoint.pushExact(sourceSha, destinationRef, destinationBaselineSha);
 		return 0;
@@ -111,9 +125,11 @@ export function publishWithFrozenEndpoint(
 			retryCount,
 		)
 	) {
+		qualifyObservedPublication(sourceSha, qualifySource);
 		return retryCount;
 	}
 
+	qualifySource?.();
 	try {
 		pushEndpoint.pushExact(sourceSha, destinationRef, destinationBaselineSha);
 	} catch (error) {
@@ -136,6 +152,7 @@ export function publishWithFrozenEndpoint(
 				retryCount,
 			)
 		) {
+			qualifyObservedPublication(sourceSha, qualifySource);
 			return retryCount;
 		}
 		throw finalError;

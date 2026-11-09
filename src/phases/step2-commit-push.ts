@@ -47,6 +47,12 @@ export async function runCommitAndPushPhase(
 	state: GlobalState,
 	io: PhaseIO<GlobalState>,
 ): Promise<PhaseResult<GlobalState, unknown>> {
+	if (state.invocationScope.kind === "prepared-merge")
+		return io.fail(
+			new Error(
+				"Prepared merge cannot enter historical planning or commit execution.",
+			),
+		);
 	assertExecutableInvocationScope(state.invocationScope);
 	assertInvocationScopeCurrent(state.invocationScope);
 
