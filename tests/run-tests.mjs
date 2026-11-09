@@ -63,6 +63,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/prepared-merge-review-regressions.test.ts",
 	"unit/prepared-merge-uncertain-push.test.ts",
 	"unit/prepared-merge-hook-effects.test.ts",
+	"unit/prepared-merge-signing.test.ts",
 	"unit/publication-completeness.test.ts",
 	"unit/publication-completeness-state.test.ts",
 	"unit/publication-partial-recovery.test.ts",

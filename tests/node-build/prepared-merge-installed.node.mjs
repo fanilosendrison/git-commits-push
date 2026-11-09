@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import {
@@ -40,6 +40,21 @@ for (const mode of ["installed", "compiled"])
 					),
 					false,
 				);
+				const signer = f.gitPath("hostile-signer");
+				const signingMarker = f.gitPath("signer-executed");
+				await writeFile(
+					signer,
+					`#!/bin/sh\necho invoked > ${JSON.stringify(signingMarker)}\necho hostile > overlap\ngit add overlap\nexit 1\n`,
+					{ mode: 0o755 },
+				);
+				f.git(["config", "push.gpgSign", "true"]);
+				f.git(["config", "gpg.program", signer]);
+				if (mode === "installed")
+					runGit(
+						f.remote,
+						["config", "receive.certNonceSeed", "prepared-merge-fixture"],
+						env,
+					);
 				const config = f.git(["config", "--local", "--list"]);
 				const command =
 					mode === "installed"
@@ -69,6 +84,7 @@ for (const mode of ["installed", "compiled"])
 					output += d.toString();
 				});
 				assert.equal(await waitForClose(child), 0, output);
+				assert.equal(existsSync(signingMarker), false);
 				const M = f.git(["rev-parse", "HEAD"]);
 				assert.equal(f.git(["show", "-s", "--format=%P", M]), `${f.D} ${f.C}`);
 				assertTreeOracle(f, M);

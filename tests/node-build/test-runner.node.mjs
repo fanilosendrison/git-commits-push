@@ -10,8 +10,8 @@ import {
 } from "../run-tests.mjs";
 
 test("keeps the git-commits-push Node test surface closed and sequential", () => {
-	assert.equal(EXPECTED_NODE_TEST_FILES.length, 99);
-	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 99);
+	assert.equal(EXPECTED_NODE_TEST_FILES.length, 100);
+	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 100);
 	assert.deepEqual(buildNodeTestArguments(["/tmp/example.test.ts"]), [
 		"--test",
 		"--test-concurrency=1",
