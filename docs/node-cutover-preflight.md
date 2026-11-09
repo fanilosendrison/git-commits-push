@@ -247,7 +247,9 @@ membership, index-entry digest, frozen message and existing endpoint/baseline.
 The source checkpoint precedes a consumer-owned commit External Request and the
 exact M checkpoint precedes the publication External Request. Check their current
 SQLite-backed manifest digests and payload equality; a freed Turnlock owner alone
-does not grant Git authority. The controller still fences the consumer process. An unacknowledged local effect permits recognition only of the exact current
+does not grant Git authority. The controller still fences the consumer process. Confirm the prepared-operation
+policy suppresses both repository hooks and commit/push signing programs without
+rewriting caller configuration. An unacknowledged local effect permits recognition only of the exact current
 direct child with ordered parents and matching tree/message. Foreign or further
 history stops; never reset, recapture input or ask the planner for another message.
 An interrupted push observes that same M and frozen endpoint before existing

@@ -191,8 +191,8 @@ All eight options are mandatory together. The destination must already exist.
 The exact Conventional Commit subject is supplied by the caller, not an LLM.
 GCP binds HEAD=D, the sole MERGE_HEAD=C and resolved index=T, runs validation
 without staging/resetting that index, and creates one commit with ordered parents
-[D,C] and tree T. Commit hooks and signing are disabled process-locally in this
-mode so they cannot transform the frozen message or input. No persistent Git
+[D,C] and tree T. Repository hooks and both commit/push signing are disabled process-locally in this
+mode so their programs cannot transform the frozen message or input. No persistent Git
 configuration changes. Historical modes refuse MERGE_HEAD without this authority.
 
 Turnlock persists source authority and frozen author/committer identities before

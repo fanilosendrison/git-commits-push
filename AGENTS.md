@@ -130,7 +130,8 @@ runtime behavior belongs in TypeScript modules.
   Requalify source/endpoint after remote observations before
   every send/retry and require absent MERGE_HEAD/full index proof at reporting.
   Disable all repository hooks/signing process-locally for this operation,
-  including reference-transaction and pre-push hooks on ref effects/transport.
+  including reference-transaction/pre-push hooks and ambient commit/push signing
+  programs on ref effects/transport. Keep one prepared Git execution policy.
   Preserve inherited hook behavior in historical modes. Recognize lost
   acknowledgement only through exact current-child Git proof. Historical modes
   refuse prepared merge state before staging or reset.
@@ -409,7 +410,7 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 99 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 100 test files in `tests/run-tests.mjs`.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 

@@ -143,6 +143,8 @@ acknowledgement; wrong/further history stops without replanning. Reporting consu
 only the final no-effect resolution and cannot recreate a deleted target.
 
 Historical readers reject the new scope/witness rather than infer authority.
+Prepared effects use one process-local policy suppressing repository hooks and
+both commit/push signing programs; historical modes inherit their existing policy.
 Historical modes now refuse MERGE_HEAD before staging/resetting caller state.
 No historical run is migrated into prepared-merge authority and no immutable
 release is edited. Coordinator schema v4 and exact non-coalescing ownership are

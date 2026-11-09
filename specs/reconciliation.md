@@ -199,6 +199,8 @@ Turnlock is suspended/free while the controller-contained consumer performs Git;
 no freely executing Turnlock phase is replayed or given stronger recovery rules. Actual object proof requires ordered [D,C], T
 and the frozen message, not the historical single-parent chain rule. Historical
 witnesses never acquire this authority and historical modes refuse MERGE_HEAD.
+Prepared Git effects suppress ambient repository hooks and commit/push signing
+through a process-local operation policy; no caller configuration is rewritten.
 No coordinator schema, fencing, scheduling, scope coalescing or replay rule changes.
 
 ## Durable singleton state
