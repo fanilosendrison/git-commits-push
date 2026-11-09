@@ -26,6 +26,8 @@ const INSTALL_LOCK_RECORD_KEYS = [
 	"version",
 ] as const;
 const MAX_LOCK_RECORD_BYTES = 4_096;
+// Admission arbitration only: never a liveness age, lease, or installer duration.
+const STALE_RECOVERY_BUDGET_MS = 5_000;
 
 interface InstallLockRecord {
 	readonly version: 1;
@@ -161,13 +163,36 @@ function ownerIsLive(owner: InstallLockRecord): boolean {
 	);
 }
 
-function activeInstallerMessage(lockPath: string): string {
+function readOptionalOwnerRecord(
+	lockPath: string,
+): InstallLockRecord | undefined {
+	if (!pathExists(ownerRecordPath(lockPath))) return undefined;
+	return readOwnerRecord(lockPath);
+}
+
+function sameOwnerRecord(
+	left: InstallLockRecord | undefined,
+	right: InstallLockRecord | undefined,
+): boolean {
+	if (left === undefined || right === undefined) return left === right;
+	return (
+		left.version === right.version &&
+		left.nonce === right.nonce &&
+		left.pid === right.pid &&
+		left.processIdentity === right.processIdentity
+	);
+}
+
+function contentionMessage(lockPath: string): string {
 	try {
 		const owner = readOwnerRecord(lockPath);
-		return `A git-commits-push installer is active (pid ${String(owner.pid)}).`;
+		if (ownerIsLive(owner)) {
+			return `A git-commits-push installer is active (pid ${String(owner.pid)}).`;
+		}
 	} catch {
-		return "A git-commits-push installer is active.";
+		// Unreadable metadata cannot establish an active installer's identity.
 	}
+	return "Installer lock contention did not settle; no ownership was acquired.";
 }
 
 function rollbackAndClose(database: DatabaseSync): void {
@@ -226,20 +251,11 @@ export function acquireInstallLock(lockPath: string): InstallLockOwner {
 		throw new Error("Install lock path must be absolute.");
 	}
 	ensureLockDatabaseFile(lockPath);
-	const database = new DatabaseSync(lockPath);
-	try {
-		database.exec(
-			"PRAGMA busy_timeout = 0; BEGIN EXCLUSIVE; " +
-				"CREATE TABLE IF NOT EXISTS install_lock_schema (version INTEGER NOT NULL);",
+	const observedOwner = readOptionalOwnerRecord(lockPath);
+	if (observedOwner !== undefined && ownerIsLive(observedOwner)) {
+		throw new Error(
+			`A git-commits-push installer is active (pid ${String(observedOwner.pid)}).`,
 		);
-	} catch (error) {
-		database.close();
-		if (isSqliteBusy(error)) {
-			throw new Error(activeInstallerMessage(lockPath), { cause: error });
-		}
-		throw new Error(`Cannot acquire the installer lock database: ${lockPath}`, {
-			cause: error,
-		});
 	}
 	const nonce = randomBytes(16).toString("hex");
 	const owner: InstallLockRecord = {
@@ -248,16 +264,52 @@ export function acquireInstallLock(lockPath: string): InstallLockOwner {
 		processIdentity: resolveCurrentProcessIdentity(),
 		version: 1,
 	};
-	let recovered = false;
+	// Missing metadata has no fenced recovery epoch: preserve immediate refusal.
+	const budget = observedOwner === undefined ? 0 : STALE_RECOVERY_BUDGET_MS;
+	const deadline = performance.now() + budget;
+	const database = new DatabaseSync(lockPath);
+	let transactionAcquired = false;
 	try {
+		database.exec(`PRAGMA busy_timeout = ${budget};`);
+		database.exec("BEGIN EXCLUSIVE");
+		transactionAcquired = true;
+		if (budget > 0 && performance.now() >= deadline) {
+			throw new Error("Installer stale-lock recovery deadline expired.");
+		}
+		// A wait may outlast the winner's whole install. Never adopt a later epoch,
+		// even when SQLite is now available and the winner removed its record.
+		if (!sameOwnerRecord(observedOwner, readOptionalOwnerRecord(lockPath))) {
+			throw new Error(
+				"Installer lock recovery was superseded by another installer.",
+			);
+		}
+		database.exec(
+			"CREATE TABLE IF NOT EXISTS install_lock_schema (version INTEGER NOT NULL);",
+		);
 		removeStaleOwnerCandidates(lockPath);
-		recovered = archiveStaleOwnerRecord(lockPath, nonce);
+		const recovered = archiveStaleOwnerRecord(lockPath, nonce);
 		writeOwnerRecord(lockPath, owner);
+		return { ...owner, database, recovered };
 	} catch (error) {
-		rollbackAndClose(database);
+		try {
+			rollbackAndClose(database);
+		} catch (cleanupError) {
+			throw new AggregateError(
+				[error, cleanupError],
+				"Installer lock acquisition and cleanup failed.",
+			);
+		}
+		if (isSqliteBusy(error)) {
+			throw new Error(contentionMessage(lockPath), { cause: error });
+		}
+		if (!transactionAcquired) {
+			throw new Error(
+				`Cannot acquire the installer lock database: ${lockPath}`,
+				{ cause: error },
+			);
+		}
 		throw error;
 	}
-	return { ...owner, database, recovered };
 }
 
 /** Release the SQLite lock only while its durable owner record still matches. */
@@ -266,11 +318,7 @@ export function releaseInstallLock(
 	owner: InstallLockOwner,
 ): void {
 	const currentOwner = readOwnerRecord(lockPath);
-	if (
-		currentOwner.nonce !== owner.nonce ||
-		currentOwner.pid !== owner.pid ||
-		currentOwner.processIdentity !== owner.processIdentity
-	) {
+	if (!sameOwnerRecord(currentOwner, owner)) {
 		throw new Error("Install lock ownership changed before release.");
 	}
 	unlinkSync(ownerRecordPath(lockPath));

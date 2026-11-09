@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.1.3"
+version: "4.1.4"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -117,6 +117,25 @@ The stable harness command resolves through the selected immutable XDG release:
 
 Production MUST NOT depend on a source checkout, package manager, or runtime
 build.
+
+### Installer admission boundary
+
+Installer locking is separate from reconciliation and changes no coordinator
+schema, generation, invocation mode, or Turnlock authority. It MUST retain its
+lifecycle-held SQLite exclusive transaction and nonce/PID/process-start owner
+fencing. Matching live owners and live PIDs with unreadable birth metadata MUST
+be refused before waiting. Only a validated dead-incarnation record permits
+bounded stale-recovery arbitration; absent owner metadata retains non-waiting
+admission.
+
+After `BEGIN EXCLUSIVE`, a recovery request MUST reject an expired admission
+deadline or a different owner tuple, including removal of the observed record,
+before schema, candidate-cleanup, or owner-record effects. SQLite availability
+after another install finishes does not authorize the superseded request.
+Timeouts and owner records never independently grant ownership. Owner-record
+format and installer database schema are unchanged.
+
+### Invocation authority
 
 InvocationScope is Turnlock-run state, not reconciler durable authority. The
 reconciler stores only the owner's invocation mode; it stores no repository,

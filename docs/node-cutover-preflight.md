@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.2.1"
+version: "4.2.2"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -84,6 +84,27 @@ only authoritative global or missing-scope state. The quarantine defaults next
 to the Turnlock run root and can be overridden with the absolute
 `GCP_LEGACY_GLOBAL_QUARANTINE` path. Source installation refuses release
 activation until this inspection is ready.
+
+## Installer lock refusals
+
+Treat the source installer's lock separately from `reconciler.sqlite`. A
+`SQLITE_BUSY` result alone does not prove that the PID in an old owner record is
+alive: concurrent native lock promotions can both refuse before any installer
+owns the lifecycle transaction.
+
+Preserve the lock database, sidecars, owner record, and candidate evidence. A
+matching live owner or indeterminate birth identity is refused before waiting.
+Validated dead-incarnation recovery has a five-second native contention budget;
+a changed or removed entry record is a superseded request, not authority to
+install after its winner. After a refusal, inspect the current owner and retry
+as a new deliberate invocation only when appropriate. Never remove records,
+loosen permissions, or delete the database to manufacture progress.
+
+Instrumentation must not open/read/close the database through unrelated file
+APIs inside its owning process: POSIX descriptor closure can release that
+process's SQLite locks. Observe database bytes from a separate process and keep
+lock scheduling probes test-only. These installer procedures change no
+reconciliation or historical-run recovery rule.
 
 ## Exit contract
 

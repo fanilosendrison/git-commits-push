@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.5.1"
+version: "3.5.2"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -325,7 +325,13 @@ queue execution path. Telemetry failures must never block reconciliation.
   lock release makes crashes recoverable, and simultaneous stale recovery may
   admit only one installer. Once that lock is held, remove only physical
   `.staging-<32 hex>` directories and owner-candidate files proven stale by
-  exclusive ownership.
+  exclusive ownership. Reject matching live or unreadable-identity owners before
+  waiting. Only a validated dead-incarnation owner record enables the bounded
+  stale-recovery arbitration budget. After `BEGIN EXCLUSIVE`, reject an expired
+  admission deadline or any change to the entry owner tuple (including its
+  removal) before schema, candidate, or owner-record effects. A waiter must never
+  acquire the next epoch merely because the winner finished. Keep missing-record
+  admission non-waiting; deadlines and records alone confer no ownership.
 - `pnpm` is allowed during source installation only. The installed release must
   run with Node and Git when the source checkout and `pnpm` are unavailable.
 
@@ -391,7 +397,11 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 89 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 91 test files in `tests/run-tests.mjs`.
+Installer concurrency tests build a test-only SQLite VFS extension with `cc` and
+SDK SQLite development headers. It delegates native operations unchanged and
+schedules lock promotions over control pipes; it links no replacement SQLite
+engine and is not part of the installed release.
 When adding or renaming a test, update that manifest and
 `tests/node-build/test-runner.node.mjs` together.
 

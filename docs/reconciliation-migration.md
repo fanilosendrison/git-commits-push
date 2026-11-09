@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "4.2.1"
+version: "4.2.2"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -217,6 +217,16 @@ application's `current` symlink, and exposes the stable harness entrypoint at
 `~/.local/bin/git-commits-push`. Production invocations do not run `pnpm` or
 compile source. Older releases remain available so compatible non-global
 Turnlock runs can resume against the exact entrypoints recorded when they began.
+
+Package 0.10.2 corrects installer stale-lock arbitration without migrating
+reconciler or installer state. Two zero-wait SQLite lock promotions can both
+refuse even after the recorded process is dead. Stale-record recovery now uses
+bounded native contention handling and checks the exact entry owner tuple under
+`BEGIN EXCLUSIVE` before effects. A waiter overtaken by a completed installer
+refuses rather than acquiring a later epoch. Matching live owners remain
+immediate refusals; missing-record admission remains non-waiting. The owner
+record and database formats, release immutability, Turnlock dependency, and
+reconciliation semantics are unchanged. Historical releases are not patched.
 
 Before installation, inspect historical global authority:
 
