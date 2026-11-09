@@ -5,6 +5,10 @@ import type {
 	ExplicitCreatePushSnapshot,
 	ExplicitCreateTargetSnapshot,
 } from "./modules/git/creation-types.ts";
+import type {
+	PreparedMergeScope,
+	PreparedMergeSource,
+} from "./modules/git/prepared-merge-types.ts";
 
 export type ExplicitPublicationTargetSnapshot =
 	| ExplicitPushTargetSnapshot
@@ -34,15 +38,12 @@ export interface Settings {
 /**
  * Durable invocation universe for one Turnlock run.
  *
- * `global` is legacy persisted-only state: it may survive in historical
- * Turnlock runs and legacy reconciliation recovery, but no fresh public
- * invocation produces it. `worktree` means the caller asked to process exactly
- * the canonical Git worktree containing the original invocation directory, so
- * no discovery may widen beyond it. `targeted` means the caller named exactly
- * one canonical worktree plus explicit remote/ref publication intent, and no
- * discovery may widen beyond it.
+ * Legacy global state is non-executable. Every fresh scope binds one exact
+ * worktree and never widens discovery. Explicit target/creation/prepared-merge
+ * scopes carry distinct caller authority in Turnlock, never the coordinator.
  */
 export type InvocationScope =
+	| PreparedMergeScope
 	| {
 			readonly kind: "global";
 	  }
@@ -302,6 +303,7 @@ export type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
 
 /** Immutable Git authority captured before inference and retained across every retry. */
 export interface ValidatedSourceWitness {
+	readonly preparedMerge?: PreparedMergeSource | undefined;
 	readonly repository: string;
 	readonly gitDirectory: string;
 	readonly baseHeadSha: OriginalHead;

@@ -1,33 +1,46 @@
-import {
-	copyFileSync,
-	lstatSync,
-	mkdtempSync,
-	realpathSync,
-	rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type {
 	CommittedSha,
 	OriginalHead,
 	ValidatedSourceWitness,
 } from "../../types.ts";
-import { gitExecArgs, gitExecArgsRaw, gitExecIndexArgs } from "./git-exec.ts";
+import { PublicationCompletenessError } from "../core/errors.ts";
+import {
+	type GitExecutionPolicy,
+	gitExecArgs,
+	gitExecArgsRaw,
+	gitExecutionProcessConfiguration,
+} from "./git-exec.ts";
+import {
+	assertWorkingTree,
+	readCurrentIndexTree,
+} from "./validated-index-proof.ts";
+
+export { PublicationCompletenessError } from "../core/errors.ts";
+
 import { isFullGitObjectId } from "./git-object-id.ts";
 import { readLocalObjectRevisions } from "./local-object-revisions.ts";
+import { assertPreparedMergeCommit } from "./prepared-merge-source.ts";
 
-/** Completeness cannot be established; no retry may adopt a different source tree. */
-export class PublicationCompletenessError extends Error {
-	override name = "PublicationCompletenessError";
-}
-
-export function readOriginalHead(repository: string): OriginalHead {
+export function readOriginalHead(
+	repository: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): OriginalHead {
+	const config = gitExecutionProcessConfiguration(executionPolicy);
 	try {
 		const sha = gitExecArgs(
 			["--no-replace-objects", "rev-parse", "--verify", "HEAD"],
 			repository,
+			config,
 		);
-		if (readLocalObjectRevisions(repository, ["--no-walk", sha]) !== sha)
+		if (
+			readLocalObjectRevisions(
+				repository,
+				["--no-walk", sha],
+				executionPolicy,
+			) !== sha
+		)
 			throw new PublicationCompletenessError(
 				"HEAD is not a direct local commit identity.",
 			);
@@ -36,11 +49,13 @@ export function readOriginalHead(repository: string): OriginalHead {
 		const symbolic = gitExecArgs(
 			["symbolic-ref", "--quiet", "HEAD"],
 			repository,
+			config,
 		);
 		if (
 			!gitExecArgs(
 				["for-each-ref", "--format=%(objectname)", "--", symbolic],
 				repository,
+				config,
 			)
 		)
 			return null;
@@ -53,10 +68,14 @@ export function readEmptyTree(repository: string): string {
 	return gitExecArgs(["hash-object", "-t", "tree", "--stdin"], repository);
 }
 
-export function readHeadTree(repository: string): string {
+export function readHeadTree(
+	repository: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): string {
 	return gitExecArgs(
 		["--no-replace-objects", "rev-parse", "HEAD^{tree}"],
 		repository,
+		gitExecutionProcessConfiguration(executionPolicy),
 	);
 }
 
@@ -65,6 +84,7 @@ export function changedPaths(
 	repository: string,
 	from: string | null,
 	to: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): string[] {
 	const raw = gitExecArgsRaw(
 		[
@@ -80,6 +100,7 @@ export function changedPaths(
 			"--",
 		],
 		repository,
+		gitExecutionProcessConfiguration(executionPolicy),
 	);
 	if (raw && !raw.endsWith("\0"))
 		throw new PublicationCompletenessError(
@@ -88,7 +109,10 @@ export function changedPaths(
 	return raw ? raw.slice(0, -1).split("\0") : [];
 }
 
-function identity(repository: string): {
+function identity(
+	repository: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): {
 	repository: string;
 	gitDirectory: string;
 } {
@@ -97,7 +121,11 @@ function identity(repository: string): {
 		gitDirectory: realpathSync(
 			path.resolve(
 				repository,
-				gitExecArgs(["rev-parse", "--git-dir"], repository),
+				gitExecArgs(
+					["rev-parse", "--git-dir"],
+					repository,
+					gitExecutionProcessConfiguration(executionPolicy),
+				),
 			),
 		),
 	};
@@ -109,17 +137,21 @@ export type IndexSourceSnapshot = Omit<
 >;
 
 /** Pin the index input before scanning; this alone grants no commit authority. */
-export function readIndexSource(repository: string): IndexSourceSnapshot {
-	const baseHeadSha = readOriginalHead(repository);
-	const expectedTreeSha = readCurrentIndexTree(repository);
+export function readIndexSource(
+	repository: string,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): IndexSourceSnapshot {
+	const baseHeadSha = readOriginalHead(repository, executionPolicy);
+	const expectedTreeSha = readCurrentIndexTree(repository, executionPolicy);
 	return {
-		...identity(repository),
+		...identity(repository, executionPolicy),
 		baseHeadSha,
 		expectedTreeSha,
 		expectedChangedPaths: changedPaths(
 			repository,
 			baseHeadSha,
 			expectedTreeSha,
+			executionPolicy,
 		),
 	};
 }
@@ -132,87 +164,12 @@ export function captureValidatedSource(
 	return { ...readIndexSource(repository), publicationRequired };
 }
 
-/** write-tree may refresh cache-tree metadata; verification must not rewrite a raced index. */
-function readCurrentIndexTree(repository: string): string {
-	const directory = mkdtempSync(path.join(tmpdir(), "gcp-index-proof-"));
-	const index = path.join(directory, "index");
-	try {
-		const source = gitExecArgs(
-			["rev-parse", "--git-path", "index"],
-			repository,
-		);
-		copyFileSync(path.resolve(repository, source), index);
-		return gitExecIndexArgs(["write-tree"], repository, index).trim();
-	} finally {
-		rmSync(directory, { recursive: true, force: true });
-	}
+function sourcePolicy(witness: ValidatedSourceWitness): GitExecutionPolicy {
+	return witness.preparedMerge ? "prepared-merge" : "inherit";
 }
 
 function samePaths(left: readonly string[], right: readonly string[]): boolean {
 	return left.length === right.length && left.every((p, i) => p === right[i]);
-}
-
-/** Compare working bytes against T using a private index; never reset/restage caller input. */
-function assertWorkingTree(
-	repository: string,
-	tree: string,
-	changed: readonly string[],
-): void {
-	const directory = mkdtempSync(path.join(tmpdir(), "gcp-source-proof-"));
-	const index = path.join(directory, "index");
-	try {
-		gitExecIndexArgs(["read-tree", tree], repository, index);
-		// Sparse checkout does not materialize unchanged base content. Preserve only
-		// absent skip-worktree entries outside F; never hide a validated changed path
-		// or a materialized file behind assume-unchanged/skip-worktree flags.
-		const sparse = gitExecArgsRaw(["ls-files", "-t", "-z"], repository)
-			.split("\0")
-			.filter((record) => record.startsWith("S "))
-			.map((record) => record.slice(2))
-			.filter((file) => {
-				if (changed.includes(file)) return false;
-				try {
-					lstatSync(path.join(repository, file));
-					return false;
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
-					throw error;
-				}
-			});
-		if (sparse.length)
-			gitExecIndexArgs(
-				["update-index", "--skip-worktree", "-z", "--stdin"],
-				repository,
-				index,
-				`${sparse.join("\0")}\0`,
-			);
-		gitExecIndexArgs(
-			[
-				"diff",
-				"--quiet",
-				"--no-ext-diff",
-				"--no-textconv",
-				"--ignore-submodules=dirty",
-				"--",
-			],
-			repository,
-			index,
-		);
-		if (
-			gitExecIndexArgs(
-				["ls-files", "--others", "--exclude-standard", "-z"],
-				repository,
-				index,
-			)
-		)
-			throw new Error("Unvalidated untracked paths.");
-	} catch {
-		throw new PublicationCompletenessError(
-			"Worktree changed after validation; original complete tree is preserved as authority.",
-		);
-	} finally {
-		rmSync(directory, { recursive: true, force: true });
-	}
 }
 
 /** Re-establish source authority and actual landed membership without trusting plan metadata. */
@@ -237,7 +194,7 @@ export function assertValidatedSource(
 		throw new PublicationCompletenessError(
 			"Malformed publisher index progress identity.",
 		);
-	const currentIdentity = identity(repository);
+	const currentIdentity = identity(repository, sourcePolicy(witness));
 	if (
 		witness.repository !== currentIdentity.repository ||
 		witness.gitDirectory !== currentIdentity.gitDirectory
@@ -247,13 +204,17 @@ export function assertValidatedSource(
 		);
 	try {
 		if (
-			readLocalObjectRevisions(repository, [
-				"--quiet",
-				"--objects",
-				"--no-walk",
-				witness.expectedTreeSha,
-				...(witness.baseHeadSha ? [witness.baseHeadSha] : []),
-			]) !== ""
+			readLocalObjectRevisions(
+				repository,
+				[
+					"--quiet",
+					"--objects",
+					"--no-walk",
+					witness.expectedTreeSha,
+					...(witness.baseHeadSha ? [witness.baseHeadSha] : []),
+				],
+				sourcePolicy(witness),
+			) !== ""
 		)
 			throw new Error("Missing validated input objects.");
 	} catch {
@@ -265,12 +226,17 @@ export function assertValidatedSource(
 		repository,
 		witness.baseHeadSha,
 		witness.expectedTreeSha,
+		sourcePolicy(witness),
 	);
 	if (!samePaths(expected, witness.expectedChangedPaths))
 		throw new PublicationCompletenessError(
 			"Validated changed-path membership is incoherent.",
 		);
 	const expectedSet = new Set(expected);
+	if (witness.preparedMerge && committed.length > 1)
+		throw new PublicationCompletenessError(
+			"Prepared merge cannot split the validated source across commits.",
+		);
 	let parent = witness.baseHeadSha;
 	const accounted = new Set<string>();
 	for (const commit of committed) {
@@ -278,21 +244,40 @@ export function assertValidatedSource(
 			throw new PublicationCompletenessError(
 				"Malformed durable commit identity.",
 			);
-		const parents = readLocalObjectRevisions(repository, [
-			"--parents",
-			"--no-walk",
-			commit.sha,
-		]).split(" ");
+		if (witness.preparedMerge)
+			assertPreparedMergeCommit(repository, commit.sha, witness);
+		const parents = readLocalObjectRevisions(
+			repository,
+			["--parents", "--no-walk", commit.sha],
+			sourcePolicy(witness),
+		).split(" ");
 		if (
 			parents[0] !== commit.sha ||
-			!samePaths(parents.slice(1), parent ? [parent] : [])
+			!samePaths(
+				parents.slice(1),
+				witness.preparedMerge
+					? [parent ?? "", witness.preparedMerge.secondParentSha]
+					: parent
+						? [parent]
+						: [],
+			)
 		)
 			throw new PublicationCompletenessError(
 				"Landed commit chain does not extend the validated HEAD exactly.",
 			);
-		const paths = changedPaths(repository, parent, commit.sha);
+		const paths = changedPaths(
+			repository,
+			parent,
+			commit.sha,
+			sourcePolicy(witness),
+		);
 		const differing = new Set(
-			changedPaths(repository, commit.sha, witness.expectedTreeSha),
+			changedPaths(
+				repository,
+				commit.sha,
+				witness.expectedTreeSha,
+				sourcePolicy(witness),
+			),
 		);
 		const actualPaths = new Set(paths);
 		if (
@@ -317,22 +302,27 @@ export function assertValidatedSource(
 		}
 		parent = commit.sha;
 	}
-	const head = readOriginalHead(repository);
+	const head = readOriginalHead(repository, sourcePolicy(witness));
 	if (head !== parent)
 		throw new PublicationCompletenessError(
 			`HEAD changed or contains uncheckpointed commits: observed ${head ?? "UNBORN"}, checkpointed ${parent ?? "UNBORN"}; preserving history without replanning.`,
 		);
 	const remainingPaths = expected.filter((file) => !accounted.has(file));
-	const index = readCurrentIndexTree(repository);
+	const index = readCurrentIndexTree(repository, sourcePolicy(witness));
 	if (index !== witness.expectedTreeSha) {
 		const ownedIndex =
 			publisherIndexTreeSha !== undefined && index === publisherIndexTreeSha;
 		const staged =
 			committed.length > 0 || ownedIndex
-				? changedPaths(repository, head, index)
+				? changedPaths(repository, head, index, sourcePolicy(witness))
 				: undefined;
 		const differing = new Set(
-			changedPaths(repository, index, witness.expectedTreeSha),
+			changedPaths(
+				repository,
+				index,
+				witness.expectedTreeSha,
+				sourcePolicy(witness),
+			),
 		);
 		if (
 			!staged ||
@@ -349,6 +339,7 @@ export function assertValidatedSource(
 		repository,
 		witness.expectedTreeSha,
 		witness.expectedChangedPaths,
+		sourcePolicy(witness),
 	);
 	return {
 		witness,
@@ -362,7 +353,7 @@ export function assertFinalTree(
 	repository: string,
 	witness: ValidatedSourceWitness,
 ): string {
-	const actual = readHeadTree(repository);
+	const actual = readHeadTree(repository, sourcePolicy(witness));
 	if (actual !== witness.expectedTreeSha)
 		throw new PublicationCompletenessError(
 			`Final tree completeness not demonstrated: expected ${witness.expectedTreeSha}, actual ${actual}.`,
@@ -371,6 +362,7 @@ export function assertFinalTree(
 		repository,
 		witness.expectedTreeSha,
 		witness.expectedChangedPaths,
+		sourcePolicy(witness),
 	);
 	return actual;
 }

@@ -83,6 +83,24 @@ export class PushError extends Error {
 	}
 }
 
+/** Completeness cannot be established; no retry may adopt a different source tree. */
+export class PublicationCompletenessError extends Error {
+	override name = "PublicationCompletenessError";
+}
+
+/** Exact remote observation survives a later local-source refusal; it is not operation success. */
+export class ObservedPublicationSourceError extends Error {
+	override name = "ObservedPublicationSourceError";
+	readonly publishedSha: string;
+	constructor(publishedSha: string, sourceError: unknown) {
+		super(
+			`Local source refused after exact remote observation: ${sourceError instanceof Error ? sourceError.message : String(sourceError)}`,
+			{ cause: sourceError },
+		);
+		this.publishedSha = publishedSha;
+	}
+}
+
 export interface PostCommitPushErrorContext {
 	readonly committedShas: CommittedSha[];
 	readonly originalHead: OriginalHead;

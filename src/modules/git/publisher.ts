@@ -1,8 +1,5 @@
 import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { witnessPublicationIntentIssue } from "../../config/validated-source-state-schema.ts";
 import type {
 	CommitCompletionEvidence,
@@ -24,12 +21,14 @@ import {
 import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { assertCommitPlanCoverage } from "./commit-plan-coverage.ts";
 import { inspectCommitPlanFileState } from "./commit-plan-file-state.ts";
+import { commitPlanMessage } from "./commit-plan-message.ts";
 import type { ExplicitCreatePushSnapshot } from "./creation-types.ts";
 import { publishExplicitCreateSnapshot } from "./explicit-create-push.ts";
 import { assertExplicitCreateTargetCurrent } from "./explicit-create-target.ts";
 import { publishExplicitTargetSnapshot } from "./explicit-push.ts";
 import { assertExplicitPushTargetCurrent } from "./explicit-push-target.ts";
 import { gitExecArgs } from "./git-exec.ts";
+import { assertNoPreparedMerge } from "./prepared-merge-source.ts";
 import { executePush, type PushExecutionResult } from "./push.ts";
 import {
 	assertFinalTree,
@@ -90,6 +89,9 @@ export async function executeMultiCommitAndPush(
 	publishedSha: string | null;
 	remoteTrackingRefSynchronization: PushExecutionResult["remoteTrackingRefSynchronization"];
 }> {
+	assertNoPreparedMerge(repoPath);
+	if (completeness?.witness.preparedMerge)
+		throw new Error("Prepared merge requires its dedicated publisher.");
 	const priorCommits = completeness?.committedShas ?? [];
 	const { witness, remainingPaths } = assertValidatedSource(
 		repoPath,
@@ -148,6 +150,7 @@ export async function executeMultiCommitAndPush(
 
 	// 6. Unstage everything so we can re-stage file-by-file. The default mixed
 	//    reset works against both an existing HEAD and Git's empty unborn index.
+	assertNoPreparedMerge(repoPath);
 	gitExecArgs(["reset", "--mixed"], repoPath);
 	const resetHead = priorCommits.at(-1)?.sha ?? originalHead;
 	let publisherIndexTreeSha =
@@ -175,7 +178,8 @@ export async function executeMultiCommitAndPush(
 					throw new PublicationCompletenessError(
 						"HEAD changed during commit execution.",
 					);
-				// Stage the plan's files
+				// Stage the plan's files, never a concurrently prepared merge.
+				assertNoPreparedMerge(repoPath);
 				gitExecArgs(
 					["--literal-pathspecs", "add", "--", ...plan.files],
 					repoPath,
@@ -201,25 +205,7 @@ export async function executeMultiCommitAndPush(
 
 				publisherIndexTreeSha = stagedTree;
 
-				// Commit with temp message file
-				const message = formatConventionalCommit(plan.commit);
-				const tempMsgPath = path.join(
-					os.tmpdir(),
-					`commit-msg-${Date.now()}-${i}.txt`,
-				);
-				fs.writeFileSync(tempMsgPath, message, "utf-8");
-				try {
-					gitExecArgs(
-						["commit", "--file", tempMsgPath, "--no-verify"],
-						repoPath,
-					);
-				} finally {
-					try {
-						fs.unlinkSync(tempMsgPath);
-					} catch {
-						/* best-effort */
-					}
-				}
+				commitPlanMessage(repoPath, formatConventionalCommit(plan.commit));
 
 				// Capture the SHA
 				const sha = execSync("git rev-parse HEAD", {

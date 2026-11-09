@@ -9,6 +9,11 @@ import { stateSchema } from "../config/state-schema.ts";
 import { finalizeCommitOutcomePhase } from "../modules/git/commit-outcome-checkpoint.ts";
 import { finalizeCreationOutcomePhase } from "../modules/git/creation-outcome-checkpoint.ts";
 import { GCP_TURNLOCK_ORCHESTRATOR_NAME } from "../modules/reconciliation/legacy-global-run-paths.ts";
+import {
+	commitPreparedMergePhase,
+	finalizePreparedMergePhase,
+	publishPreparedMergePhase,
+} from "../phases/prepared-merge-publication.ts";
 import { runDiscoveryAndValidationPhase } from "../phases/step1-discovery-validation.ts";
 import { runCommitAndPushPhase } from "../phases/step2-commit-push.ts";
 import type { GlobalState } from "../types.ts";
@@ -39,6 +44,9 @@ if (isDirectExecution(import.meta.url)) {
 				runDiscoveryAndValidationPhase(state, io, isResume),
 			),
 			"commit-and-push": definePhase(runCommitAndPushPhase),
+			"prepared-merge-commit": definePhase(commitPreparedMergePhase),
+			"prepared-merge-publish": definePhase(publishPreparedMergePhase),
+			"prepared-merge-outcome": definePhase(finalizePreparedMergePhase),
 			"creation-outcome": definePhase(finalizeCreationOutcomePhase),
 			"commit-outcome": definePhase(finalizeCommitOutcomePhase),
 		},
