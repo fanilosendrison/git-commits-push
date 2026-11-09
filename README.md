@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.5.1"
+version: "3.5.2"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -67,6 +67,14 @@ older release and resume after a later installation. Legacy global runs are the
 intentional exception: cutover revokes their canonical run paths without
 modifying the historical release trees. Re-running the installer with identical
 content reuses the verified release.
+
+Installation holds an exclusive SQLite transaction for its full lifecycle. A
+matching live installer is refused immediately, not queued. Recovery from a
+validated dead owner allows a five-second contention budget; after acquiring
+SQLite, the request must still match the owner record it originally observed.
+If another installer completed or changed that record, the superseded request
+refuses rather than installing after it. A timeout never grants ownership. Do
+not delete the lock database or owner record to bypass a refusal.
 
 `pnpm` is an installation and contributor dependency only. The installed CLI
 requires Node.js, Git, and the package managers needed to test discovered
@@ -638,7 +646,10 @@ and cannot load Turnlock state.
 ## For contributors
 
 The architecture, runtime contract, invariants, and test expectations are
-documented in [AGENTS.md](AGENTS.md). The normative concurrency contract is
+documented in [AGENTS.md](AGENTS.md). Installer concurrency tests additionally
+require `cc` and the platform SDK's SQLite development headers. Their test-only
+VFS extension schedules real lock transitions without replacing Node's SQLite
+engine; the installed CLI does not require these build tools. The normative concurrency contract is
 [specs/reconciliation.md](specs/reconciliation.md), the queue-to-SQLite change is
 recorded in
 [docs/reconciliation-migration.md](docs/reconciliation-migration.md), and the
