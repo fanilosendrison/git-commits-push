@@ -19,7 +19,7 @@ import type {
 	InvocationScope,
 } from "../../types.ts";
 import { PushError } from "../core/errors.ts";
-import { type GitHookPolicy, gitExecArgs } from "./git-exec.ts";
+import { type GitExecutionPolicy, gitExecArgs } from "./git-exec.ts";
 import { classifyTransient } from "./push.ts";
 import { resolveExplicitPushDestination } from "./push-destination.ts";
 import { sanitizePushDiagnostic } from "./push-diagnostic-sanitizer.ts";
@@ -117,7 +117,7 @@ export function openFrozenExplicitEndpoint(
 		ExplicitPushTargetSnapshot,
 		"remote" | "destinationRef" | "pushUrlFingerprint"
 	>,
-	hookPolicy: GitHookPolicy = "inherit",
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): ResolvedPushEndpoint {
 	const resolved = resolveExplicitPushDestination(repository, {
 		remote: snapshot.remote,
@@ -126,7 +126,7 @@ export function openFrozenExplicitEndpoint(
 	const pushEndpoint = resolveSinglePushEndpoint(
 		repository,
 		resolved.remote,
-		hookPolicy,
+		executionPolicy,
 	);
 	if (pushEndpoint.fingerprint !== snapshot.pushUrlFingerprint) {
 		throw new PushError(

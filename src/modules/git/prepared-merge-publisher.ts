@@ -16,7 +16,7 @@ import {
 import {
 	gitCreatePreparedCommit,
 	gitExecArgs,
-	HOOK_DISABLED_PROCESS_CONFIGURATION,
+	PREPARED_MERGE_PROCESS_CONFIGURATION,
 } from "./git-exec.ts";
 import { readLocalObjectRevisions } from "./local-object-revisions.ts";
 import { parseCommitIdentity } from "./prepared-merge-identity.ts";
@@ -136,7 +136,7 @@ export function establishPreparedMergeCommit(
 					scope.firstParent,
 				],
 				scope.repository,
-				HOOK_DISABLED_PROCESS_CONFIGURATION,
+				PREPARED_MERGE_PROCESS_CONFIGURATION,
 			);
 		} catch (error) {
 			if (readOriginalHead(scope.repository) !== sha) throw error;
@@ -175,10 +175,10 @@ export function publishEstablishedPreparedMerge(
 		target,
 		sha,
 		() => {
-			openFrozenExplicitEndpoint(repo.repository, target, "disabled");
+			openFrozenExplicitEndpoint(repo.repository, target, "prepared-merge");
 			assertEstablishedPreparedMerge(scope, repo);
 		},
-		"disabled",
+		"prepared-merge",
 	);
 	return {
 		...repo,

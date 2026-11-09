@@ -30,10 +30,14 @@ export interface GitProcessConfigEntry {
 	readonly value: string;
 }
 
-export type GitHookPolicy = "inherit" | "disabled";
-/** POSIX-only execution boundary: prepared effects must not run ambient repository hooks. */
-export const HOOK_DISABLED_PROCESS_CONFIGURATION: readonly GitProcessConfigEntry[] =
-	Object.freeze([{ key: "core.hooksPath", value: "/dev/null" }]);
+export type GitExecutionPolicy = "inherit" | "prepared-merge";
+/** Prepared effects cannot execute ambient hooks or commit/push signing programs. */
+export const PREPARED_MERGE_PROCESS_CONFIGURATION: readonly GitProcessConfigEntry[] =
+	Object.freeze([
+		{ key: "core.hooksPath", value: "/dev/null" },
+		{ key: "commit.gpgSign", value: "false" },
+		{ key: "push.gpgSign", value: "false" },
+	]);
 
 function quoteGitConfigParameter(entry: GitProcessConfigEntry): string {
 	const parameter = `${entry.key}=${entry.value}`;
@@ -154,9 +158,8 @@ export function gitCreatePreparedCommit(
 		],
 		repository,
 		[
-			...HOOK_DISABLED_PROCESS_CONFIGURATION,
+			...PREPARED_MERGE_PROCESS_CONFIGURATION,
 			{ key: "i18n.commitEncoding", value: "UTF-8" },
-			{ key: "commit.gpgSign", value: "false" },
 		],
 		false,
 		undefined,

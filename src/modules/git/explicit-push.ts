@@ -31,7 +31,7 @@ import {
 	readExplicitDestinationSha,
 	readHeadSha,
 } from "./explicit-push-target.ts";
-import { type GitHookPolicy, gitExecArgs } from "./git-exec.ts";
+import { type GitExecutionPolicy, gitExecArgs } from "./git-exec.ts";
 import {
 	assertOutgoingCommitsMatch,
 	isAncestor,
@@ -108,12 +108,12 @@ export function publishExplicitTargetSnapshot(
 	snapshot: ExplicitPushTargetSnapshot,
 	sourceSha: string,
 	qualifySource?: () => void,
-	hookPolicy: GitHookPolicy = "inherit",
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): ExplicitTargetPublication {
 	const pushEndpoint = openFrozenExplicitEndpoint(
 		repository,
 		snapshot,
-		hookPolicy,
+		executionPolicy,
 	);
 	return publishExactExplicitTarget(
 		repository,

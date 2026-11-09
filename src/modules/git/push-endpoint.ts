@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-	type GitHookPolicy,
+	type GitExecutionPolicy,
 	type GitProcessConfigEntry,
 	gitExecArgs,
 	gitExecArgsRaw,
-	HOOK_DISABLED_PROCESS_CONFIGURATION,
+	PREPARED_MERGE_PROCESS_CONFIGURATION,
 } from "./git-exec.ts";
 import { parseRemoteRefObservation } from "./git-object-id.ts";
 
@@ -87,7 +87,7 @@ export function resolveSingleFetchEndpointFingerprint(
 export function resolveSinglePushEndpoint(
 	repoPath: string,
 	remote: string,
-	hookPolicy: GitHookPolicy = "inherit",
+	executionPolicy: GitExecutionPolicy = "inherit",
 ): ResolvedPushEndpoint {
 	const pushUrls = splitNonemptyLines(
 		gitExecArgs(
@@ -117,7 +117,9 @@ export function resolveSinglePushEndpoint(
 	const ephemeralRemote = `gcp-endpoint-${endpointId}`;
 	const endpointAlias = `gcp-pinned-${endpointId}://endpoint`;
 	const processConfig: readonly GitProcessConfigEntry[] = [
-		...(hookPolicy === "disabled" ? HOOK_DISABLED_PROCESS_CONFIGURATION : []),
+		...(executionPolicy === "prepared-merge"
+			? PREPARED_MERGE_PROCESS_CONFIGURATION
+			: []),
 		{ key: `remote.${ephemeralRemote}.url`, value: endpointAlias },
 		{ key: `remote.${ephemeralRemote}.pushurl`, value: endpointAlias },
 		// Git applies URL rewrites once. A unique alias therefore resolves to the
