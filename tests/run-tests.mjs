@@ -40,6 +40,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/execution-control-protocol.test.ts",
 	"unit/explicit-target-publication.test.ts",
 	"unit/fallback-model.test.ts",
+	"unit/initial-plan-contract.test.ts",
 	"unit/feedback-formatter.test.ts",
 	"unit/git-process-config.test.ts",
 	"unit/git-publisher-v2.test.ts",

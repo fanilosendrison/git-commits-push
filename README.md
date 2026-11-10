@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.6.0"
+version: "3.6.1"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -259,6 +259,12 @@ Once a repo passes validation, its full staged diff is sent to the configured
 LLM along with a system prompt (from `system-prompt.md`). The LLM is asked to
 produce a **commit plan**: one Conventional Commit message per file, with a
 subject line (`feat:`, `fix:`, `chore:`, etc.) and an optional body.
+
+The generation contract explicitly requires `commit.type` and
+`commit.description` in every plan, plus its exact `files` list. Optional body
+text never substitutes for the subject description. The runtime refuses missing
+fields rather than inventing them, including after an invalid first response.
+This improves generation instructions, not a guarantee that a model always obeys.
 
 Every message is validated on return:
 - Does it follow the Conventional Commits format?

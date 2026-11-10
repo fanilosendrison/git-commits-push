@@ -1,0 +1,60 @@
+[
+  {
+    "commit": {
+      "type": "build",
+      "scope": "deps",
+      "body": "Add rfc3339-validator v0.1.4 as an optional test dependency to support strict date-time format validation checks in test suites.",
+      "isBreaking": false
+    },
+    "files": [
+      "pyproject.toml"
+    ]
+  },
+  {
+    "commit": {
+      "type": "test",
+      "scope": "jch",
+      "body": "Update jch-baseline-preservation.json to reflect test dependency amendments and baseline configuration updates.",
+      "isBreaking": false
+    },
+    "files": [
+      "docs/adoption/jch-baseline-preservation.json"
+    ]
+  },
+  {
+    "commit": {
+      "type": "test",
+      "scope": "jch",
+      "body": "Add strict Gregorian date-time format checker validation and test coverage for missing or permissive format checkers.",
+      "isBreaking": false
+    },
+    "files": [
+      "tests/jch_normative_schemas.py",
+      "tests/test_jch_normative_schemas.py"
+    ]
+  },
+  {
+    "commit": {
+      "type": "refactor",
+      "scope": "jch",
+      "body": "Update adoption integrity tests to verify test dependency amendments and baseline SHA256 consistency.",
+      "isBreaking": false
+    },
+    "files": [
+      "tests/test_jch_adoption_integrity.py"
+    ]
+  },
+  {
+    "commit": {
+      "type": "docs",
+      "scope": "jch",
+      "body": "Update J-CH adoption validation docs, contracts, and retention rules to version 0.1.1, incorporating preserved review notes and exact publication identity derivation.",
+      "isBreaking": false
+    },
+    "files": [
+      "docs/adoption/jch-validation.md",
+      "docs/contracts/jch-result-retention.md",
+      "docs/contracts/jch-workload-authority.md"
+    ]
+  }
+]
