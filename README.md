@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.6.1"
+version: "3.6.2"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -683,6 +683,32 @@ resume command for a revoked global run resolves to a non-directory tombstone
 and cannot load Turnlock state.
 
 ## For contributors
+
+### Qualification environment and process ownership
+
+Source and compiled test commands use the same maintained platform Git selector
+as the public launcher. On legacy Darwin this selects the validated Apple
+toolchain Git; other platforms keep their normal PATH selection. No global Git
+configuration or persistent PATH is changed. This prevents contributor tests
+from bypassing the platform prerequisite already enforced by production.
+
+The source-only `pnpm run qualify` command executes the seven prescribed commands
+sequentially with captured stdout/stderr, exact child exit results and observed
+process-group absence. It reuses the maintained execution controller and its
+identity/IPC/termination checks; it does not run the publisher or initialize its
+coordinator. A zero-exit command leaving a live descendant, unknown observation,
+interruption or missing receipt cannot qualify. Its three-hour watchdog does not
+increase I2's60-second or the runner's600-second limits.
+
+Full qualification requires `GCP_QUALIFY_LEGACY_RELEASES` with explicit immutable
+historical release directories (separated with the platform PATH delimiter).
+Without that input the command refuses rather than counting a conditional skip
+as qualification. Evidence is retained under a fresh ignored `.state/qualification-*`
+directory. A failed sequence is not resumed automatically.
+
+[The timeout-remediation record](docs/validation/full-validation-timeout-remediation.md)
+separates measured causes, historical limits and negative controls. None of these
+source checks grants integration, activation or caller publication.
 
 The architecture, runtime contract, invariants, and test expectations are
 documented in [AGENTS.md](AGENTS.md). Installer concurrency tests additionally
