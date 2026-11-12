@@ -20,6 +20,7 @@ import {
 } from "../llm/context-request.ts";
 import type { ContextAuthority } from "../llm/context-types.ts";
 import type { invokeLlm } from "../llm/llm-invoker.ts";
+import { reportPlanResponseRejection } from "../llm/plan-response-policy.ts";
 import {
 	MAX_PLANNING_CALLS,
 	PlanningAttemptBudget,
@@ -101,7 +102,14 @@ export async function executePlanningJob(
 			try {
 				return parseCommitJobResponse(payload, response);
 			} catch (error) {
-				if (!budget.repeatMalformed()) throw error;
+				const willRepeat = budget.repeatMalformed();
+				const failure = reportPlanResponseRejection(
+					error,
+					calls,
+					willRepeat,
+					invocation.stripJsonFence ?? true,
+				);
+				if (!willRepeat) throw failure;
 			}
 		}
 	};
