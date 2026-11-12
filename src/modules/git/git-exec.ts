@@ -99,21 +99,35 @@ export function gitExec(args: string, cwd: string): string {
 	}).trim();
 }
 
-function executeGitArgs(
+type GitInvocationArguments = [
 	args: readonly string[],
 	cwd: string,
 	processConfig: readonly GitProcessConfigEntry[],
-	actualGraph = false,
+	actualGraph?: boolean,
 	indexPath?: string,
 	input?: string,
 	identities?: {
 		readonly author: FrozenCommitIdentity;
 		readonly committer: FrozenCommitIdentity;
 	},
-): string {
+];
+
+function executeGitInvocation(
+	encoding: "utf8" | null,
+	...parameters: GitInvocationArguments
+): string | Buffer {
+	const [
+		args,
+		cwd,
+		processConfig,
+		actualGraph = false,
+		indexPath,
+		input,
+		identities,
+	] = parameters;
 	return execFileSync("git", [...args], {
 		cwd,
-		encoding: "utf-8",
+		encoding,
 		stdio: ["pipe", "pipe", "pipe"],
 		...(input === undefined ? {} : { input }),
 		env: {
@@ -133,6 +147,23 @@ function executeGitArgs(
 		},
 		maxBuffer: 50 * 1024 * 1024,
 	});
+}
+
+function executeGitArgs(...args: GitInvocationArguments): string {
+	const output = executeGitInvocation("utf8", ...args);
+	if (typeof output !== "string") throw new Error("Unexpected Git text output");
+	return output;
+}
+
+/** Preserve actual Git bytes for new raw-input bindings; legacy text APIs stay unchanged. */
+export function gitExecBytesArgs(
+	args: readonly string[],
+	cwd: string,
+	processConfig: readonly GitProcessConfigEntry[] = [],
+): Buffer {
+	const output = executeGitInvocation(null, args, cwd, processConfig);
+	if (!Buffer.isBuffer(output)) throw new Error("Unexpected Git byte output");
+	return output;
 }
 
 /** Supply literal stdin through the same governed Git subprocess boundary. */

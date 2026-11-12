@@ -13,6 +13,10 @@ export const validatedSourceWitnessSchema = z
 		gitDirectory: z.string(),
 		baseHeadSha: gitObjectIdSchema.nullable(),
 		expectedTreeSha: gitObjectIdSchema,
+		fullDiffHash: z
+			.string()
+			.regex(/^[a-f0-9]{64}$/)
+			.optional(),
 		expectedChangedPaths: z
 			.array(z.string().min(1))
 			.refine((paths) => new Set(paths).size === paths.length),

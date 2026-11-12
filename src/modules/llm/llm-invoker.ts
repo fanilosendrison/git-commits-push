@@ -4,8 +4,17 @@ import {
 	createGoogleAdapter,
 	createOpenAIAdapter,
 	createOpenAICompatibleAdapter,
+	LLMRuntimeError,
 	type ProviderAdapter,
 } from "@fanilosendrison/llm-runtime";
+import {
+	productionContextAuthority,
+	requireContextAdmission,
+} from "./context-admission.ts";
+import { createContextDispatch } from "./context-dispatch.ts";
+import { buildContextRequest, type LlmInvocation } from "./context-request.ts";
+import type { ContextAuthority } from "./context-types.ts";
+import type { PlanningAttemptBudget } from "./planning-attempt-budget.ts";
 
 type OpenAICompatibleProvider =
 	| "deepseek"
@@ -14,36 +23,16 @@ type OpenAICompatibleProvider =
 	| "together"
 	| "ollama";
 
-const DEEPSEEK_PROVIDER = "deepseek";
-
-/**
- * DeepSeek enables thinking mode at high effort when the request omits the
- * field, so an omitted `thinking: false` used to mean "provider default"
- * instead of "disabled" and could stall a call for minutes. The provider
- * option makes the disabled state explicit; `undefined` keeps the upstream
- * default. Other providers must not receive this DeepSeek-only option.
- */
-function buildDeepSeekProviderOptions(payload: {
-	readonly provider: string;
-	readonly thinking?: boolean;
-}): Record<string, unknown> | undefined {
-	if (
-		payload.provider !== DEEPSEEK_PROVIDER ||
-		payload.thinking === undefined
-	) {
-		return undefined;
-	}
-	return payload.thinking
-		? { thinking: { type: "enabled", reasoningEffort: "high" } }
-		: { thinking: { type: "disabled" } };
-}
-
 export interface LlmAdapterFactories {
 	readonly buildSimplePrompt: typeof buildSimplePrompt;
 	readonly createAnthropicAdapter: typeof createAnthropicAdapter;
 	readonly createGoogleAdapter: typeof createGoogleAdapter;
 	readonly createOpenAIAdapter: typeof createOpenAIAdapter;
 	readonly createOpenAICompatibleAdapter: typeof createOpenAICompatibleAdapter;
+	/** Explicit trusted test injection, never loaded from settings or job JSON. */
+	readonly contextAuthority?: ContextAuthority;
+	/** Trusted deterministic transport injection, not a settings/job option. */
+	readonly fetch?: typeof globalThis.fetch;
 }
 
 const defaultLlmAdapterFactories: LlmAdapterFactories = {
@@ -54,59 +43,68 @@ const defaultLlmAdapterFactories: LlmAdapterFactories = {
 	createOpenAICompatibleAdapter,
 };
 
-/** Invoke one provider adapter through the shared runtime contract. */
+/** Admit a complete immutable request and send that exact snapshot through the runtime. */
 export async function invokeLlm(
-	payload: {
-		provider: string;
-		model: string;
-		token: string;
-		temperature: number;
-		systemPrompt: string;
-		userPrompt: string;
-		stripJsonFence?: boolean;
-		thinking?: boolean;
-	},
+	payload: LlmInvocation,
 	adapterFactories: LlmAdapterFactories = defaultLlmAdapterFactories,
+	budget?: PlanningAttemptBudget,
 ): Promise<string> {
+	const context = buildContextRequest(
+		payload,
+		adapterFactories.buildSimplePrompt,
+	);
+	const suppliedAuthority =
+		adapterFactories.contextAuthority ?? productionContextAuthority;
+	const authority =
+		budget?.boundAuthority(suppliedAuthority) ?? suppliedAuthority;
+	const decision = await requireContextAdmission(context, authority);
+	const attempts = budget?.beginCall();
+	const dispatch = createContextDispatch(
+		context,
+		decision,
+		authority,
+		adapterFactories.fetch ?? globalThis.fetch,
+	);
 	const commonConfig = {
-		model: payload.model,
+		model: context.model,
 		apiKey: payload.token,
 		sanitization: {
 			stripThinkingTags: true,
 			stripJsonFence: payload.stripJsonFence ?? true,
 		},
+		providerOptions: { ...context.providerOptions, fetch: dispatch.fetch },
+		// Pinned runtime 0.1.3 policy, but extra attempts are shared by the whole job.
+		...(attempts === undefined
+			? {}
+			: {
+					retry: {
+						maxAttempts: attempts,
+						backoffBaseMs: 2000,
+						maxBackoffMs: 60_000,
+					},
+				}),
 	};
-
-	const deepSeekProviderOptions = buildDeepSeekProviderOptions(payload);
-	const isDeepSeek = payload.provider === DEEPSEEK_PROVIDER;
-
 	let adapter: ProviderAdapter;
-	if (payload.provider === "anthropic") {
+	if (context.provider === "anthropic")
 		adapter = adapterFactories.createAnthropicAdapter(commonConfig);
-	} else if (payload.provider === "openai") {
+	else if (context.provider === "openai")
 		adapter = adapterFactories.createOpenAIAdapter(commonConfig);
-	} else if (payload.provider === "google") {
+	else if (context.provider === "google")
 		adapter = adapterFactories.createGoogleAdapter(commonConfig);
-	} else {
+	else
 		adapter = adapterFactories.createOpenAICompatibleAdapter({
 			...commonConfig,
-			provider: payload.provider as OpenAICompatibleProvider,
-			...(deepSeekProviderOptions !== undefined
-				? { providerOptions: deepSeekProviderOptions }
-				: {}),
+			provider: context.provider as OpenAICompatibleProvider,
 		});
+	dispatch.assertCurrent();
+	try {
+		const response = await adapter.call(context.request);
+		budget?.chargeTransport(response.attemptCount);
+		if (dispatch.refusal()) throw dispatch.refusal();
+		return response.content;
+	} catch (error) {
+		if (budget && error instanceof LLMRuntimeError)
+			budget.chargeTransport(error.attempts ?? 0);
+		throw dispatch.refusal() ?? error;
 	}
-
-	const response = await adapter.call({
-		messages: adapterFactories.buildSimplePrompt({
-			system: payload.systemPrompt,
-			user: payload.userPrompt,
-		}),
-		temperature: payload.temperature,
-		// Legacy portable field: kept for non-DeepSeek providers only.
-		...(!isDeepSeek && payload.thinking
-			? { thinking: true, reasoningEffort: "high" }
-			: {}),
-	});
-	return response.content;
 }

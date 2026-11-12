@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { CommitJobResult } from "../../types.ts";
-import { PROVIDER_FAILURE_KINDS } from "../llm/provider-failure.ts";
+import {
+	isTerminalProviderFailureKind,
+	PROVIDER_FAILURE_KINDS,
+	type TerminalProviderFailureKind,
+} from "../llm/provider-failure.ts";
 
 const commitMessageResultSchema = z.object({
 	type: z.string(),
@@ -25,13 +29,27 @@ const commitJobResultRuntimeSchema = z.union([
 		id: z.string(),
 		commits: z.array(commitPlanResultSchema),
 	}),
-	z.object({
-		success: z.literal(false),
-		id: z.string(),
-		error: z.string(),
-		providerFailureKind: z.enum(PROVIDER_FAILURE_KINDS).optional(),
-		rejectedPlans: z.array(commitPlanResultSchema).min(1).optional(),
-	}),
+	z
+		.object({
+			success: z.literal(false),
+			id: z.string(),
+			error: z.string(),
+			providerFailureKind: z.enum(PROVIDER_FAILURE_KINDS).optional(),
+			planningFailureKind: z.literal("structural").optional(),
+			terminalFailureKind: z
+				.custom<TerminalProviderFailureKind>(isTerminalProviderFailureKind)
+				.optional(),
+			rejectedPlans: z.array(commitPlanResultSchema).min(1).optional(),
+		})
+		.refine(
+			(result) =>
+				[
+					result.providerFailureKind,
+					result.planningFailureKind,
+					result.terminalFailureKind,
+				].filter(Boolean).length <= 1,
+			"Failure classifications cannot grant combined retry authority",
+		),
 ]);
 
 // Normalize omitted result isBreaking before returning the existing public type.

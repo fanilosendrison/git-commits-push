@@ -1,5 +1,6 @@
 import type { CommitJobResultError, RepoState, Settings } from "../../types.ts";
 import type { SkillStatsLog } from "../telemetry/stats-logger.ts";
+import { collectCommitMessageValidationErrors } from "./commit-message-validation.ts";
 import { classifyLLMFailure } from "./error-classifier.ts";
 import { buildFallbackSettings, shouldUseFallback } from "./fallback-model.ts";
 import { MAX_ATTEMPTS_BY_KIND, queueRetry } from "./queue-retry.ts";
@@ -30,19 +31,28 @@ export function handleLlmJobFailure({
 	systemPrompt,
 }: LlmJobFailureOptions): RepoState {
 	const llmError = sanitizeSensitiveDiagnostic(result.error);
-	const llmKind = result.providerFailureKind
-		? shouldUseFallback(
-				settings,
-				"provider",
-				repoState.attempts?.provider ?? 0,
-				repoState.fallbackAttempted ?? false,
-			)
-			? "provider"
-			: null
-		: classifyLLMFailure(llmError);
+	const incompleteAggregate = result.planningFailureKind === "structural";
+	const llmKind = result.terminalFailureKind
+		? null
+		: incompleteAggregate
+			? "structural"
+			: result.providerFailureKind
+				? shouldUseFallback(
+						settings,
+						"provider",
+						repoState.attempts?.provider ?? 0,
+						repoState.fallbackAttempted ?? false,
+					)
+					? "provider"
+					: null
+				: classifyLLMFailure(llmError);
 	const retrySettings =
 		llmKind === "provider" ? buildFallbackSettings(settings) : settings;
-	if (llmKind === null) {
+	const repairErrors =
+		llmKind === "provider" && result.rejectedPlans
+			? collectCommitMessageValidationErrors(result.rejectedPlans)
+			: undefined;
+	if (llmKind === null || repairErrors?.length === 0) {
 		skillLog.logRepoOutcome({
 			runId,
 			repoId: result.id,
@@ -56,16 +66,24 @@ export function handleLlmJobFailure({
 		return {
 			...repoState,
 			status: "FAILED",
-			error: `LLM fatal error: ${llmError}`,
+			error:
+				repairErrors?.length === 0
+					? "Cannot reconstruct canonical constraints for frozen message repair"
+					: `LLM fatal error: ${llmError}`,
 		};
 	}
 
+	const completePlanUnavailable =
+		incompleteAggregate || (llmKind === "provider" && !result.rejectedPlans);
 	const attempts = repoState.attempts?.[llmKind] ?? 0;
 	if (attempts < MAX_ATTEMPTS_BY_KIND[llmKind]) {
 		const incrementedState: RepoState = {
 			...repoState,
 			...(llmKind === "provider"
-				? { fallbackAttempted: true, lastPlanHash: undefined }
+				? {
+						fallbackAttempted: true,
+						...(result.rejectedPlans ? { lastPlanHash: undefined } : {}),
+					}
 				: {}),
 			attempts: {
 				...(repoState.attempts ?? {}),
@@ -75,9 +93,13 @@ export function handleLlmJobFailure({
 		const retryResult = queueRetry(
 			result.id,
 			incrementedState,
-			[
+			repairErrors ?? [
 				{
-					kind: result.rejectedPlans ? "validation" : llmKind,
+					kind: incompleteAggregate
+						? "structural"
+						: result.rejectedPlans
+							? "validation"
+							: llmKind,
 					message: llmError,
 					resolution_hint:
 						llmKind === "provider"
@@ -85,10 +107,10 @@ export function handleLlmJobFailure({
 							: "The previous LLM response was malformed. Regenerate based on the current diff.",
 				},
 			],
-			{},
+			{ completePlanUnavailable },
 			retrySettings,
 			systemPrompt,
-			result.rejectedPlans ?? [],
+			incompleteAggregate ? [] : (result.rejectedPlans ?? []),
 		);
 		if (retryResult.kind === "loop-detected") {
 			skillLog.logLoopDetected({

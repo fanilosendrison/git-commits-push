@@ -2,24 +2,27 @@ import { CREATION_DIFF_ARGUMENTS } from "./creation-diff.ts";
 import {
 	type GitExecutionPolicy,
 	gitExecArgsRaw,
+	gitExecBytesArgs,
 	gitExecutionProcessConfiguration,
 } from "./git-exec.ts";
 import { readLocalObjectRevisions } from "./local-object-revisions.ts";
 import {
-	type IndexSourceSnapshot,
 	PublicationCompletenessError,
 	readEmptyTree,
 } from "./validated-source.ts";
 
-/** Scan and plan the pinned Git input, not whichever index exists during a later read.
- * Retain historical diff presentation outside creation; this is not the Issue 20 repair.
- */
-export function readValidationInputDiff(
+interface ValidationDiffInput {
+	readonly baseHeadSha: string | null;
+	readonly expectedTreeSha: string;
+}
+
+/** One local-object proof and argument authority for text and byte-preserving reads. */
+function validationDiffArguments(
 	repository: string,
-	input: Pick<IndexSourceSnapshot, "baseHeadSha" | "expectedTreeSha">,
+	input: ValidationDiffInput,
 	creation: boolean,
-	executionPolicy: GitExecutionPolicy = "inherit",
-): string {
+	executionPolicy: GitExecutionPolicy,
+): string[] {
 	try {
 		if (
 			readLocalObjectRevisions(
@@ -40,16 +43,40 @@ export function readValidationInputDiff(
 			"Validation input objects are unavailable locally; refusing automatic retrieval.",
 		);
 	}
+	return [
+		"--no-replace-objects",
+		"diff",
+		"--patch",
+		...(creation ? CREATION_DIFF_ARGUMENTS : []),
+		input.baseHeadSha ?? readEmptyTree(repository),
+		input.expectedTreeSha,
+		"--",
+	];
+}
+
+/** Keep historical textual scan/hash semantics; this is not the Issue20 repair. */
+export function readValidationInputDiff(
+	repository: string,
+	input: ValidationDiffInput,
+	creation: boolean,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): string {
 	return gitExecArgsRaw(
-		[
-			"--no-replace-objects",
-			"diff",
-			"--patch",
-			...(creation ? CREATION_DIFF_ARGUMENTS : []),
-			input.baseHeadSha ?? readEmptyTree(repository),
-			input.expectedTreeSha,
-			"--",
-		],
+		validationDiffArguments(repository, input, creation, executionPolicy),
+		repository,
+		gitExecutionProcessConfiguration(executionPolicy),
+	);
+}
+
+/** New fullDiffHash binds unconverted complete stdout bytes, including invalid UTF-8. */
+export function readValidationInputDiffBytes(
+	repository: string,
+	input: ValidationDiffInput,
+	creation: boolean,
+	executionPolicy: GitExecutionPolicy = "inherit",
+): Buffer {
+	return gitExecBytesArgs(
+		validationDiffArguments(repository, input, creation, executionPolicy),
 		repository,
 		gitExecutionProcessConfiguration(executionPolicy),
 	);
@@ -57,8 +84,14 @@ export function readValidationInputDiff(
 
 /** Validation cannot ratify a different source observed after the scan. */
 export function assertSameValidationInput(
-	before: IndexSourceSnapshot,
-	after: IndexSourceSnapshot,
+	before: {
+		repository: string;
+		gitDirectory: string;
+		baseHeadSha: string | null;
+		expectedTreeSha: string;
+		expectedChangedPaths: readonly string[];
+	},
+	after: typeof before,
 ): void {
 	if (
 		before.repository !== after.repository ||

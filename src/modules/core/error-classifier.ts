@@ -110,12 +110,14 @@ const LLM_FATAL_SIGNATURES: readonly string[] = [LLM_BRIDGE_ERROR_PREFIX];
 export function classifyLLMFailure(
 	error: string,
 ): FeedbackError["kind"] | null {
-	if (error.includes("validation rejected")) {
-		return "validation";
-	}
-
+	// A bridge-owned fatal marker outranks words echoed from untrusted output.
 	for (const sig of LLM_FATAL_SIGNATURES) {
 		if (error.includes(sig)) return null;
+	}
+
+	// Preserve the documented historical unprefixed validation extension.
+	if (error.includes("validation rejected")) {
+		return "validation";
 	}
 
 	return null;
