@@ -96,6 +96,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/request-identity.test.ts",
 	"unit/qualification-platform-git.test.ts",
 	"unit/qualification-boundary.test.ts",
+	"unit/qualification-guard-regressions.test.ts",
 	"unit/resume-reporting.test.ts",
 	"unit/secret-scanner.test.ts",
 	"unit/settings.test.ts",
