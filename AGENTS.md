@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.6.0"
+version: "3.6.3"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -291,7 +291,9 @@ registered and exact pre-admission file evidence is revalidated.
 
 - Validate and authorize Turnlock delegation manifests before reading job payloads. New v3 manifests must target exactly `worker("git-commit-generator")`; bounded v2 compatibility accepts only that historical worker. Unknown targets and compatibility markers fail closed.
 - Validate initial planning and repair responses with the production Zod schema
-  inside the bounded attempt loop.
+  inside the bounded attempt loop. Keep the generation contract explicit that
+  every commit requires its own `description`; an explanatory `body` is not a
+  substitute. Never manufacture a description from body text after inference.
 - Commit-message repair may change only requested messages; file ownership,
   indexes, and plan cardinality remain invariant.
 - An over-budget `repair-commit-messages` response may be shortened only at an
@@ -422,7 +424,19 @@ pnpm run test:node:build
 pnpm run test:node:stats
 ```
 
-The TypeScript runner explicitly enumerates 104 test files in `tests/run-tests.mjs`.
+Use the maintained platform Git activation for source and compiled tests; do not
+replace legacy-Darwin qualification with ambient MacPorts Git or raise watchdogs
+to compensate. The package test scripts own this activation through
+`scripts/with-platform-git.mjs`.
+
+Use `pnpm run qualify` for lifetime-bound contributor qualification. Supply actual
+`GCP_QUALIFY_LEGACY_RELEASES` inputs for the conditional historical fixture. Keep
+all seven command exits, captured output and group-absence evidence. An incomplete
+sequence, active descendant or indeterminate cleanup is never PASS. This
+source-only harness reuses the maintained controller; it grants no publication,
+reconciler mutation, bootstrap or release activation and never resumes old runs.
+
+The TypeScript runner explicitly enumerates 112 test files in `tests/run-tests.mjs`.
 Installer concurrency tests build a test-only SQLite VFS extension with `cc` and
 SDK SQLite development headers. It delegates native operations unchanged and
 schedules lock promotions over control pipes; it links no replacement SQLite

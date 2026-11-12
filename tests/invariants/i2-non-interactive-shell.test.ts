@@ -10,7 +10,7 @@ import { captureValidatedSource } from "../../src/modules/git/validated-source.t
 import type { CommitJobResultSuccess } from "../../src/types.ts";
 import { GitRepoFixture } from "../fixtures/git-repo.ts";
 import { MockTurnlockEnvironment } from "../fixtures/mock-turnlock-env.ts";
-import { resumeWithReporting } from "../fixtures/resume-reporting.ts";
+import { reportSourceResume } from "../fixtures/resume-reporting.ts";
 import { computeStateJson } from "../helpers/test-helpers.ts";
 
 let repoFakeRemote: GitRepoFixture;
@@ -116,7 +116,7 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 
 	test("I2-01 | process terminates without hitting the fail-safe timeout (no hang)", () => {
 		const start = Date.now();
-		const result = resumeWithReporting(
+		const result = spawnSync(
 			process.execPath,
 			[SKILL_ENTRYPOINT, "--resume", "--run-id", "01J00000000000000000000000"],
 			{
@@ -133,8 +133,11 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 			},
 		);
 		durationMs = Date.now() - start;
+		// Preserve the original watchdog output even if the following assertion fails.
 		stderr = result.stderr ?? "";
 		stdout = result.stdout ?? "";
+		// This interval covers the actual source-resume process, not a second
+		// no-effect reporting process with its own independent fail-safe.
 		// We do not assert exit code 0 here — the push WILL fail, but gracefully.
 		// The invariant is absence of a credential-prompt hang, so the fail-safe
 		// timeout must remain untouched; host slowness must not fail this test.
@@ -143,6 +146,23 @@ describe("I2 — Non-Interactive Shell Safety", () => {
 			`process was killed by the fail-safe timeout: ${String(result.error)}`,
 		);
 		assert.ok(durationMs < 60_000);
+		const reportStart = Date.now();
+		const reported = reportSourceResume(process.execPath, result, {
+			env: {
+				...process.env,
+				...env.env(),
+				GIT_CONFIG_NOSYSTEM: "1",
+				GIT_TERMINAL_PROMPT: "0",
+				HOME: env.runDir,
+				XDG_CONFIG_HOME: env.runDir,
+			},
+			encoding: "utf-8",
+			timeout: 60_000,
+		});
+		assert.equal(reported.error, undefined);
+		assert.ok(Date.now() - reportStart < 60_000);
+		stderr = reported.stderr ?? "";
+		stdout = reported.stdout ?? "";
 	});
 
 	test("I2-02 | post-commit push failure never delegates another LLM plan", () => {

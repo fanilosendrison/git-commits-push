@@ -10,8 +10,25 @@ import {
 } from "../run-tests.mjs";
 
 test("keeps the git-commits-push Node test surface closed and sequential", () => {
-	assert.equal(EXPECTED_NODE_TEST_FILES.length, 104);
-	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 104);
+	assert.equal(EXPECTED_NODE_TEST_FILES.length, 112);
+	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 112);
+	for (const file of [
+		"unit/prepared-merge-historical-staging.test.ts",
+		"unit/prepared-merge-explicit-parents.test.ts",
+		"unit/prepared-merge-remote-observation.test.ts",
+		"unit/prepared-merge-terminal-state.test.ts",
+		"unit/resume-reporting.test.ts",
+		"unit/qualification-platform-git.test.ts",
+		"unit/qualification-boundary.test.ts",
+		"unit/qualification-guard-regressions.test.ts",
+	])
+		assert.ok(EXPECTED_NODE_TEST_FILES.includes(file));
+	assert.equal(
+		EXPECTED_NODE_TEST_FILES.includes(
+			"unit/prepared-merge-review-regressions.test.ts",
+		),
+		false,
+	);
 	assert.deepEqual(buildNodeTestArguments(["/tmp/example.test.ts"]), [
 		"--test",
 		"--test-concurrency=1",
@@ -19,6 +36,21 @@ test("keeps the git-commits-push Node test surface closed and sequential", () =>
 		"--test-reporter=tap",
 		"/tmp/example.test.ts",
 	]);
+});
+
+test("source and compiled qualification use the maintained platform Git wrapper", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	assert.equal(
+		manifest.scripts["test:source"],
+		"node scripts/with-platform-git.mjs tests/run-tests.mjs",
+	);
+	assert.ok(
+		manifest.scripts["test:node:build"].startsWith(
+			"pnpm run build:node && node scripts/with-platform-git.mjs --test ",
+		),
+	);
 });
 
 test("keeps the package Node-build timeout aligned with the source runner", () => {
@@ -31,6 +63,18 @@ test("keeps the package Node-build timeout aligned with the source runner", () =
 		new RegExp(
 			`--test-timeout=${FIXED_TEST_TIMEOUT_MILLISECONDS}(?:\\s|$)`,
 			"u",
+		),
+	);
+});
+
+test("CI checks out the exact PR head or push event SHA", () => {
+	const workflow = readFileSync(
+		new URL("../../.github/workflows/ci.yml", import.meta.url),
+		"utf8",
+	);
+	assert.ok(
+		workflow.includes(
+			`uses: actions/checkout@v4\n        with:\n          ref: \${{ github.event.pull_request.head.sha || github.sha }}`,
 		),
 	);
 });
