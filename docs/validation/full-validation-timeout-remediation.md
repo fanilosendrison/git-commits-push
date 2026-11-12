@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "verification-record"
 name: "Full Validation Timeout Remediation"
-version: "0.1.0"
+version: "0.1.1"
 domain: "git-commits-push"
 severity: "guideline"
 ---
@@ -159,3 +159,38 @@ Canonical publication, new literal-SHA CI, fresh independent review, applicable
 integration and immutable-release installation/activation/readback remain
 separate gates. This record does not claim corrected-release availability
 or authorize Review Broker changes, publication or historical rewriting.
+
+## Fresh0562566 NO_GO and mechanical follow-up
+
+The independently published05625666db5a335c3ca5f6f7bfdf26a274147fbc subject
+received a fresh NO_GO, not an extension of the earlier19fd834 BLOCKED/Q1.
+Official CI43117980491 passed on literal0562566 (796 source;162 compiled plus
+one conditional history-input skip), but did not override these findings.
+
+- F1: writing boundary identity after READY was outside cleanup protection.
+  An actual EISDIR could leave the inert controller connected after rejection.
+  All post-preparation evidence/error paths are now protected by owned termination
+  and group-absence verification; an indeterminate cleanup retains its failure.
+- F2: a string of PATH delimiters passed a nonempty-string check but parsed into
+  an empty historical directory list. Admission now applies the fixture's actual
+  delimiter/list semantics and rejects the empty parsed list before qualification.
+- F3: cancellation while awaiting READY could still send START. The qualifier
+  now checks cancellation after preparation and terminates the inert boundary
+  without START, preserving the maintained production controller unchanged.
+
+Disposition for each: `no-normative-impact` in implementation, conformance and
+verification evidence. Existing ownership, cancellation and explicit historical
+coverage requirements determine these corrections; no new product choice or
+watchdog increase is introduced.
+
+Real regression controls preserve EISDIR with natural driver exit and group
+absence, reject separator-only lists and retain valid parsed inputs, and hold
+READY while cancelling with a controlled termination delay. The latter requires
+no START/supervisor/command marker. All3 corrected controls pass. The original
+0562566 F1/F3 implementation is RED against those unchanged controls; removing
+the parsed-list guard is separately RED. Source is restored byte-exactly after
+negative runs. The closed source inventory now includes112 files.
+
+The full corrected subject requires a new seven-command qualification, canonical
+publication, literal-SHA CI and independent verdict. The complete0562566 report
+and its reviewer setup/oracle failures remain preserved rather than relabeled.

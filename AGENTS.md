@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.6.2"
+version: "3.6.3"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -436,7 +436,7 @@ sequence, active descendant or indeterminate cleanup is never PASS. This
 source-only harness reuses the maintained controller; it grants no publication,
 reconciler mutation, bootstrap or release activation and never resumes old runs.
 
-The TypeScript runner explicitly enumerates 111 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 112 test files in `tests/run-tests.mjs`.
 Installer concurrency tests build a test-only SQLite VFS extension with `cc` and
 SDK SQLite development headers. It delegates native operations unchanged and
 schedules lock promotions over control pipes; it links no replacement SQLite
