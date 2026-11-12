@@ -6,6 +6,7 @@ import { preparePlanningDiff } from "../modules/core/planning-diff.ts";
 import { printReport } from "../modules/core/reporter.ts";
 import { loadSystemPrompt } from "../modules/core/system-prompt-loader.ts";
 import { processRepoValidationAndDiff } from "../modules/core/validators/pre-commit-validators.ts";
+import { planningSourceFor } from "../modules/planning/planning-source.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import type {
 	CommitJobPayload,
@@ -212,6 +213,7 @@ export async function runDiscoveryAndValidationPhase(
 			state.invocationScope.kind === "targeted-create",
 		);
 		const payload: CommitJobPayload = {
+			planningSource: planningSourceFor(nextRepos[r.id], settings),
 			repository: r.path,
 			diff: diffForLlm,
 			diffHash: r.diffHash,

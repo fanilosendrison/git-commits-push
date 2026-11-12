@@ -1,6 +1,7 @@
+import "./synthetic-context-injection.mjs";
 import { appendFileSync, readFileSync } from "node:fs";
 
-// Replace only the provider HTTP boundary. Fixture plans are explicit test data,
+// Inject the explicit synthetic context oracle and replace the provider HTTP boundary. Fixture plans are explicit test data,
 // never inferred from the production implementation's membership calculation.
 globalThis.fetch = async (input) => {
 	const url =

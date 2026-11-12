@@ -45,12 +45,8 @@ function logBridgeMessage(message: string): void {
 	console.log(message);
 }
 
-import { parseCommitJobResponse } from "../modules/core/commit-job-response.ts";
-import {
-	COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT,
-	formatCommitMessageRepairPrompt,
-} from "../modules/core/commit-message-repair.ts";
-import { formatFeedbackBlock } from "../modules/core/feedback-formatter.ts";
+import type { ContextAuthority } from "../modules/llm/context-types.ts";
+import { executePlanningJob } from "../modules/planning/planning-job.ts";
 import type {
 	BridgeJobPayload,
 	CommitJobResult,
@@ -123,6 +119,7 @@ export async function executeResumeCommand(
 }
 
 export interface BridgeDependencies {
+	readonly contextAuthority?: ContextAuthority;
 	readonly invokeLlm: typeof invokeLlm;
 	readonly resolveAuthToken: typeof resolveAuthToken;
 }
@@ -185,60 +182,12 @@ export async function handleTurnlockDelegation(
 				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Invoking LLM (${payload.provider}/${payload.model})...`,
 				);
-				const isCommitMessageRepair = payload.mode === "repair-commit-messages";
-				let finalUserPrompt: string;
-				if (isCommitMessageRepair) {
-					finalUserPrompt = formatCommitMessageRepairPrompt(payload);
-				} else if (payload.feedback?.pending_files) {
-					// Partial commit retry: the reconstructed diff is only for pending files,
-					// rendered inside <remaining-diff>. No separate diff prefix needed.
-					finalUserPrompt = formatFeedbackBlock(payload.feedback, payload.diff);
-				} else {
-					finalUserPrompt = payload.diff;
-					if (payload.feedback) {
-						finalUserPrompt += formatFeedbackBlock(payload.feedback);
-					}
-				}
-
-				// Retry malformed or mode-invalid LLM responses locally at most once.
-				let commits: CommitPlan[] | undefined;
-				let responseError: unknown;
-				for (let attempt = 0; attempt < 2; attempt++) {
-					const llmResponse = await dependencies.invokeLlm({
-						provider: payload.provider,
-						model: payload.model,
-						token: token,
-						temperature: payload.temperature,
-						systemPrompt: isCommitMessageRepair
-							? COMMIT_MESSAGE_REPAIR_SYSTEM_PROMPT
-							: payload.systemPrompt,
-						userPrompt: finalUserPrompt,
-						stripJsonFence: true, // Mandatory per specs
-						...(payload.thinking !== undefined
-							? { thinking: payload.thinking }
-							: {}),
-					});
-
-					logBridgeMessage(
-						`[Turnlock→LLM] [${job.id}] LLM response received (attempt ${attempt + 1}). Parsing JSON...`,
-					);
-					try {
-						commits = parseCommitJobResponse(payload, llmResponse);
-						break;
-					} catch (error) {
-						responseError = error;
-						if (attempt < 1) {
-							console.warn(
-								`[Turnlock→LLM] [${job.id}] Invalid LLM response on attempt ${attempt + 1}, retrying...`,
-							);
-						}
-					}
-				}
-				if (!commits) {
-					throw responseError instanceof Error
-						? responseError
-						: new Error("LLM returned an invalid response.");
-				}
+				const commits = await executePlanningJob(
+					payload,
+					token,
+					dependencies.invokeLlm,
+					dependencies.contextAuthority,
+				);
 
 				const successResult: CommitJobResult = {
 					success: true,
@@ -306,7 +255,10 @@ async function resumeAndProcess(
 	}
 }
 
-export async function main() {
+/** CLI routing; trusted callers may inject dependencies without a job/env bypass. */
+export async function main(
+	dependencies: BridgeDependencies = defaultBridgeDependencies,
+) {
 	const rl = readline.createInterface({
 		input: process.stdin,
 		output: process.stdout,
@@ -351,7 +303,12 @@ export async function main() {
 	rl.on("close", async () => {
 		if (manifestPath && resumeCmd) {
 			try {
-				await handleTurnlockDelegation(manifestPath, resumeCmd);
+				await handleTurnlockDelegation(
+					manifestPath,
+					resumeCmd,
+					undefined,
+					dependencies,
+				);
 			} catch (err: unknown) {
 				const errMsg = sanitizeSensitiveDiagnostic(
 					err instanceof Error ? err.message : String(err),

@@ -26,6 +26,7 @@ import {
 import {
 	assertSameValidationInput,
 	readValidationInputDiff,
+	readValidationInputDiffBytes,
 } from "../../git/validation-source-input.ts";
 import { createSkillStatsLog } from "../../telemetry/stats-logger.ts";
 import { scanDiff } from "../secret-scanner.ts";
@@ -278,11 +279,18 @@ export async function processRepoValidationAndDiff(
 	const diffHash = crypto.createHash("sha256").update(diff).digest("hex");
 
 	await validateDiffForSecrets(repo, diff, scanner);
-	const validatedSource = captureValidatedSource(
-		repo.path,
-		!!repo.explicitPushTargetSnapshot ||
-			isTrackedPublicationRequired(repo.path, settings.autoPush),
-	);
+	const validatedSource = {
+		...captureValidatedSource(
+			repo.path,
+			!!repo.explicitPushTargetSnapshot ||
+				isTrackedPublicationRequired(repo.path, settings.autoPush),
+		),
+		// Independent unconverted authority; preserve historical scan/hash semantics.
+		fullDiffHash: crypto
+			.createHash("sha256")
+			.update(readValidationInputDiffBytes(repo.path, input, true))
+			.digest("hex"),
+	};
 	assertSameValidationInput(input, validatedSource);
 	assertValidatedSource(repo.path, validatedSource);
 

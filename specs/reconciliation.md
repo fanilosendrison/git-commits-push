@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.2.0"
+version: "4.3.0"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -202,6 +202,21 @@ coordinator schema, permissions, scopes or publication destinations.
 
 The guarantee concerns the publisher's own validated source. It does not bind an
 external review tree that was not supplied to the publisher.
+
+## Context-planning application admission
+
+Apply [model context planning](model-context-planning.md) before provider
+generation and before admitting any partition aggregate to commit effects.
+New witnesses retain a separate complete unconverted `fullDiffHash`; historical
+scan/diffHash semantics remain unchanged, including the separately tracked legacy
+secret-scan presentation limitation. H0/T and exact membership remain independent.
+
+Keep partitions inside one repository result job. Do not persist provider
+qualification, partitions or prompts in the reconciler. Partial planning cannot
+grant commit authority, reset repository attempts, or replace existing landed
+commit/source proof. Unknown capacity refuses; no production profile is qualified
+by this state extension. Coordinator schema v4, ownership, scope and exact
+publication rules are unchanged.
 
 ## Caller-prepared merge application state
 

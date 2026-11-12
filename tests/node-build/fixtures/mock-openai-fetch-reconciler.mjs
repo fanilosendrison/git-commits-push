@@ -1,7 +1,7 @@
 /**
  * Node preload — deterministic reconciliation E2E LLM mock.
  *
- * Replaces only the external LLM HTTP boundary. Plan generation is derived
+ * Injects a synthetic context oracle and replaces the external LLM HTTP boundary. Plan generation is derived
  * from the staged diff in the request body, so every repo receives a valid
  * Conventional Commit plan for exactly the files it staged.
  *
@@ -10,6 +10,7 @@
  *   MOCK_LLM_FIRST_CALL_MARKER (optional) written when the first LLM request is observed
  *   MOCK_LLM_RELEASE_FILE      (optional) block the first request until this file exists
  */
+import "./synthetic-context-injection.mjs";
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 
 const OPENAI_COMPLETIONS_ENDPOINT =

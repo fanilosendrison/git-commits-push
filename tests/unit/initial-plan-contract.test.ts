@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { handleTurnlockDelegation } from "../../src/entrypoints/turnlock-to-llm-bridge.ts";
 import { parseCommitJobResponse } from "../../src/modules/core/commit-job-response.ts";
 import type { CommitPlanningPayload } from "../../src/types.ts";
+import { syntheticContextAuthority } from "../helpers/context-authority.ts";
 
 const prompt = readFileSync(
 	new URL("../../system-prompt.md", import.meta.url),
@@ -74,6 +75,7 @@ async function bridge(responses: readonly string[]) {
 		);
 		let calls = 0;
 		await handleTurnlockDelegation(manifestPath, "synthetic resume", () => "", {
+			contextAuthority: syntheticContextAuthority(),
 			resolveAuthToken: async () => "mock-token",
 			invokeLlm: async (request) => {
 				assert.equal(request.systemPrompt, prompt);
@@ -104,6 +106,18 @@ test("planning contract explicitly requires description independently of body", 
 	const examples = prompt.match(/```\n(\[[\s\S]*?\])\n```/u)?.[1];
 	assert.ok(examples);
 	assert.equal(parseCommitJobResponse(payload, examples).length, 2);
+});
+
+test("planning contract treats literal partition membership as authority, not patch escaping", () => {
+	assert.match(prompt, /AUTHORITATIVE_PARTITION/u);
+	assert.match(prompt, /Do not copy quoted or escaped patch-header paths/u);
+	assert.match(prompt, /never add companions outside that membership/u);
+	assert.match(prompt, /### Message-only repair/u);
+	assert.match(
+		prompt,
+		/Every repaired commit still requires its own `description`/u,
+	);
+	assert.match(prompt, /The frozen original candidate retains file ownership/u);
 });
 
 test("captured current-provider omission remains refused, never reconstructed", () => {

@@ -43,7 +43,7 @@ async function retryFixture() {
 	return { f, state, validation };
 }
 
-test("creation planning retains the existing 3,000,000-character default cap", async () => {
+test("creation planning retains full input for admission and bounded partitioning", async () => {
 	const { f } = await retryFixture();
 	try {
 		const diff = "x".repeat(3_000_001);
@@ -53,12 +53,9 @@ test("creation planning retains the existing 3,000,000-character default cap", a
 			CREATE_SETTINGS,
 			true,
 		);
-		assert.ok(prepared.startsWith("x".repeat(3_000_000)));
-		assert.ok(
-			prepared.includes(
-				"DIFF TRUNCATED — 3000001 chars total, showing first 3000000 chars",
-			),
-		);
+		assert.equal(prepared, diff);
+		assert.equal(prepared.length, 3_000_001);
+		assert.ok(!prepared.includes("DIFF TRUNCATED"));
 		assert.ok(!prepared.includes("harmless"));
 		assert.ok(
 			!prepared.includes("validated safe content"),

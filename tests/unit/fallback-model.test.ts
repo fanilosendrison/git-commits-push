@@ -154,7 +154,8 @@ test("typed outage crosses durable schema and queues Mistral once on a real pend
 			{
 				commit: {
 					type: "feat",
-					description: "repair this subject",
+					description:
+						"repair this subject while retaining exact ownership ".repeat(3),
 					isBreaking: false,
 				},
 				files: ["change.txt"],
@@ -181,6 +182,7 @@ test("typed outage crosses durable schema and queues Mistral once on a real pend
 		const payload = JSON.parse(repair.prompt);
 		assert.equal(payload.mode, "repair-commit-messages");
 		assert.deepEqual(payload.rejectedPlans, rejectedPlans);
+		assert.equal(payload.validationErrors[0].planIndex, 0);
 		assert.equal(payload.provider, "mistral");
 		repo.commit("consume pending change");
 		assert.throws(

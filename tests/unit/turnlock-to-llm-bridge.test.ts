@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
+import { syntheticContextAuthority } from "../helpers/context-authority.ts";
 
 // Set up module mocks before importing the target wrapper
 let lastExecCmd: string | null = null;
@@ -46,6 +47,7 @@ function createTurnlockV2BatchManifest(args: {
 }
 
 const mockAdapterFactories: LlmAdapterFactories = {
+	contextAuthority: syntheticContextAuthority(),
 	buildSimplePrompt: ((prompt: unknown) =>
 		prompt) as LlmAdapterFactories["buildSimplePrompt"],
 	createOpenAIAdapter: (config) => {
@@ -137,6 +139,7 @@ const mockAdapterFactories: LlmAdapterFactories = {
 };
 
 const mockBridgeDependencies: BridgeDependencies = {
+	contextAuthority: syntheticContextAuthority(),
 	resolveAuthToken: async (provider: string) => {
 		if (provider === "fail") throw new Error("mock auth fail");
 		return "mock-token";

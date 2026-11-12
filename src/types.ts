@@ -1,4 +1,11 @@
 /** Shared runtime and durable-state contracts; parsed through config/state-schema.ts. */
+import type { CommitJobPayload } from "./modules/planning/planning-types.ts";
+
+export type {
+	CommitJobPayload,
+	CommitMessageRepairPayload,
+	CommitPlanningPayload,
+} from "./modules/planning/planning-types.ts";
 
 import type {
 	CreationAnchor,
@@ -28,9 +35,8 @@ export interface Settings {
 	/** Agent name for nested credential lookup in agent-credentials.json */
 	agent?: string;
 	/**
-	 * Maximum diff size (chars) before truncation.
-	 * When exceeded, the diff is truncated and replaced with `git diff --stat`
-	 * to stay within LLM context window limits. Defaults to 3_000_000 (~750K tokens).
+	 * Additional per-partition character resource guard (not a token budget).
+	 * Required source content is partitioned or refused, never truncated.
 	 */
 	maxDiffChars?: number;
 }
@@ -231,45 +237,6 @@ export interface Feedback {
  */
 export type AttemptsByKind = Partial<Record<FeedbackError["kind"], number>>;
 
-/**
- * Payload embedded as JSON string inside a BatchDelegationRequest job's `prompt` field.
- * See: NIB-S §3 > CommitJobPayload, DC-TURNLOCK §4.
- *
- * R41 fix: `diff` semantic is overloaded by design.
- *   - First attempt: full staged diff (populated by diff-capture phase).
- *   - Retries: reconstructed remaining-work diff (populated by queueRetry).
- * The bridge always renders payload.diff inside <remaining-diff> tags.
- */
-interface CommitJobPayloadBase {
-	repository: string;
-	diffHash: string;
-	provider: string;
-	model: string;
-	temperature: number;
-	systemPrompt: string;
-	/** Enable thinking/reasoning for supported providers (e.g. DeepSeek) */
-	thinking?: boolean | undefined;
-	/** Agent name for nested credential lookup in agent-credentials.json */
-	agent?: string | undefined;
-}
-
-export interface CommitPlanningPayload extends CommitJobPayloadBase {
-	mode?: "plan" | undefined;
-	diff: string;
-	/** Structured feedback for non-validation retries. */
-	feedback?: Feedback | undefined;
-}
-
-export interface CommitMessageRepairPayload extends CommitJobPayloadBase {
-	mode: "repair-commit-messages";
-	rejectedPlans: CommitPlan[];
-	validationErrors: FeedbackError[];
-}
-
-export type CommitJobPayload =
-	| CommitPlanningPayload
-	| CommitMessageRepairPayload;
-
 /** Internal no-effect Turnlock yields persist publication evidence without inference. */
 export type PublicationCheckpointPayload = { repository: string } & (
 	| { mode: "checkpoint-push-only" }
@@ -291,6 +258,9 @@ export interface CommitJobResultSuccess {
 
 /** Written by the Turnlock-to-LLM bridge to each job's resultPath on failure */
 export interface CommitJobResultError {
+	/** Canonically classified incomplete/invalid planning structure, not an outage. */
+	planningFailureKind?: "structural";
+	terminalFailureKind?: import("./modules/llm/provider-failure.ts").TerminalProviderFailureKind;
 	/** Preserve ownership when a provider fails during message-only repair. */
 	rejectedPlans?: CommitPlan[];
 	providerFailureKind?: import("./modules/llm/provider-failure.ts").ProviderFailureKind;
@@ -303,6 +273,8 @@ export type CommitJobResult = CommitJobResultSuccess | CommitJobResultError;
 
 /** Immutable Git authority captured before inference and retained across every retry. */
 export interface ValidatedSourceWitness {
+	/** Original complete diff binding; absent on historical witnesses. */
+	readonly fullDiffHash?: string | undefined;
 	readonly preparedMerge?: PreparedMergeSource | undefined;
 	readonly repository: string;
 	readonly gitDirectory: string;

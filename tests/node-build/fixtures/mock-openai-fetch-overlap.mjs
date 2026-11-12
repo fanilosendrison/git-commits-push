@@ -1,3 +1,4 @@
+import "./synthetic-context-injection.mjs";
 import http from "node:http";
 import https from "node:https";
 

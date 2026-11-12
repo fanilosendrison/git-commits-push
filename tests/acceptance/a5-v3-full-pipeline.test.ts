@@ -1,7 +1,7 @@
 // A5 — Full Turnlock v3 CLI pipeline
 // This test crosses real process boundaries. Only the nondeterministic external
-// LLM HTTP call is replaced by a Node preload; Turnlock, the bridge, resume,
-// and Git publishing all execute their production implementations.
+// LLM HTTP call and context oracle are explicitly synthetic; Turnlock, the
+// bridge CLI loop, resume and Git publishing execute production implementations.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -26,7 +26,7 @@ const ORCHESTRATOR_ENTRYPOINT = path.resolve(
 );
 const BRIDGE_ENTRYPOINT = path.resolve(
 	import.meta.dirname,
-	"../../src/entrypoints/turnlock-to-llm-bridge.ts",
+	"../fixtures/synthetic-context-bridge.ts",
 );
 const MOCK_OPENAI_FETCH_PRELOAD = path.resolve(
 	import.meta.dirname,
@@ -109,7 +109,10 @@ describe("A5 — Turnlock v3 full CLI pipeline", () => {
 		assert.ok(stdout.includes("[Turnlock→LLM] Retry delegation detected"));
 		assert.ok(stdout.includes("version: 3"));
 		assert.ok(stdout.includes("action: DELEGATE"));
-		assert.ok(stdout.includes("action: DONE"));
+		assert.ok(
+			stdout.includes("action: DONE"),
+			`stderr=${stderr}\nstdout=${stdout}`,
+		);
 		assert.ok(!stdout.includes("action: ERROR"));
 		assert.ok(stderr.includes("=== TURNLOCK EXECUTION REPORT ==="));
 	});

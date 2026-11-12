@@ -12,11 +12,11 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-
 import {
 	createOpenAICompatibleAdapter,
 	TimeoutError,
 } from "@fanilosendrison/llm-runtime";
+import { syntheticCompiledAuthority } from "./context-profile-fixture.mjs";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(testDirectory, "../..");
@@ -64,6 +64,7 @@ test("compiled invoker forwards explicit DeepSeek thinking provider options", as
 		},
 	});
 	const factories = {
+		contextAuthority: syntheticCompiledAuthority(),
 		buildSimplePrompt: (prompt) => prompt,
 		createAnthropicAdapter: stub,
 		createGoogleAdapter: stub,
@@ -82,11 +83,19 @@ test("compiled invoker forwards explicit DeepSeek thinking provider options", as
 	await invokeLlm({ ...payload, thinking: false }, factories);
 	await invokeLlm({ ...payload, thinking: true }, factories);
 
-	assert.deepEqual(invocations[0].config.providerOptions, {
-		thinking: { type: "disabled" },
+	for (const invocation of invocations) {
+		assert.equal(typeof invocation.config.providerOptions.fetch, "function");
+		assert.deepEqual(Object.keys(invocation.config.providerOptions).sort(), [
+			"fetch",
+			"thinking",
+		]);
+	}
+	assert.deepEqual(invocations[0].config.providerOptions.thinking, {
+		type: "disabled",
 	});
-	assert.deepEqual(invocations[1].config.providerOptions, {
-		thinking: { type: "enabled", reasoningEffort: "high" },
+	assert.deepEqual(invocations[1].config.providerOptions.thinking, {
+		type: "enabled",
+		reasoningEffort: "high",
 	});
 });
 

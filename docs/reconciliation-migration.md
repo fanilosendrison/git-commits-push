@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "4.3.0"
+version: "4.4.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -128,6 +128,25 @@ zero-progress retry authority.
 Coordinator schema v4, immutable historical releases, destination authority and
 clean push-only semantics are unchanged. Operational activation remains separate
 from source integration and cannot bypass legacy-global/WAL preflight.
+
+## Context-planning application compatibility
+
+New commit-and-push witnesses add optional `fullDiffHash` for historical parsing,
+required for new partition authority. It binds the complete unconverted H0/T
+representation independently of the existing scan/diffHash representation.
+Historical state is not recaptured or silently upgraded. The existing canonical
+source and partial-commit proof continue to govern all effects.
+
+One repository delegation carries the source witness and index/commit progress.
+The bridge produces a single aggregate result only after all exact path partitions
+succeed. Shared bounded planning/counter/transport allowances do not add repository
+retry or fallback rounds. No coordinator schema or field is added.
+
+The production profile resolver is currently empty. This is intentional refusal,
+not qualification of Google/Mistral, and generic test profiles cannot be enabled
+through settings or environment. Construction/qualification of this mechanism
+must remain distinct from provider qualification and operational release activation.
+See [the context-planning contract](../specs/model-context-planning.md).
 
 ## Prepared-merge application compatibility
 

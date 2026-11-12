@@ -15,6 +15,8 @@ import { formatConventionalCommit } from "../formatters/commit-formatter.ts";
 import { captureCreationRetryDiff } from "../git/creation-diff.ts";
 import { reconstructRemainingDiff } from "../git/diff.ts";
 import { readValidatedRetryDiff } from "../git/validated-source-retry.ts";
+import { planningSourceFor } from "../planning/planning-source.ts";
+import { assertIncompletePlanRetry } from "./incomplete-plan-retry.ts";
 import { preparePlanningDiff } from "./planning-diff.ts";
 
 // ── Module-scope retry queue ─────────────────────────────────────────────────
@@ -148,6 +150,7 @@ function queueCommitMessageRepair(
 		failedPlans,
 	);
 	const payload: CommitMessageRepairPayload = {
+		planningSource: planningSourceFor(repoState, settings),
 		mode: "repair-commit-messages",
 		repository: repoState.repository,
 		diffHash,
@@ -188,11 +191,20 @@ export function queueRetry(
 	options: {
 		committedShas?: CommittedSha[] | undefined;
 		pendingFiles?: string[] | undefined;
+		/** Absence of an aggregate preserves genuine history, never an empty-plan hash. */
+		completePlanUnavailable?: boolean;
 	},
 	settings: Settings,
 	systemPrompt: string,
 	failedPlans: CommitPlan[],
 ): QueueRetryResult {
+	if (options.completePlanUnavailable)
+		assertIncompletePlanRetry(
+			repoState,
+			errors,
+			failedPlans,
+			MAX_ATTEMPTS_BY_KIND,
+		);
 	// 1. Validate diffHash exists
 	if (!repoState.diffHash) {
 		throw new Error(
@@ -292,10 +304,10 @@ export function queueRetry(
 		throw new Error("Cannot queue provider fallback: no remaining diff");
 	}
 
-	// 4. Loop detection
+	// 4. Loop detection: retain genuine history, never invent a hash of no aggregate.
 	const planHash = hashPlans(failedPlans);
 
-	if (repoState.lastPlanHash === planHash) {
+	if (!options.completePlanUnavailable && repoState.lastPlanHash === planHash) {
 		return {
 			kind: "loop-detected",
 			repoState: { ...repoState, lastPlanHash: planHash },
@@ -317,6 +329,7 @@ export function queueRetry(
 	};
 
 	const payload: CommitJobPayload = {
+		planningSource: planningSourceFor(repoState, settings),
 		repository: repoState.repository,
 		diff:
 			preservedDiff === undefined
@@ -352,7 +365,9 @@ export function queueRetry(
 
 	const newRepoState: RepoState = {
 		...repoState,
-		lastPlanHash: planHash,
+		lastPlanHash: options.completePlanUnavailable
+			? repoState.lastPlanHash
+			: planHash,
 		feedbackHistory: nextHistory,
 		diffHash: newDiffHash,
 	};
