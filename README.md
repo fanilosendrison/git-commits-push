@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.6.2"
+version: "3.7.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -254,6 +254,23 @@ contexts:
 | Everything else | **Blocked** — the commit stops, the event is logged, and the error is reported |
 
 ### 3. Planning
+
+**Production capability gate:** this source implements provider-independent context
+admission but currently contains no qualified production provider profiles. Real
+generation therefore refuses with `CAPABILITY_UNKNOWN`. Neither Google nor
+Mistral is declared operationally qualified by the generic implementation. No
+settings flag or environment variable enables synthetic test qualifications.
+Release activation as an operational remedy remains blocked until an actual
+provider/protocol path is separately qualified.
+
+Each complete request, including system content, feedback and an explicit output
+reserve, requires a model/revision/encoding-bound admission proof. The planner
+uses deterministic exact-path partitions when needed, without truncating required
+Git representations. All partitions must produce an exactly complete aggregate
+before the first commit. Individual oversized or unsupported inputs refuse;
+partial planning is never successful publication. See
+[the context contract](specs/model-context-planning.md) and
+[Issue #34](https://github.com/fanilosendrison/git-commits-push/issues/34).
 
 Once a repo passes validation, its full staged diff is sent to the configured
 LLM along with a system prompt (from `system-prompt.md`). The LLM is asked to

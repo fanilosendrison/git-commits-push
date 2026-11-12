@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.3.0"
+version: "4.4.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -286,6 +286,24 @@ WAL, offline confirmation or ownership gates. Source integration is not activati
 qualify an isolated installed candidate and the actually activated public launcher
 separately. The runtime never prepares a merge or resolves conflicts. See the
 [prepared-merge contract](../specs/caller-prepared-merge-publication.md).
+
+## Context-planning release inspection
+
+Inspect the exact source witness, original full unconverted diff hash, complete
+remaining membership and aggregate result. No partition or counter receipt may
+replace H0/T or justify success from a subset. Keep generation/admission refusals
+separate from preserved landed commits and verified remote effects.
+
+Verify production profile provenance, effective revision, protocol/encoding,
+complete-request counting and explicit reserve independently of generic test GO.
+The current production registry is empty: real generation must refuse. Do not
+activate or describe that source as an operational provider/fallback remediation.
+Synthetic profiles are test injections only, not an operator override.
+
+Existing installation, legacy-global/WAL, reconciliation and immutable-release
+gates remain mandatory. Generic context tests do not authorize cutover, a new
+provider, an inference retry or caller publication. See
+[model context planning](../specs/model-context-planning.md).
 
 ## Evidence to retain
 

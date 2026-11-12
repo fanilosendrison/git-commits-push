@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.6.3"
+version: "3.7.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -313,6 +313,22 @@ registered and exact pre-admission file evidence is revalidated.
 - Never log provider tokens, Authorization headers, raw credential-bearing URLs,
   prompts containing secrets, or unsanitized provider errors.
 
+## Context admission and complete partitioned planning
+
+Follow [model context planning](specs/model-context-planning.md). Admit the full
+immutable adapter request for the actual qualified provider/model/protocol, with
+an explicit response reserve. Unknown, stale or unsupported capacity refuses
+before generation; never substitute a character cap or throttle estimate.
+
+Keep synthetic profiles in explicit test dependencies only. The current source
+has no qualified production profile. Generic construction and review do not
+establish provider usability or authorize release activation as remediation.
+
+Derive literal path partitions from pinned Git objects, preserve the independent
+full unconverted diff hash, and validate exact aggregate coverage before effects.
+Share transport, malformed-response and existing repository retry/fallback budgets;
+partitions must not create recovery authority. Preserve partial-commit evidence.
+
 ## Identity and telemetry
 
 Harness detection has one authority:
@@ -436,7 +452,7 @@ sequence, active descendant or indeterminate cleanup is never PASS. This
 source-only harness reuses the maintained controller; it grants no publication,
 reconciler mutation, bootstrap or release activation and never resumes old runs.
 
-The TypeScript runner explicitly enumerates 112 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 118 test files in `tests/run-tests.mjs`.
 Installer concurrency tests build a test-only SQLite VFS extension with `cc` and
 SDK SQLite development headers. It delegates native operations unchanged and
 schedules lock promotions over control pipes; it links no replacement SQLite
