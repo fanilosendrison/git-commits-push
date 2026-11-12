@@ -29,7 +29,8 @@ for (const fingerprint of [undefined, "genuine-complete-plan"]) {
 			assert.equal(failed.success, false);
 			if (failed.success) throw new Error("Expected malformed output failure");
 			assert.match(failed.error, /^LLM Fatal Error:/u);
-			assert.match(failed.error, /validation rejected/u);
+			assert.match(failed.error, /Commit-plan response rejected \(json\)/u);
+			assert.ok(!failed.error.includes("validation rejected"));
 			assert.equal(calls, 2);
 			const attempts = { validation: 1, structural: 0, provider: 0 };
 			const next = handleLlmJobFailure({

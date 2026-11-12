@@ -36,6 +36,7 @@ export const EXPECTED_NODE_TEST_FILES = Object.freeze([
 	"unit/planning-review-regressions.test.ts",
 	"unit/planning-retry-boundaries.test.ts",
 	"unit/planning-terminal-recovery.test.ts",
+	"unit/plan-json-sanitization.test.ts",
 	"unit/commit-message-repair.test.ts",
 	"unit/commit-message-validator.test.ts",
 	"unit/commit-plan-message.test.ts",
