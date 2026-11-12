@@ -14,6 +14,7 @@ import {
 import { createContextDispatch } from "./context-dispatch.ts";
 import { buildContextRequest, type LlmInvocation } from "./context-request.ts";
 import type { ContextAuthority } from "./context-types.ts";
+import { PLAN_RESPONSE_SANITIZATION } from "./plan-response-policy.ts";
 import type { PlanningAttemptBudget } from "./planning-attempt-budget.ts";
 
 type OpenAICompatibleProvider =
@@ -69,7 +70,7 @@ export async function invokeLlm(
 		model: context.model,
 		apiKey: payload.token,
 		sanitization: {
-			stripThinkingTags: true,
+			...PLAN_RESPONSE_SANITIZATION,
 			stripJsonFence: payload.stripJsonFence ?? true,
 		},
 		providerOptions: { ...context.providerOptions, fetch: dispatch.fetch },
