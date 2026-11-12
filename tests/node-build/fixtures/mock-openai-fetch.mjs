@@ -1,3 +1,4 @@
+import "./synthetic-context-injection.mjs";
 import { appendFileSync } from "node:fs";
 
 const OPENAI_COMPLETIONS_ENDPOINT =

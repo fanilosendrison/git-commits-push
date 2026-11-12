@@ -14,6 +14,7 @@ import {
 	invokeLlm,
 	type LlmAdapterFactories,
 } from "../../src/modules/llm/llm-invoker.ts";
+import { syntheticContextAuthority } from "../helpers/context-authority.ts";
 
 interface CapturedInvocation {
 	readonly config: Record<string, unknown>;
@@ -41,6 +42,7 @@ function createFactories(captured: CapturedInvocation[]): LlmAdapterFactories {
 	const stub = (config: unknown): StubAdapter =>
 		createAdapterStub(config, captured);
 	return {
+		contextAuthority: syntheticContextAuthority(),
 		buildSimplePrompt: ((prompt: unknown) =>
 			prompt) as LlmAdapterFactories["buildSimplePrompt"],
 		createAnthropicAdapter:
@@ -73,7 +75,20 @@ async function invoke(overrides: {
 	assert.strictEqual(captured.length, 1);
 	const invocation = captured[0];
 	if (invocation === undefined) throw new Error("adapter was not invoked");
-	return invocation;
+	const options = invocation.config.providerOptions as Record<string, unknown>;
+	assert.equal(
+		typeof options.fetch,
+		"function",
+		"every adapter retains the physical-send guard",
+	);
+	const { fetch: _transport, ...steering } = options;
+	return {
+		...invocation,
+		config: {
+			...invocation.config,
+			providerOptions: Object.keys(steering).length ? steering : undefined,
+		},
+	};
 }
 
 describe("invokeLlm — DeepSeek thinking provider options", () => {

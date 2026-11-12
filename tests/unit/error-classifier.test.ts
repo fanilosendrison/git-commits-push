@@ -208,6 +208,15 @@ describe("classifyLLMFailure", () => {
 		assert.strictEqual(result, null);
 	});
 
+	test("fatal marker outranks validation prose echoed from malformed model output", () => {
+		assert.equal(
+			classifyLLMFailure(
+				'LLM Fatal Error: Unexpected token: "validation rejected"',
+			),
+			null,
+		);
+	});
+
 	// U-GE-35 variant: JSON parse error
 	test("U-GE-35b | 'LLM Fatal Error: Unexpected token' → returns null", () => {
 		const result = classifyLLMFailure(

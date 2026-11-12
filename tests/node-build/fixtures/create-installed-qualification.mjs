@@ -13,6 +13,10 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+	candidateReleasePattern,
+	candidateVersion,
+} from "./candidate-release-version.mjs";
 import { copyDeploymentSource } from "./deployment-source.mjs";
 import { resolvePathExecutable } from "./path-executable.mjs";
 import { resolvePnpmOfflineEnvironment } from "./pnpm-offline-environment.mjs";
@@ -55,14 +59,14 @@ export async function installCreateQualification() {
 		},
 	});
 	await rm(deploymentSource, { recursive: true });
-	assert.match(installation.releaseName, /^0\.11\.1-[a-f0-9]{64}$/u);
+	assert.match(installation.releaseName, candidateReleasePattern);
 	const manifest = JSON.parse(
 		await readFile(
 			path.join(installation.releaseDirectory, "package.json"),
 			"utf8",
 		),
 	);
-	assert.equal(manifest.version, "0.11.1");
+	assert.equal(manifest.version, candidateVersion);
 	assert.equal(
 		await realpath(installation.paths.publicExecutablePath),
 		path.join(installation.releaseDirectory, "bin/git-commits-push.mjs"),

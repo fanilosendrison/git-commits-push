@@ -23,6 +23,7 @@ import type {
 	CommitMessageRepairPayload,
 	CommitPlanningPayload,
 } from "../../src/types.ts";
+import { syntheticContextAuthority } from "../helpers/context-authority.ts";
 
 const cleanup: string[] = [];
 
@@ -120,6 +121,7 @@ async function runResponses(
 	let resumeCount = 0;
 	const invocations: Array<Parameters<BridgeDependencies["invokeLlm"]>[0]> = [];
 	const dependencies: BridgeDependencies = {
+		contextAuthority: syntheticContextAuthority(),
 		resolveAuthToken: async () => "token",
 		invokeLlm: async (invocation) => {
 			invocations.push(invocation);

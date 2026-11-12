@@ -1,3 +1,5 @@
+import "./synthetic-context-injection.mjs";
+
 const OPENAI_COMPLETIONS_ENDPOINT =
 	"https://api.openai.com/v1/chat/completions";
 

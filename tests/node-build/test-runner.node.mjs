@@ -10,8 +10,8 @@ import {
 } from "../run-tests.mjs";
 
 test("keeps the git-commits-push Node test surface closed and sequential", () => {
-	assert.equal(EXPECTED_NODE_TEST_FILES.length, 112);
-	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 112);
+	assert.equal(EXPECTED_NODE_TEST_FILES.length, 118);
+	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 118);
 	for (const file of [
 		"unit/prepared-merge-historical-staging.test.ts",
 		"unit/prepared-merge-explicit-parents.test.ts",
@@ -21,6 +21,13 @@ test("keeps the git-commits-push Node test surface closed and sequential", () =>
 		"unit/qualification-platform-git.test.ts",
 		"unit/qualification-boundary.test.ts",
 		"unit/qualification-guard-regressions.test.ts",
+		"unit/initial-plan-contract.test.ts",
+		"unit/context-admission.test.ts",
+		"unit/exact-planning-partitions.test.ts",
+		"unit/partitioned-planning-flow.test.ts",
+		"unit/planning-review-regressions.test.ts",
+		"unit/planning-retry-boundaries.test.ts",
+		"unit/planning-terminal-recovery.test.ts",
 	])
 		assert.ok(EXPECTED_NODE_TEST_FILES.includes(file));
 	assert.equal(
