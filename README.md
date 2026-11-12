@@ -283,6 +283,15 @@ text never substitutes for the subject description. The runtime refuses missing
 fields rather than inventing them, including after an invalid first response.
 This improves generation instructions, not a guarantee that a model always obeys.
 
+Commit-plan responses preserve literal `<think>` and `<thinking>` text inside
+JSON strings: thinking-tag stripping is disabled, while the existing JSON-fence
+policy remains. External thinking wrappers that are not admissible JSON fail
+closed within the existing repeat budget. Rejection diagnostics contain bounded
+structural codes and paths, never rejected content or response hashes. This
+corrects a reproducible postprocessing mechanism; the missing raw responses from
+Issue #37 do not establish its historical cause. It does not qualify a production
+provider profile or authorize release activation.
+
 Every message is validated on return:
 - Does it follow the Conventional Commits format?
 - Is the subject line under the recommended length?
