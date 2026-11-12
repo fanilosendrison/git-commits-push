@@ -19,13 +19,25 @@ export const QUALIFICATION_COMMANDS = Object.freeze([
 // The old contributor controller used this bound but killed only its direct child.
 export const QUALIFICATION_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 
-/** Run the prescribed suite with platform Git and lifetime-bound process cleanup. */
-export async function runQualification(): Promise<boolean> {
-	if (!process.env.GCP_QUALIFY_LEGACY_RELEASES?.trim()) {
+/** Match the historical fixture's list semantics; separators alone are not coverage. */
+export function qualificationHistoricalDirectories(
+	value: string | undefined,
+): readonly string[] {
+	const directories = (value ?? "").split(path.delimiter).filter(Boolean);
+	if (
+		directories.length === 0 ||
+		directories.some((directory) => !directory.trim())
+	) {
 		throw new Error(
-			"Full qualification requires explicit historical-release fixture inputs; an optional skip is not qualification.",
+			"Full qualification requires explicit historical-release fixture inputs with a non-empty parsed directory list; an optional skip is not qualification.",
 		);
 	}
+	return directories;
+}
+
+/** Run the prescribed suite with platform Git and lifetime-bound process cleanup. */
+export async function runQualification(): Promise<boolean> {
+	qualificationHistoricalDirectories(process.env.GCP_QUALIFY_LEGACY_RELEASES);
 	if (process.env.PI_SKILL_STATS_MODE === "test") {
 		throw new Error(
 			"Qualification must not globally override test identity or suppress telemetry oracles.",

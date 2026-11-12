@@ -85,17 +85,30 @@ export async function runControlledStep(
 		executionToken: randomBytes(16).toString("hex"),
 		invocationDirectory: request.cwd,
 	});
-	writeFileSync(
-		path.join(output, "boundary-identity.json"),
-		`${JSON.stringify({
-			pid: prepared.pid,
-			groupId: prepared.groupId,
-			processIdentity: prepared.processIdentity,
-		})}\n`,
-		{ mode: 0o600 },
-	);
 	let groupAbsent = false;
 	try {
+		writeFileSync(
+			path.join(output, "boundary-identity.json"),
+			`${JSON.stringify({
+				pid: prepared.pid,
+				groupId: prepared.groupId,
+				processIdentity: prepared.processIdentity,
+			})}\n`,
+			{ mode: 0o600 },
+		);
+		if (request.signal.aborted) {
+			await prepared.terminate();
+			groupAbsent = !processGroupExists(prepared.groupId);
+			return {
+				success: false,
+				aborted: true,
+				groupAbsent,
+				controllerExitCode: null,
+				controllerSignal: null,
+				command: null,
+				error: "ABORTED_DURING_PREPARATION",
+			};
+		}
 		const result = await prepared.start(request.signal);
 		groupAbsent = !processGroupExists(prepared.groupId);
 		let command: ControlledStepResult["command"] = null;
@@ -128,6 +141,17 @@ export async function runControlledStep(
 			command,
 			error,
 		};
+	} catch (failure) {
+		try {
+			await prepared.terminate();
+			groupAbsent = !processGroupExists(prepared.groupId);
+		} catch (cleanupFailure) {
+			throw new AggregateError(
+				[failure, cleanupFailure],
+				"Qualification failed and boundary cleanup remains indeterminate.",
+			);
+		}
+		throw failure;
 	} finally {
 		prepared.disconnect();
 		if (groupAbsent) rmSync(projection, { force: true, recursive: true });
