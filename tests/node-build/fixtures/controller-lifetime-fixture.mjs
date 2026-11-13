@@ -55,6 +55,7 @@ export async function controllerFixture({
 	mode = "resist",
 	owner = false,
 	unknown = false,
+	observation,
 } = {}) {
 	const root = mkdtempSync(path.join(tmpdir(), "gcp-controller-lifetime-"));
 	const messages = [],
@@ -94,7 +95,16 @@ export async function controllerFixture({
  import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';
  const original=cp.spawnSync;
  cp.spawnSync=function(command,args,...rest){
-  if(command==='/bin/ps'&&args.join(' ')==='-axo pid=,pgid=')return {status:1,stdout:'',stderr:'synthetic unknown',error:undefined};
+  if(command==='/bin/ps'&&args.join(' ')==='-axo pid=,pgid='){
+   const pid=process.pid, inspector=pid+1000000;
+   const self=pid+' '+pid+'\\n';
+   const values={empty:'',blank:' \\t\\n',malformed:'broken row\\n',mixed:self+'bad '+pid+'\\n',
+    'missing-controller':inspector+' '+pid+'\\n','wrong-controller-group':pid+' '+(pid+1)+'\\n',
+    'valid-controller':self+inspector+' '+pid+'\\n'};
+   if(process.env.OBSERVATION==='unavailable')return undefined;
+   if(process.env.OBSERVATION)return {status:0,stdout:values[process.env.OBSERVATION],pid:inspector};
+   return {status:1,stdout:'',stderr:'synthetic unknown',error:undefined};
+  }
   return original.call(this,command,args,...rest);
  };syncBuiltinESMExports();
  `,
@@ -106,9 +116,14 @@ export async function controllerFixture({
 	const options = {
 		cwd: root,
 		detached: true,
-		env: { ...process.env, MODE: mode, FIXTURE_ROOT: root },
+		env: {
+			...process.env,
+			MODE: mode,
+			FIXTURE_ROOT: root,
+			...(observation ? { OBSERVATION: observation } : {}),
+		},
 		stdio: ["ignore", "ignore", "ignore", "ipc"],
-		execArgv: unknown ? ["--import", unknownHook] : [],
+		execArgv: unknown || observation ? ["--import", unknownHook] : [],
 	};
 	const ownerScript = write(
 		"owner.mjs",

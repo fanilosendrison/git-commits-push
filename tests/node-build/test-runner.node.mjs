@@ -61,6 +61,21 @@ test("source and compiled qualification use the maintained platform Git wrapper"
 	);
 });
 
+test("compiled qualification retains the F2 controller observation oracle", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	assert.equal(
+		manifest.scripts["test:node:build"]
+			.split(" ")
+			.filter(
+				(argument) =>
+					argument === "tests/node-build/controller-observation.node.mjs",
+			).length,
+		1,
+	);
+});
+
 test("compiled qualification retains the CL-01 controller lifetime oracle", () => {
 	const manifest = JSON.parse(
 		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
