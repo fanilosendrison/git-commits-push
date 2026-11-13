@@ -8,12 +8,9 @@ import {
 import { formatFeedbackBlock } from "../core/feedback-formatter.ts";
 import { assertCommitPlanCoverage } from "../git/commit-plan-coverage.ts";
 import { assertValidatedSource } from "../git/validated-source.ts";
-import {
-	admitContext,
-	ContextAdmissionError,
-	productionContextAuthority,
-	requireContextAdmission,
-} from "../llm/context-admission.ts";
+import { productionContextAuthority } from "../llm/context-admission.ts";
+import { authorizeContextExecution } from "../llm/context-execution.ts";
+import { ContextOverflowError } from "../llm/context-overflow.ts";
 import {
 	buildContextRequest,
 	type LlmInvocation,
@@ -23,6 +20,7 @@ import type { invokeLlm } from "../llm/llm-invoker.ts";
 import { reportPlanResponseRejection } from "../llm/plan-response-policy.ts";
 import {
 	MAX_PLANNING_CALLS,
+	MAX_PLANNING_PARTITIONS,
 	PlanningAttemptBudget,
 } from "../llm/planning-attempt-budget.ts";
 import {
@@ -77,25 +75,18 @@ export async function executePlanningJob(
 	token: string,
 	invoke: typeof invokeLlm,
 	suppliedAuthority: ContextAuthority = productionContextAuthority,
+	budget = new PlanningAttemptBudget(payload.planningBudget),
 ): Promise<CommitPlan[]> {
-	const budget = new PlanningAttemptBudget();
 	const authority = budget.boundAuthority(suppliedAuthority);
-	let calls = 0;
+	let calls = budget.snapshot().calls;
 	const source = payload.planningSource;
-	// Refuse unknown/stale profiles even when splitting could reduce character size.
-	const admission = await admitContext(
-		buildContextRequest(renderPlanningInvocation(payload, token)),
-		authority,
-	);
-	if (
-		admission.status !== "ADMITTED" &&
-		admission.status !== "REJECTED_INPUT_CAPACITY"
-	)
-		throw new ContextAdmissionError(admission.status);
 	const call = async (partition?: PlanningPartition): Promise<CommitPlan[]> => {
 		for (;;) {
 			const invocation = renderPlanningInvocation(payload, token, partition);
-			await requireContextAdmission(buildContextRequest(invocation), authority);
+			await authorizeContextExecution(
+				buildContextRequest(invocation),
+				authority,
+			);
 			if (++calls > MAX_PLANNING_CALLS)
 				throw new Error("Planning call budget exhausted");
 			const response = await invoke(invocation, undefined, budget);
@@ -155,10 +146,49 @@ export async function executePlanningJob(
 		source.maxDiffChars,
 	);
 	const aggregate: CommitPlan[] = [];
-	for (const partition of partitions) {
-		const plans = await call(partition);
-		assertExactPlanningCoverage(plans, partition.paths);
-		aggregate.push(...plans);
+	const pending = [...partitions];
+	const byPath = new Map(inputs.map((input) => [input.path, input.patch]));
+	let leafCount = partitions.length;
+	while (pending.length) {
+		const partition = pending.shift();
+		if (!partition) throw new Error("Missing planning unit");
+		try {
+			const plans = await call(partition);
+			assertExactPlanningCoverage(plans, partition.paths);
+			aggregate.push(...plans);
+		} catch (error) {
+			if (!(error instanceof ContextOverflowError)) throw error;
+			if (partition.paths.length < 2)
+				throw new ContextOverflowError(
+					error.evidence,
+					error.attempts ?? 1,
+					"indivisible-path",
+				);
+			if (
+				++leafCount > MAX_PLANNING_PARTITIONS ||
+				MAX_PLANNING_CALLS - calls < pending.length + 2
+			)
+				throw new ContextOverflowError(
+					error.evidence,
+					error.attempts ?? 1,
+					"planning-budget-exhausted",
+				);
+			const midpoint = Math.floor(partition.paths.length / 2);
+			const children = [
+				partition.paths.slice(0, midpoint),
+				partition.paths.slice(midpoint),
+			].map((paths) => ({
+				paths,
+				diff: paths
+					.map((path) => {
+						const patch = byPath.get(path);
+						if (!patch) throw new Error("Missing pinned Git representation");
+						return patch;
+					})
+					.join(""),
+			}));
+			pending.unshift(...children);
+		}
 	}
 	assertExactPlanningCoverage(aggregate, paths);
 	assertValidatedSource(

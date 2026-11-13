@@ -7,6 +7,9 @@ import type {
 } from "../../types.ts";
 
 interface CommitJobPayloadBase {
+	planningBudget?:
+		| import("../llm/planning-attempt-budget.ts").PlanningBudgetState
+		| undefined;
 	planningSource?: PlanningSource | undefined;
 	repository: string;
 	diffHash: string;

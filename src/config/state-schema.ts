@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { planningBudgetSchema } from "../modules/llm/planning-attempt-budget.ts";
 import type { AttemptsByKind, CommitPlan, GlobalState } from "../types.ts";
 import { REMOTE_TRACKING_REF_SYNCHRONIZATION_OUTCOMES } from "../types.ts";
 import { validateCreationStateRelations } from "./creation-state-relations.ts";
@@ -62,6 +63,7 @@ const attemptsSchema = z.preprocess(
 const repoStateSchema = z
 	.object({
 		repository: z.string(),
+		planningBudget: planningBudgetSchema.optional(),
 		validatedSource: validatedSourceWitnessSchema.optional(),
 		publisherIndexTreeSha: gitObjectIdSchema.optional(),
 		commitCompletion: z

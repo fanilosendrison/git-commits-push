@@ -16,6 +16,7 @@ import {
 	invokeLlm,
 	type LlmAdapterFactories,
 } from "../modules/llm/llm-invoker.ts";
+import { PlanningAttemptBudget } from "../modules/llm/planning-attempt-budget.ts";
 import { createLlmJobFailure } from "../modules/llm/provider-failure.ts";
 import { parseTurnlockBatchManifest } from "../modules/turnlock/batch-manifest.ts";
 import { writeCommitJobResult } from "../modules/turnlock/job-result-store.ts";
@@ -161,6 +162,7 @@ export async function handleTurnlockDelegation(
 	await Promise.all(
 		manifest.jobs.map(async (job) => {
 			let rejectedPlans: CommitPlan[] | undefined;
+			let budget: PlanningAttemptBudget | undefined;
 			try {
 				const payload: BridgeJobPayload = JSON.parse(job.prompt);
 				if (payload.mode === "repair-commit-messages")
@@ -174,6 +176,7 @@ export async function handleTurnlockDelegation(
 				logBridgeMessage(
 					`[Turnlock→LLM] [${job.id}] Resolving token for provider: ${payload.provider}${payload.agent ? ` (agent: ${payload.agent})` : ""}...`,
 				);
+				budget = new PlanningAttemptBudget(payload.planningBudget);
 				const token = await dependencies.resolveAuthToken(
 					payload.provider,
 					payload.agent,
@@ -187,12 +190,14 @@ export async function handleTurnlockDelegation(
 					token,
 					dependencies.invokeLlm,
 					dependencies.contextAuthority,
+					budget,
 				);
 
 				const successResult: CommitJobResult = {
 					success: true,
 					id: job.id,
 					commits,
+					planningBudget: budget.snapshot(),
 				};
 				writeCommitJobResult(job.resultPath, successResult);
 				logBridgeMessage(
@@ -201,6 +206,7 @@ export async function handleTurnlockDelegation(
 			} catch (err: unknown) {
 				const errorResult = {
 					...createLlmJobFailure(job.id, err),
+					...(budget ? { planningBudget: budget.snapshot() } : {}),
 					...(rejectedPlans ? { rejectedPlans } : {}),
 				};
 				console.error(`[Turnlock→LLM] [${job.id}] Error: ${errorResult.error}`);
