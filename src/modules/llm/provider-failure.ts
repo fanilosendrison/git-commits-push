@@ -6,6 +6,10 @@ import {
 import type { CommitJobResultError } from "../../types.ts";
 import { classifyError } from "../core/error-classifier.ts";
 import { sanitizeSensitiveDiagnostic } from "../core/sensitive-diagnostic-sanitizer.ts";
+import {
+	ContextOverflowError,
+	contextOverflowReceiptSchema,
+} from "./context-overflow.ts";
 
 export const PROVIDER_FAILURE_KINDS = [
 	"rate_limit",
@@ -56,7 +60,15 @@ export function createLlmJobFailure(
 			? error.kind
 			: undefined;
 	const planning = classifyError(error, false);
+	const overflow =
+		error instanceof ContextOverflowError
+			? contextOverflowReceiptSchema.safeParse({
+					...error.evidence,
+					reason: error.reason,
+				})
+			: undefined;
 	return {
+		...(overflow?.success ? { contextOverflow: overflow.data } : {}),
 		...(planning.kind === "retry" && planning.error.kind === "structural"
 			? { planningFailureKind: "structural" as const }
 			: {}),

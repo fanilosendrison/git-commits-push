@@ -315,14 +315,20 @@ registered and exact pre-admission file evidence is revalidated.
 
 ## Context admission and complete partitioned planning
 
-Follow [model context planning](specs/model-context-planning.md). Admit the full
-immutable adapter request for the actual qualified provider/model/protocol, with
-an explicit response reserve. Unknown, stale or unsupported capacity refuses
-before generation; never substitute a character cap or throttle estimate.
+Follow [model context planning](specs/model-context-planning.md). Separate optional
+qualified capacity admission from portable bounded execution for runtime-supported
+models without a profile. Bound the complete immutable request and actual wire
+body, send an explicit output quota, and never call a byte limit token evidence.
+A selected invalid/stale profile still refuses; do not downgrade failed evidence.
+Recover only from recognized structured provider context errors by deterministic
+whole-path subdivision within shared budgets. Unknown error prose never grants
+subdivision or a new fallback cycle.
 
 Keep synthetic profiles in explicit test dependencies only. The current source
-has no qualified production profile. Generic construction and review do not
-establish provider usability or authorize release activation as remediation.
+has no qualified production profile. Portable success does not prove capacity or
+universal semantic coherence. Preserve existing executable grouping validators;
+do not implement #23's caller-constraint API here. Generic construction and review
+do not establish live provider usability or authorize release activation.
 
 Derive literal path partitions from pinned Git objects, preserve the independent
 full unconverted diff hash, and validate exact aggregate coverage before effects.
@@ -452,7 +458,7 @@ sequence, active descendant or indeterminate cleanup is never PASS. This
 source-only harness reuses the maintained controller; it grants no publication,
 reconciler mutation, bootstrap or release activation and never resumes old runs.
 
-The TypeScript runner explicitly enumerates 119 test files in `tests/run-tests.mjs`.
+The TypeScript runner explicitly enumerates 122 test files in `tests/run-tests.mjs`.
 Installer concurrency tests build a test-only SQLite VFS extension with `cc` and
 SDK SQLite development headers. It delegates native operations unchanged and
 schedules lock promotions over control pipes; it links no replacement SQLite

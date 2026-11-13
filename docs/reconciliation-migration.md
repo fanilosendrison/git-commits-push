@@ -142,10 +142,16 @@ The bridge produces a single aggregate result only after all exact path partitio
 succeed. Shared bounded planning/counter/transport allowances do not add repository
 retry or fallback rounds. No coordinator schema or field is added.
 
-The production profile resolver is currently empty. This is intentional refusal,
-not qualification of Google/Mistral, and generic test profiles cannot be enabled
-through settings or environment. Construction/qualification of this mechanism
-must remain distinct from provider qualification and operational release activation.
+The production profile resolver remains empty. C2-Portable now permits bounded
+execution without a profile, never a qualified capacity claim. Generic test
+profiles cannot be enabled through settings or environment. Optional settled
+`planningBudget` receipts preserve call, recovery, malformed-repeat and counting
+consumption across later model/retry jobs in Turnlock application state. Missing
+or regressing receipts cannot erase known consumption. Historical absence remains
+readable; no old receipt is manufactured. This does not change the reconciler.
+Construction/qualification remains distinct from live operational qualification
+and release activation. Exact path coverage is not universal semantic coherence;
+#23's caller grouping API remains outside this change.
 See [the context-planning contract](../specs/model-context-planning.md).
 
 ## Prepared-merge application compatibility

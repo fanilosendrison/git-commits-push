@@ -251,6 +251,9 @@ export type BridgeJobPayload = CommitJobPayload | PublicationCheckpointPayload;
 
 /** Written by the Turnlock-to-LLM bridge to each job's resultPath on success */
 export interface CommitJobResultSuccess {
+	planningBudget?:
+		| import("./modules/llm/planning-attempt-budget.ts").PlanningBudgetState
+		| undefined;
 	success: true;
 	id: string;
 	commits: CommitPlan[];
@@ -258,6 +261,10 @@ export interface CommitJobResultSuccess {
 
 /** Written by the Turnlock-to-LLM bridge to each job's resultPath on failure */
 export interface CommitJobResultError {
+	contextOverflow?: import("./modules/llm/context-overflow.ts").ContextOverflowReceipt;
+	planningBudget?:
+		| import("./modules/llm/planning-attempt-budget.ts").PlanningBudgetState
+		| undefined;
 	/** Canonically classified incomplete/invalid planning structure, not an outage. */
 	planningFailureKind?: "structural";
 	terminalFailureKind?: import("./modules/llm/provider-failure.ts").TerminalProviderFailureKind;
@@ -290,6 +297,9 @@ export interface CommitCompletionEvidence {
 }
 
 export interface RepoState {
+	planningBudget?:
+		| import("./modules/llm/planning-attempt-budget.ts").PlanningBudgetState
+		| undefined;
 	validatedSource?: ValidatedSourceWitness | undefined;
 	/** An admitted publisher index transition, never a replacement for validated T. */
 	publisherIndexTreeSha?: string | undefined;

@@ -214,8 +214,10 @@ secret-scan presentation limitation. H0/T and exact membership remain independen
 Keep partitions inside one repository result job. Do not persist provider
 qualification, partitions or prompts in the reconciler. Partial planning cannot
 grant commit authority, reset repository attempts, or replace existing landed
-commit/source proof. Unknown capacity refuses; no production profile is qualified
-by this state extension. Coordinator schema v4, ownership, scope and exact
+commit/source proof. Unknown capacity is not proof: runtime-supported models may
+use the bounded portable policy without qualified admission. No production profile
+is qualified by this state extension; exact coverage does not prove semantic
+coherence. Caller-specific grouping constraints remain outside #34. Coordinator schema v4, ownership, scope and exact
 publication rules are unchanged.
 
 ## Caller-prepared merge application state

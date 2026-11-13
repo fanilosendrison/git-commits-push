@@ -1,9 +1,9 @@
 import type { CommitPlan } from "../../types.ts";
 import { CommitPlanError } from "../core/errors.ts";
 import {
-	admitContext,
-	ContextAdmissionError,
-} from "../llm/context-admission.ts";
+	authorizeContextExecution,
+	isSplittableRequestRefusal,
+} from "../llm/context-execution.ts";
 import type { ContextAuthority, ContextRequest } from "../llm/context-types.ts";
 import { MAX_PLANNING_PARTITIONS } from "../llm/planning-attempt-budget.ts";
 import type { PlanningPartition, PlanningPathInput } from "./planning-types.ts";
@@ -66,7 +66,7 @@ export function assertExactPlanningCoverage(
 		);
 }
 
-/** Greedy literal-path grouping; only exact admission results guide capacity splits. */
+/** Greedy whole-path grouping under the selected capacity or operational policy. */
 export async function partitionPlanningPaths(
 	inputs: readonly PlanningPathInput[],
 	requestFor: (partition: PlanningPartition) => ContextRequest,
@@ -93,13 +93,13 @@ export async function partitionPlanningPaths(
 		items: readonly PlanningPathInput[],
 	): Promise<boolean> => {
 		const p = partition(items);
-		const decision = await admitContext(requestFor(p), authority);
-		if (
-			decision.status !== "ADMITTED" &&
-			decision.status !== "REJECTED_INPUT_CAPACITY"
-		)
-			throw new ContextAdmissionError(decision.status);
-		return decision.status === "ADMITTED" && p.diff.length <= maxDiffChars;
+		try {
+			await authorizeContextExecution(requestFor(p), authority);
+			return p.diff.length <= maxDiffChars;
+		} catch (error) {
+			if (isSplittableRequestRefusal(error)) return false;
+			throw error;
+		}
 	};
 	const flush = () => {
 		if (partitions.length >= MAX_PLANNING_PARTITIONS)
@@ -117,7 +117,7 @@ export async function partitionPlanningPaths(
 		pending = [input];
 		if (!(await fits(pending)))
 			throw new Error(
-				"REJECTED_INPUT_CAPACITY: indivisible path exceeds admission bound",
+				"PLANNING_UNIT_LIMIT: indivisible path exceeds selected request/resource bound",
 			);
 	}
 	if (pending.length) flush();

@@ -150,6 +150,7 @@ function queueCommitMessageRepair(
 		failedPlans,
 	);
 	const payload: CommitMessageRepairPayload = {
+		planningBudget: repoState.planningBudget,
 		planningSource: planningSourceFor(repoState, settings),
 		mode: "repair-commit-messages",
 		repository: repoState.repository,
@@ -329,6 +330,7 @@ export function queueRetry(
 	};
 
 	const payload: CommitJobPayload = {
+		planningBudget: repoState.planningBudget,
 		planningSource: planningSourceFor(repoState, settings),
 		repository: repoState.repository,
 		diff:

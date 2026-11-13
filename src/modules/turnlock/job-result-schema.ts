@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { CommitJobResult } from "../../types.ts";
+import { contextOverflowReceiptSchema } from "../llm/context-overflow.ts";
+import { planningBudgetSchema } from "../llm/planning-attempt-budget.ts";
 import {
 	isTerminalProviderFailureKind,
 	PROVIDER_FAILURE_KINDS,
@@ -25,15 +27,18 @@ export const nonEmptyCommitPlanResultListSchema = z
 
 const commitJobResultRuntimeSchema = z.union([
 	z.object({
+		planningBudget: planningBudgetSchema.optional(),
 		success: z.literal(true),
 		id: z.string(),
 		commits: z.array(commitPlanResultSchema),
 	}),
 	z
 		.object({
+			planningBudget: planningBudgetSchema.optional(),
 			success: z.literal(false),
 			id: z.string(),
 			error: z.string(),
+			contextOverflow: contextOverflowReceiptSchema.optional(),
 			providerFailureKind: z.enum(PROVIDER_FAILURE_KINDS).optional(),
 			planningFailureKind: z.literal("structural").optional(),
 			terminalFailureKind: z
@@ -47,7 +52,9 @@ const commitJobResultRuntimeSchema = z.union([
 					result.providerFailureKind,
 					result.planningFailureKind,
 					result.terminalFailureKind,
-				].filter(Boolean).length <= 1,
+				].filter(Boolean).length <= 1 &&
+				(!result.contextOverflow ||
+					result.terminalFailureKind === "invalid_request"),
 			"Failure classifications cannot grant combined retry authority",
 		),
 ]);

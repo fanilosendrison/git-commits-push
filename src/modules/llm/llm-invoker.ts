@@ -7,11 +7,10 @@ import {
 	LLMRuntimeError,
 	type ProviderAdapter,
 } from "@fanilosendrison/llm-runtime";
-import {
-	productionContextAuthority,
-	requireContextAdmission,
-} from "./context-admission.ts";
+import { productionContextAuthority } from "./context-admission.ts";
 import { createContextDispatch } from "./context-dispatch.ts";
+import { authorizeContextExecution } from "./context-execution.ts";
+import { ContextOverflowError } from "./context-overflow.ts";
 import { buildContextRequest, type LlmInvocation } from "./context-request.ts";
 import type { ContextAuthority } from "./context-types.ts";
 import { PLAN_RESPONSE_SANITIZATION } from "./plan-response-policy.ts";
@@ -58,7 +57,7 @@ export async function invokeLlm(
 		adapterFactories.contextAuthority ?? productionContextAuthority;
 	const authority =
 		budget?.boundAuthority(suppliedAuthority) ?? suppliedAuthority;
-	const decision = await requireContextAdmission(context, authority);
+	const decision = await authorizeContextExecution(context, authority);
 	const attempts = budget?.beginCall();
 	const dispatch = createContextDispatch(
 		context,
@@ -101,6 +100,13 @@ export async function invokeLlm(
 			provider: context.provider as OpenAICompatibleProvider,
 		});
 	dispatch.assertCurrent();
+	process.stderr.write(
+		`${JSON.stringify({
+			event: "planning.context",
+			status: decision.status,
+			requestDigest: decision.requestDigest,
+		})}\n`,
+	);
 	try {
 		const response = await adapter.call(context.request);
 		budget?.chargeTransport(response.attemptCount);
@@ -109,6 +115,22 @@ export async function invokeLlm(
 	} catch (error) {
 		if (budget && error instanceof LLMRuntimeError)
 			budget.chargeTransport(error.attempts ?? 0);
-		throw dispatch.refusal() ?? error;
+		const overflow = dispatch.overflow();
+		process.stderr.write(
+			`${JSON.stringify({
+				event: "planning.context-failure",
+				status: overflow
+					? "CONTEXT_OVERFLOW_REPORTED"
+					: "CONTEXT_FAILURE_UNDETERMINED",
+				requestDigest: decision.requestDigest,
+				...(overflow ? { providerCode: overflow.providerCode } : {}),
+			})}\n`,
+		);
+		throw (
+			dispatch.refusal() ??
+			(overflow && error instanceof LLMRuntimeError
+				? new ContextOverflowError(overflow, error.attempts ?? 0)
+				: error)
+		);
 	}
 }

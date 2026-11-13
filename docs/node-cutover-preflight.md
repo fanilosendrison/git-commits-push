@@ -294,11 +294,14 @@ remaining membership and aggregate result. No partition or counter receipt may
 replace H0/T or justify success from a subset. Keep generation/admission refusals
 separate from preserved landed commits and verified remote effects.
 
-Verify production profile provenance, effective revision, protocol/encoding,
-complete-request counting and explicit reserve independently of generic test GO.
-The current production registry is empty: real generation must refuse. Do not
-activate or describe that source as an operational provider/fallback remediation.
-Synthetic profiles are test injections only, not an operator override.
+Distinguish `CONTEXT_CAPACITY_PROVEN` from `PORTABLE_ATTEMPT_ALLOWED` in request
+receipts. For qualified admission verify profile provenance, effective revision,
+protocol/encoding, complete-request counting and explicit reserve. For portable
+execution verify complete-request and wire limits, explicit output quota, exact
+structured overflow evidence and shared budgets. The empty production registry
+permits portable attempts, not qualified capacity claims. Synthetic profiles are
+test injections only. Generic GO does not establish live operational remediation
+or authorize activation. Never present exact coverage as semantic coherence.
 
 Existing installation, legacy-global/WAL, reconciliation and immutable-release
 gates remain mandatory. Generic context tests do not authorize cutover, a new

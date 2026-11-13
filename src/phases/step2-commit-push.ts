@@ -36,6 +36,7 @@ import {
 	assertExecutableInvocationScope,
 	assertInvocationScopeCurrent,
 } from "../modules/invocation/invocation-scope.ts";
+import { acceptPlanningBudget } from "../modules/llm/planning-attempt-budget.ts";
 import { createSkillStatsLog } from "../modules/telemetry/stats-logger.ts";
 import type { GlobalState } from "../types.ts";
 
@@ -125,6 +126,24 @@ export async function runCommitAndPushPhase(
 				...repoState,
 				status: "FAILED",
 				error: error instanceof Error ? error.message : String(error),
+			};
+			continue;
+		}
+
+		try {
+			repoState = {
+				...repoState,
+				planningBudget: acceptPlanningBudget(
+					repoState.planningBudget,
+					result.planningBudget,
+				),
+			};
+		} catch (error) {
+			nextRepos[result.id] = {
+				...repoState,
+				status: "FAILED",
+				error:
+					error instanceof Error ? error.message : "Invalid planning budget",
 			};
 			continue;
 		}

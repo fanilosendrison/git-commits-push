@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "model-context-planning"
-version: "1.0.0"
+version: "2.0.0"
 status: "Active"
 domain: "git-commits-push"
 severity: "strict"
@@ -13,8 +13,9 @@ severity: "strict"
 
 ## Authority and scope
 
-Apply the owner's C1–C6 decisions and the provider-independent construction
-clarification for Issue #34. Preserve the existing reconciliation, validated-source,
+Apply the owner's C2-Portable and bounded-composition decisions for Issue #34,
+which replace compulsory qualified counting and do not claim universal semantic
+composition proof. Preserve C1 and C3–C6 within that explicitly bounded scope. Preserve the existing reconciliation, validated-source,
 publication, repair ownership and bounded fallback contracts. This specification
 adds request admission and complete planning; it does not qualify a provider.
 
@@ -42,9 +43,12 @@ Return exactly one status:
 - `CAPABILITY_STALE`
 - `COUNTING_UNSUPPORTED`
 
-Only `ADMITTED` authorizes generation. Refusals are terminal admission failures,
-not transient provider errors. Do not select fallback by interpreting refusal
-prose or consume a new retry against the same refused request.
+Only `ADMITTED` establishes `CONTEXT_CAPACITY_PROVEN` under this policy.
+A missing profile may instead select the portable policy below. A selected
+profile that is invalid, stale, unsupported or refuses the reserve remains a
+qualified-policy refusal; never silently downgrade failed selected evidence.
+Qualified input-capacity refusal may split independent Git path units.
+Refusals are not provider outages and cannot select provider fallback.
 
 Require a trusted executable profile bound to provider, effective model,
 qualified revision, protocol, encoding, provenance and validity interval. Require
@@ -93,7 +97,8 @@ A production authority must reject a test-scoped profile. Test token units and
 simulated capacities are not provider facts. Same-process injected dependencies
 are a testing boundary, not a sandbox against arbitrary code in the process.
 
-Unknown models and unresolved aliases refuse. Do not derive a qualified revision
+Unknown models and unresolved aliases cannot receive qualified admission.
+Runtime-supported models without a profile may use portable execution. Do not derive a qualified revision
 from a model name. Metadata limits and historical successful HTTP responses are
 not complete encoding/counting proof. A qualified alias resolver would need an
 evidenced binding to the actual invoked revision; metadata sampled before and
@@ -102,6 +107,66 @@ after a call does not by itself provide an atomic revision pin.
 Do not treat `maxDiffChars`, bytes/3.5, transport JSON length or a throttle estimate
 as production token evidence. Retain an additional presentation resource guard
 only without silent truncation of required source content.
+
+## Portable bounded execution
+
+Use policy `gcp-portable-v1` when no qualified profile exists for a runtime-supported
+provider/model. Permit `PORTABLE_ATTEMPT_ALLOWED`, never `CONTEXT_CAPACITY_PROVEN`.
+Bind the complete immutable logical request identity, protocol, options, system
+instructions, metadata, feedback and explicit output reserve. A successful call
+establishes neither general model capacity nor a stable revision qualification.
+
+Limit the UTF-8 serialization of that complete logical request to 65536 bytes.
+Also guard the actual serialized request body at every physical send at 131072
+bytes, before transport. These are operational allocation limits: a deliberately
+small 64 KiB planning unit and a separate 128 KiB wire ceiling for serializer
+expansion. Neither number is a universally safe model context. Do not convert
+bytes to tokens or omit mandatory content. Oversized logical units split before
+sending; an oversized indivisible unit or unsupported wire representation refuses.
+Send an explicit positive output quota of at most 4096 tokens, default 4096.
+This separately bounded output allocation is not a guaranteed sufficient response
+or a claim about the provider's capacity. Validate responses as before.
+
+Recognize `CONTEXT_OVERFLOW_REPORTED` only from bounded structured transport
+responses for an explicitly recognized provider/status/code combination. Initially
+recognize Mistral HTTP400 with exact `code=invalid_request_prompt_too_long`
+(top-level or error object) and OpenAI HTTP400 with exact
+`error.code=context_length_exceeded`. Do not parse diagnostic message text or
+transfer these codes to other providers. Unknown codes/statuses, malformed bodies,
+authentication, cancellation and protocol failures remain
+`CONTEXT_FAILURE_UNDETERMINED` with respect to context; retain their existing
+runtime failure/fallback policy, never subdivide on them.
+
+On recognized overflow, retain the request digest and structured provider identity,
+charge the failed call, and bisect its sorted literal path membership at the
+midpoint. Rebuild both requests from their complete pinned Git representations;
+never split patch text or a single file. Enforce the existing partition and shared
+call/recovery limits before continuing. A failed unit invalidates the aggregate.
+Retain recognized terminal overflow in the settled job's `contextOverflow`
+receipt, including provider, effective model, request digest, HTTP status, exact
+code and closed termination reason (`provider-refusal`, `indivisible-path` or
+`planning-budget-exhausted`). Validate that receipt with terminal invalid-request
+classification; never persist raw provider diagnostics. Ordinary invalid requests
+without this evidence remain distinct. No overflow can create a provider fallback
+cycle. Rebuild requests and policy
+proofs for every model switch; never reuse another model's admission.
+
+## Bounded composition scope
+
+Git proves source identity and membership, not semantic groups. Planning units
+are not definitive commits: each response may propose one or more groups within
+its exact membership. Keep all existing schema, message, duplicate-path, ownership
+and aggregate validators. `COMPLETE_PLAN_VALIDATED` means these executable gates,
+not universal semantic coherence. `PUBLICATION_AUTHORIZED` additionally requires
+the existing source, invocation and publication checks before effects.
+
+Different subdivisions may produce different ordinary commit groupings and lose
+cross-unit context. Document and test this quality limitation without presenting
+coverage as semantic proof. Do not invent atomic groups from filenames, proximity
+or model assertions. Caller-specific mandatory grouping/cardinality/message
+constraints are not supported by a new API here; that work belongs to #23.
+The caller boundary that knows an unrepresentable mandatory constraint must refuse
+rather than claim GCP will enforce it. GCP cannot validate an absent input.
 
 ## Git partitions
 
@@ -127,9 +192,10 @@ that cannot fit refuses; splitting its text arbitrarily is not an alternative.
 
 Compose the complete request for each candidate partition, including system,
 feedback and explicit literal membership. Admit every final partition before
-calling it. Greedy deterministic path grouping is permitted; no token heuristic
-may substitute for the counter's admission result. Unknown/stale capabilities or
-unsupported encodings cannot be repaired by reducing path count.
+calling it under its selected policy. Greedy deterministic path grouping is
+permitted. Byte limits are local resource policy, never token evidence.
+Stale selected profiles and unsupported encodings cannot be repaired by reducing
+path count.
 
 ## Aggregate gate and recovery
 
@@ -170,9 +236,11 @@ Preserve canonical repository-level `MAX_ATTEMPTS_BY_KIND` and the single durabl
 rounds. Keep one result job per repository/round so partial plans cannot enter
 the commit phase independently.
 
-Within a planning job, allow at most 32 nonempty partitions, 2048 counting-proof
-requests, 64 total adapter calls (including malformed-response repeats) and one malformed-response repeat
-shared across the job. Preserve the runtime's current maximum of four additional
+Within a planning job, allow at most 32 nonempty leaf partitions, including
+adaptive subdivisions. Across settled repository planning jobs, carry a monotonic
+`planningBudget` receipt through results, Turnlock state and subsequent payloads:
+at most 2048 counting-proof requests, 64 total adapter calls (including context
+refusals and malformed-response repeats) and one malformed-response repeat. Preserve the runtime's current maximum of four additional
 transport attempts, shared across all calls in the job instead of per partition.
 Each call gets one base attempt plus the currently remaining shared recovery
 allowance; charge actual reported attempts on both success and failure. Invalid
@@ -185,7 +253,10 @@ fingerprint. Preserve the historical unprefixed validation extension separately.
 Carry the closed terminal kind through result validation;
 do not infer types for historical untyped receipts or combine terminal/outage/
 structural retry authority. A later existing repository retry/fallback round retains its
-canonical accounting; it cannot obtain extra rounds by naming partitions.
+canonical accounting and the consumed planning receipt; it cannot obtain extra
+rounds by naming partitions or changing models. Missing or regressing receipts
+cannot reset known consumption. This receipt records settled jobs, not a new
+per-send crash journal. Interrupted jobs never supply partial-plan authority.
 
 The finite base-call allowance supports partitioning; it is not an increase in
 recovery attempts. Refuse when any shared allowance is exhausted. No fixture,
@@ -203,8 +274,9 @@ Mistral tokenizers/Responses facilities are candidates for investigation, not
 proof for the currently used generation protocol. A profile for one provider
 never qualifies another provider or repairs the historical fallback by inference.
 
-An empty production registry must not block generic construction. It must refuse
-real generation and prevents a release from being advertised as an operational
-remediation. Keep generic implementation, full validation, independent review,
-production usability and historical fallback remediation as separate gates.
+An empty production registry does not prevent portable execution. It still
+precludes qualified capacity claims. Keep generic implementation, full validation,
+independent review, operational qualification and historical fallback remediation
+as separate gates. Portable deterministic tests do not establish live provider
+usability.
 No automatic caller publication or global release activation is authorized.
