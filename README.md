@@ -255,20 +255,28 @@ contexts:
 
 ### 3. Planning
 
-**Production capability gate:** this source implements provider-independent context
-admission but currently contains no qualified production provider profiles. Real
-generation therefore refuses with `CAPABILITY_UNKNOWN`. Neither Google nor
-Mistral is declared operationally qualified by the generic implementation. No
-settings flag or environment variable enables synthetic test qualifications.
-Release activation as an operational remedy remains blocked until an actual
-provider/protocol path is separately qualified.
+**Two execution policies:** qualified counting optionally proves capacity for a
+specific request/model/protocol. Runtime-supported models without a qualified
+profile instead use portable bounded attempts, without a capacity guarantee.
+The production profile registry remains empty; no synthetic profile is enabled
+through settings or environment variables.
 
-Each complete request, including system content, feedback and an explicit output
-reserve, requires a model/revision/encoding-bound admission proof. The planner
-uses deterministic exact-path partitions when needed, without truncating required
-Git representations. All partitions must produce an exactly complete aggregate
-before the first commit. Individual oversized or unsupported inputs refuse;
-partial planning is never successful publication. See
+Portable policy bounds the complete logical JSON request to 64 KiB and its actual
+wire body to 128 KiB, with an explicit output quota of 4096 tokens. These are local
+resource limits, not estimates of model capacity. System instructions, feedback,
+metadata and options remain included. Requests split deterministically on complete
+Git paths, never by truncation. Recognized structured context errors permit bounded
+subdivision; arbitrary error text does not. Indivisible or exhausted work refuses.
+All units must produce a complete validated aggregate before the first commit;
+partial planning never authorizes publication.
+
+Exact coverage is not proof of semantic coherence. Reduced cross-unit context
+can change the model's proposed commit groups; existing validators still apply.
+Mandatory caller grouping/cardinality/message constraints not representable in the
+current contract are not supported by this feature (#23). A caller that knows such
+a constraint must not engage publication while claiming it will be enforced.
+Operational qualification, independent review and release activation remain
+separate gates. See
 [the context contract](specs/model-context-planning.md) and
 [Issue #34](https://github.com/fanilosendrison/git-commits-push/issues/34).
 
