@@ -10,8 +10,8 @@ import {
 } from "../run-tests.mjs";
 
 test("keeps the git-commits-push Node test surface closed and sequential", () => {
-	assert.equal(EXPECTED_NODE_TEST_FILES.length, 118);
-	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 118);
+	assert.equal(EXPECTED_NODE_TEST_FILES.length, 119);
+	assert.equal(new Set(EXPECTED_NODE_TEST_FILES).size, 119);
 	for (const file of [
 		"unit/prepared-merge-historical-staging.test.ts",
 		"unit/prepared-merge-explicit-parents.test.ts",
@@ -28,6 +28,7 @@ test("keeps the git-commits-push Node test surface closed and sequential", () =>
 		"unit/planning-review-regressions.test.ts",
 		"unit/planning-retry-boundaries.test.ts",
 		"unit/planning-terminal-recovery.test.ts",
+		"unit/plan-json-sanitization.test.ts",
 	])
 		assert.ok(EXPECTED_NODE_TEST_FILES.includes(file));
 	assert.equal(
@@ -57,6 +58,36 @@ test("source and compiled qualification use the maintained platform Git wrapper"
 		manifest.scripts["test:node:build"].startsWith(
 			"pnpm run build:node && node scripts/with-platform-git.mjs --test ",
 		),
+	);
+});
+
+test("compiled qualification retains the F2 controller observation oracle", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	assert.equal(
+		manifest.scripts["test:node:build"]
+			.split(" ")
+			.filter(
+				(argument) =>
+					argument === "tests/node-build/controller-observation.node.mjs",
+			).length,
+		1,
+	);
+});
+
+test("compiled qualification retains the CL-01 controller lifetime oracle", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	assert.equal(
+		manifest.scripts["test:node:build"]
+			.split(" ")
+			.filter(
+				(argument) =>
+					argument === "tests/node-build/controller-lifetime.node.mjs",
+			).length,
+		1,
 	);
 });
 

@@ -283,6 +283,31 @@ text never substitutes for the subject description. The runtime refuses missing
 fields rather than inventing them, including after an invalid first response.
 This improves generation instructions, not a guarantee that a model always obeys.
 
+Commit-plan responses preserve literal `<think>` and `<thinking>` text inside
+JSON strings: thinking-tag stripping is disabled, while the existing JSON-fence
+policy remains. External thinking wrappers that are not admissible JSON fail
+closed within the existing repeat budget. Rejection diagnostics contain bounded
+structural codes and paths, never rejected content or response hashes. The
+invoker disables unfiltered runtime logging and reports typed runtime failures
+without their provider-body/error text, retaining the existing failure kinds.
+This corrects a reproducible postprocessing mechanism; the missing raw responses from
+Issue #37 do not establish its historical cause. It does not qualify a production
+provider profile or authorize release activation.
+
+The separately diagnosed CL-01 controller lifetime defect is corrected by keeping
+shutdown polling and escalation timers referenced after IPC loss. The existing
+20 ms polling and 5-second SIGKILL grace, signal order, group-absence checks,
+fencing and durable recovery rules are unchanged. Real-controller tests cover
+owner death, resistant descendants, actual zombies and unknown observations;
+this source correction grants no release activation or consumer-resume authority.
+
+The distinct F2 observation correction rejects empty, malformed or incoherent
+successful process-table output as unknown, including missing controller or
+inspection identities. It validates full numeric fields and unique PID rows
+before excluding the identified inspection child. Valid descendants still block
+quiescence; a coherent table does not claim absolute system completeness. No
+shutdown timing, signal, fencing, admission or durable format is changed.
+
 Every message is validated on return:
 - Does it follow the Conventional Commits format?
 - Is the subject line under the recommended length?
