@@ -47,23 +47,49 @@ function listOwnGroupMembers(): number[] | null {
 			env: { LC_ALL: "C", PATH: "/usr/bin:/bin" },
 			stdio: ["ignore", "pipe", "ignore"],
 		});
-		if (inspection.error || inspection.status !== 0) return null;
+		if (
+			inspection.error ||
+			inspection.status !== 0 ||
+			typeof inspection.stdout !== "string"
+		)
+			return null;
 		const inspectionPid = inspection.pid;
+		if (
+			inspectionPid === undefined ||
+			!Number.isSafeInteger(inspectionPid) ||
+			inspectionPid <= 0 ||
+			inspectionPid === process.pid
+		)
+			return null;
+		const lines = inspection.stdout.split("\n");
+		if (lines.at(-1) === "") lines.pop(); // One optional final LF is framing.
+		const seen = new Set<number>();
 		const members: number[] = [];
-		for (const line of inspection.stdout.split("\n")) {
-			const [pidText, groupText] = line.trim().split(/\s+/u);
-			const pid = Number.parseInt(pidText ?? "", 10);
-			const groupId = Number.parseInt(groupText ?? "", 10);
+		let controllerObserved = false;
+		for (const line of lines) {
+			const match = /^[ \t]*([1-9][0-9]*)[ \t]+(0|[1-9][0-9]*)[ \t]*$/u.exec(
+				line,
+			);
+			if (!match) return null;
+			const pid = Number(match[1]);
+			const groupId = Number(match[2]);
 			if (
-				groupId === process.pid &&
-				Number.isSafeInteger(pid) &&
-				pid > 0 &&
-				pid !== inspectionPid
-			) {
-				members.push(pid);
+				!Number.isSafeInteger(pid) ||
+				!Number.isSafeInteger(groupId) ||
+				seen.has(pid)
+			)
+				return null;
+			seen.add(pid);
+			if (pid === process.pid) {
+				if (groupId !== process.pid) return null;
+				controllerObserved = true;
 			}
+			// The synchronous inspection child inherits this controller's group.
+			if (pid === inspectionPid && groupId !== process.pid) return null;
+			if (groupId === process.pid && pid !== inspectionPid) members.push(pid);
 		}
-		return members;
+		// A coherent table is usable evidence, not a claim of absolute OS completeness.
+		return controllerObserved && seen.has(inspectionPid) ? members : null;
 	} catch {
 		return null;
 	}
