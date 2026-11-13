@@ -301,6 +301,13 @@ fencing and durable recovery rules are unchanged. Real-controller tests cover
 owner death, resistant descendants, actual zombies and unknown observations;
 this source correction grants no release activation or consumer-resume authority.
 
+The distinct F2 observation correction rejects empty, malformed or incoherent
+successful process-table output as unknown, including missing controller or
+inspection identities. It validates full numeric fields and unique PID rows
+before excluding the identified inspection child. Valid descendants still block
+quiescence; a coherent table does not claim absolute system completeness. No
+shutdown timing, signal, fencing, admission or durable format is changed.
+
 Every message is validated on return:
 - Does it follow the Conventional Commits format?
 - Is the subject line under the recommended length?
