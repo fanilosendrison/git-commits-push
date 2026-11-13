@@ -43,7 +43,7 @@ const payload = {
 	token: "synthetic",
 };
 
-function transport(responses: string[]) {
+function transport(responses: string[], responseOverride?: () => Response) {
 	const authority = syntheticContextAuthority();
 	let calls = 0;
 	const unexpected = () => {
@@ -57,6 +57,10 @@ function transport(responses: string[]) {
 		createOpenAIAdapter: unexpected,
 		createOpenAICompatibleAdapter: unexpected,
 		fetch: async () => {
+			if (responseOverride) {
+				calls++;
+				return responseOverride();
+			}
 			const text = responses[Math.min(calls++, responses.length - 1)];
 			return new Response(
 				JSON.stringify({
@@ -215,6 +219,65 @@ test("invalid plan JSON preserves the real source/index and bare remote with no 
 			assert.equal(git(f.remote, "rev-parse", "HEAD"), f.head);
 		}
 	} finally {
+		f.dispose();
+	}
+});
+
+test("provider envelope failures expose only bounded typed classifications across the actual bridge", async () => {
+	const f = await fixture();
+	const output: string[] = [];
+	const writer = mock.method(
+		process.stderr,
+		"write",
+		(chunk: string | Uint8Array) => {
+			output.push(String(chunk));
+			return true;
+		},
+	);
+	try {
+		const canary = "PRIVATE_PROVIDER_RESPONSE_CANARY";
+		const cases = [
+			{
+				response: () => new Response(canary, { status: 200 }),
+				kind: "response_parse",
+			},
+			{
+				response: () => new Response(canary.repeat(1000), { status: 400 }),
+				kind: "invalid_request",
+			},
+			{
+				response: () =>
+					new Response(
+						JSON.stringify({
+							promptFeedback: { blockReason: canary.repeat(1000) },
+						}),
+						{ status: 200 },
+					),
+				kind: "content_filter",
+			},
+		];
+		const index = git(f.repo.dir, "write-tree");
+		for (const scenario of cases) {
+			output.length = 0;
+			const t = transport([], scenario.response);
+			const result = await fixtureBridge(
+				f,
+				{ ...fixtureTransport(f), invoke: t.invoke, authority: t.authority },
+				{ ...f.payload, provider: "google" },
+			);
+			assert.equal(result.success, false);
+			if (result.success) throw new Error("expected failure");
+			assert.ok(!JSON.stringify(result).includes("PRIVATE_PR"));
+			assert.ok(!output.join("").includes("PRIVATE_PR"));
+			assert.ok(result.error.length < 200);
+			assert.match(result.error, new RegExp(scenario.kind));
+			assert.equal(t.calls(), 1);
+			assert.equal(git(f.repo.dir, "write-tree"), index);
+			assert.equal(git(f.repo.dir, "rev-parse", "HEAD"), f.head);
+			assert.equal(git(f.remote, "rev-parse", "HEAD"), f.head);
+		}
+	} finally {
+		writer.mock.restore();
 		f.dispose();
 	}
 });

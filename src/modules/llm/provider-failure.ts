@@ -36,9 +36,16 @@ export function createLlmJobFailure(
 	id: string,
 	error: unknown,
 ): CommitJobResultError {
-	const diagnostic = sanitizeSensitiveDiagnostic(
-		error instanceof Error ? error.message : String(error),
-	);
+	const diagnostic =
+		error instanceof LLMRuntimeError
+			? `Provider request failed (${
+					ALL_LLM_ERROR_KINDS.some((kind) => kind === error.kind)
+						? error.kind
+						: "unknown_runtime_failure"
+				})`
+			: sanitizeSensitiveDiagnostic(
+					error instanceof Error ? error.message : String(error),
+				);
 	const kind =
 		error instanceof LLMRuntimeError
 			? PROVIDER_FAILURE_KINDS.find((candidate) => candidate === error.kind)

@@ -69,6 +69,9 @@ export async function invokeLlm(
 	const commonConfig = {
 		model: context.model,
 		apiKey: payload.token,
+		// Runtime defaults can quote provider bodies in diagnostics. The caller
+		// reports only typed failure metadata, never unfiltered runtime text.
+		logging: { enabled: false },
 		sanitization: {
 			...PLAN_RESPONSE_SANITIZATION,
 			stripJsonFence: payload.stripJsonFence ?? true,
