@@ -61,6 +61,21 @@ test("source and compiled qualification use the maintained platform Git wrapper"
 	);
 });
 
+test("compiled qualification retains the CL-01 controller lifetime oracle", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	assert.equal(
+		manifest.scripts["test:node:build"]
+			.split(" ")
+			.filter(
+				(argument) =>
+					argument === "tests/node-build/controller-lifetime.node.mjs",
+			).length,
+		1,
+	);
+});
+
 test("keeps the package Node-build timeout aligned with the source runner", () => {
 	assert.equal(FIXED_TEST_TIMEOUT_MILLISECONDS, 600_000);
 	const packageManifest = JSON.parse(

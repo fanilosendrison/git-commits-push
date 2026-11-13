@@ -143,12 +143,10 @@ export async function runExecutionController(
 		});
 		signalOwnGroup("SIGTERM");
 		groupPollTimer = setInterval(finishWhenQuiescent, GROUP_POLL_MS);
-		groupPollTimer.unref();
 		forceTimer = setTimeout(
 			() => signalOwnGroup("SIGKILL"),
 			TERMINATION_GRACE_MS,
 		);
-		forceTimer.unref();
 		finishWhenQuiescent();
 	};
 
