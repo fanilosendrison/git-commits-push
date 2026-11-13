@@ -7,6 +7,11 @@ import {
 import { ZodError } from "zod";
 import { parseCommitJobResponse } from "../../src/modules/core/commit-job-response.ts";
 import {
+	admitContext,
+	productionContextAuthority,
+} from "../../src/modules/llm/context-admission.ts";
+import { buildContextRequest } from "../../src/modules/llm/context-request.ts";
+import {
 	invokeLlm,
 	type LlmAdapterFactories,
 } from "../../src/modules/llm/llm-invoker.ts";
@@ -282,13 +287,29 @@ test("provider envelope failures expose only bounded typed classifications acros
 	}
 });
 
-test("Stage A does not qualify production profiles or dispatch unknown models", async () => {
+test("portable execution does not qualify production profiles or permit unsupported providers", async () => {
 	const t = transport([JSON.stringify(plan)]);
+	assert.equal(
+		(
+			await admitContext(
+				buildContextRequest(payload),
+				productionContextAuthority,
+			)
+		).status,
+		"CAPABILITY_UNKNOWN",
+	);
 	await assert.rejects(
-		executePlanningJob(payload, "synthetic", t.invoke),
+		executePlanningJob(
+			{ ...payload, provider: "unsupported-provider" },
+			"synthetic",
+			t.invoke,
+		),
 		/CAPABILITY_UNKNOWN/,
 	);
 	assert.equal(t.calls(), 0);
+	const plans = await executePlanningJob(payload, "synthetic", t.invoke);
+	assert.equal(plans[0]?.commit.description, plan[0]?.commit.description);
+	assert.equal(t.calls(), 1);
 });
 
 test("real transport shares existing attempt accounting and does not alter explicit fence opt-out", async () => {

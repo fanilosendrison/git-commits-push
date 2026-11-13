@@ -98,8 +98,11 @@ const payload = {
 	responseReserve: 128,
 };
 
-test("compiled production invoker refuses unknown profiles before any generation", async () => {
-	await assert.rejects(invokeLlm(payload), /CAPABILITY_UNKNOWN/);
+test("compiled production invoker refuses unsupported providers and fake qualification", async () => {
+	await assert.rejects(
+		invokeLlm({ ...payload, provider: "unsupported-provider" }),
+		/CAPABILITY_UNKNOWN/,
+	);
 	const fake = syntheticCompiledAuthority();
 	assert.equal(
 		(
@@ -155,6 +158,49 @@ test("compiled exact admitted message snapshot and reserve reach real runtime wi
 	assert.equal(body.max_tokens, 128);
 	assert.equal(body.model, payload.model);
 	assert.equal(budget.snapshot().calls, 1);
+});
+
+test("compiled portable runtime succeeds without counting and recognizes structured overflow only", async () => {
+	const unexpected = () => {
+		throw new Error("unexpected provider");
+	};
+	let overflow = false;
+	const budget = new PlanningAttemptBudget();
+	const factories = {
+		buildSimplePrompt,
+		createOpenAICompatibleAdapter,
+		createAnthropicAdapter: unexpected,
+		createGoogleAdapter: unexpected,
+		createOpenAIAdapter: unexpected,
+		fetch: async () =>
+			overflow
+				? new Response(
+						JSON.stringify({ code: "invalid_request_prompt_too_long" }),
+						{ status: 400 },
+					)
+				: new Response(
+						JSON.stringify({
+							choices: [{ message: { content: "OK" }, finish_reason: "stop" }],
+						}),
+						{ status: 200 },
+					),
+	};
+	assert.equal(await invokeLlm(payload, factories, budget), "OK");
+	overflow = true;
+	await assert.rejects(invokeLlm(payload, factories, budget), (error) => {
+		assert.equal(error.evidence.status, "CONTEXT_OVERFLOW_REPORTED");
+		assert.equal(
+			error.evidence.providerCode,
+			"invalid_request_prompt_too_long",
+		);
+		assert.equal(
+			createLlmJobFailure("job", error).providerFailureKind,
+			undefined,
+		);
+		return true;
+	});
+	assert.equal(budget.snapshot().calls, 2);
+	assert.equal(budget.snapshot().recoveries, 0);
 });
 
 test("compiled SDK retry rechecks proof expiry before any subsequent physical send", async () => {
@@ -234,7 +280,7 @@ test("compiled partition membership is closed, deterministic and fails on a smal
 	);
 });
 
-test("compiled actual bridge returns a non-transient refusal with no injected inference call", async () => {
+test("compiled actual bridge ignores job-supplied qualification and refuses oversized portable input without inference", async () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "compiled-context-"));
 	try {
 		const manifest = path.join(dir, "manifest.json"),
@@ -273,7 +319,7 @@ test("compiled actual bridge returns a non-transient refusal with no injected in
 							contextAuthority: { scope: "test" },
 							temperature: 0,
 							systemPrompt: "system",
-							diff: "work",
+							diff: "x".repeat(70000),
 							diffHash: "hash",
 						}),
 					},
@@ -290,7 +336,7 @@ test("compiled actual bridge returns a non-transient refusal with no injected in
 		});
 		const result = JSON.parse(readFileSync(resultPath, "utf8"));
 		assert.equal(result.success, false);
-		assert.match(result.error, /CAPABILITY_UNKNOWN/);
+		assert.match(result.error, /PORTABLE_REQUEST_LIMIT/);
 		assert.equal(result.providerFailureKind, undefined);
 		assert.equal(calls, 0);
 	} finally {
