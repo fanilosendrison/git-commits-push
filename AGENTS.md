@@ -386,18 +386,27 @@ queue execution path. Telemetry failures must never block reconciliation.
 
 ## Dependency patching
 
-- `patches/@fanilosendrison__llm-runtime@0.1.3.patch` is a transitional pnpm
-  patch that carries two upstream fixes: explicit DeepSeek thinking-mode control
-  through `providerOptions` and a per-attempt timeout that covers the response
-  body as well as the headers. It applies until
-  `@fanilosendrison/llm-runtime` 0.1.4 is published to the registry.
-- The patch payload is the exact compiled output of the upstream fix; do not
-  hand-edit it. Regenerate it from the llm-runtime build whenever the upstream
-  fix changes.
-- Adopting `>= 0.1.4` must bump the dependency, delete the patch and its
-  `pnpm-workspace.yaml` entry, and keep
-  `tests/node-build/deepseek-thinking-patch.node.mjs` green against the
-  published release in the same change.
+- Use the owner-authorized controlled package under `vendor/llm-runtime/`:
+  compiled `@fanilosendrison/llm-runtime@0.1.5` from accepted upstream commit
+  `f2ab2f723775bbfe8a40a597be84769819eb1e0e`, tree
+  `7f30975a2d6e5c3b7d6ab3430f50c8f249258c39`. Bind it through an exact local
+  `file:` dependency and pnpm integrity lock, not a floating registry version.
+- Retain explicit source provenance, SHA-256/SHA-512 tar identity and the complete
+  package inventory. Build/package through upstream's official tools; never edit
+  the tarball or duplicate upstream fixes into a downstream patch.
+- Verify fresh frozen-lockfile installation, actual `pnpm deploy --prod`, deployed
+  dependency bytes and release provenance. Runtime must not require upstream
+  source, a development checkout, the original tarball or pnpm. Preserve the
+  existing immutable-release/link validation and installation safety gates.
+- This narrowly accepted route supersedes the old requirement to await npm0.1.4
+  before deleting the transitional0.1.3 patch. It authorizes neither npm release
+  nor arbitrary unqualified vendoring. A changed upstream commit/package needs
+  explicit provenance comparison, qualification and independent exact-tree review.
+- Keep the historical DeepSeek thinking and aggregate response-body timeout
+  assertions green against the integrated dependency itself. Also qualify Mistral
+  final-text extraction, thinking exclusion and typed malformed-segment refusal.
+  Source/package integration is not operational provider qualification or host
+  release activation.
 
 ## State and schema
 

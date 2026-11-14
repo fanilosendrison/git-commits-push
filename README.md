@@ -30,6 +30,25 @@ commits file by file, and pushes — so you don't have to think about any of it.
 
 ---
 
+## Controlled runtime dependency
+
+This source candidate consumes the compiled `llm-runtime` 0.1.5 tarball under
+`vendor/llm-runtime/`, pinned to accepted upstream commit
+`f2ab2f723775bbfe8a40a597be84769819eb1e0e`. Its provenance records source/tree,
+SHA-256, SHA-512 and the complete package-file inventory; pnpm locks the exact
+local `file:` artifact. No npm publication is implied.
+
+The build verifies tar integrity. Standalone deployment verifies the installed
+runtime bytes against that inventory, retains provenance in
+`dist/dependency-provenance/llm-runtime.json`, and removes source-distribution
+inputs from the immutable release. Runtime execution needs neither the upstream
+checkout, original tarball nor pnpm. DeepSeek thinking control and whole-response
+timeouts are inherited from this dependency, not a downstream patch.
+
+This controlled route is limited to the accepted package; changed artifacts need
+new comparison, qualification and review. Source version0.13.1 does not activate
+an installed release or qualify a real provider. See [contributor directives](AGENTS.md).
+
 ## Installation
 
 Before upgrading a host that may contain historical Turnlock runs, inspect and
