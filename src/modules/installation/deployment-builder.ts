@@ -4,6 +4,10 @@ import path from "node:path";
 import { requireAbsolutePath } from "./install-paths.ts";
 import { requireStandalonePackageVersion } from "./release-identity.ts";
 import { digestReleaseTree, validateReleaseTree } from "./release-tree.ts";
+import {
+	verifyInstalledRuntimePackage,
+	verifyVendoredRuntimeTarball,
+} from "./runtime-package-provenance.ts";
 
 const REQUIRED_RELEASE_FILES = [
 	"bin/git-commits-push.mjs",
@@ -127,7 +131,15 @@ async function validateDeployedApplication(
 export async function buildStandaloneDeployment(
 	options: BuildStandaloneDeploymentOptions,
 ): Promise<BuiltStandaloneDeployment> {
+	await verifyVendoredRuntimeTarball(options.sourceDirectory);
 	await runPnpmDeploy(options);
+	await verifyInstalledRuntimePackage(options.targetDirectory);
+	// Source distribution inputs are not runtime dependencies. Keep the accepted
+	// inventory/provenance in dist, but not duplicate tarballs in immutable releases.
+	await rm(path.join(options.targetDirectory, "vendor"), {
+		force: true,
+		recursive: true,
+	});
 	await removePnpmMetadata(options.targetDirectory);
 	const version = await validateDeployedApplication(options.targetDirectory);
 	return {

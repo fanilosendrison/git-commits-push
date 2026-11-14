@@ -308,6 +308,21 @@ gates remain mandatory. Generic context tests do not authorize cutover, a new
 provider, an inference retry or caller publication. See
 [model context planning](../specs/model-context-planning.md).
 
+## Controlled runtime package inspection
+
+For the source-only 0.13.1 candidate, verify the accepted local `file:` tarball
+under `vendor/llm-runtime/` against its provenance SHA-256/SHA-512 and pnpm lock.
+After standalone deployment, require the installed runtime's complete package
+inventory to match `dist/dependency-provenance/llm-runtime.json`. The release
+retains provenance, not the source tarball, and must execute without upstream
+source, the preparation checkout or pnpm. Re-run DeepSeek thinking, whole-body
+timeout and Mistral final-text/strict-refusal controls on the installed dependency.
+
+This owner-authorized route does not publish npm, qualify a real provider, remove
+legacy-global/WAL gates, or authorize activation of a candidate release. Keep
+source integration, dependency distribution, operational requalification and host
+activation as distinct decisions. Do not modify immutable historical releases.
+
 ## Evidence to retain
 
 For an upgrade or incident record, capture:

@@ -64,6 +64,23 @@ test("source and compiled qualification use the maintained platform Git wrapper"
 	);
 });
 
+test("compiled qualification retains controlled runtime provenance and installed behavior", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	for (const file of [
+		"runtime-vendoring.node.mjs",
+		"controlled-runtime-installed.node.mjs",
+		"deepseek-thinking-patch.node.mjs",
+	])
+		assert.equal(
+			manifest.scripts["test:node:build"]
+				.split(" ")
+				.filter((argument) => argument === `tests/node-build/${file}`).length,
+			1,
+		);
+});
+
 test("compiled qualification retains the F2 controller observation oracle", () => {
 	const manifest = JSON.parse(
 		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),

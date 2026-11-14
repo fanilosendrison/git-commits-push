@@ -1,11 +1,8 @@
 /**
  * Deterministic verification that the compiled invoker and the installed
- * (patched) @fanilosendrison/llm-runtime apply the DeepSeek thinking-mode and
- * response-body timeout fixes.
- *
- * The dependency is patched transitionally until llm-runtime 0.1.4 is
- * published; this test fails if the patch stops being applied or stops
- * matching the compiled invoker contract.
+ * controlled @fanilosendrison/llm-runtime package preserves the upstream
+ * DeepSeek thinking-mode and response-body timeout fixes. The historical test
+ * filename is retained; assertions apply to dependency behavior, not patch text.
  */
 
 import assert from "node:assert/strict";
@@ -99,7 +96,7 @@ test("compiled invoker forwards explicit DeepSeek thinking provider options", as
 	});
 });
 
-test("patched runtime serializes explicit DeepSeek disabled thinking", async () => {
+test("controlled runtime serializes explicit DeepSeek disabled thinking", async () => {
 	const { state, fetchImpl } = jsonResponseCapture();
 	const adapter = createOpenAICompatibleAdapter({
 		provider: "deepseek",
@@ -115,7 +112,7 @@ test("patched runtime serializes explicit DeepSeek disabled thinking", async () 
 	assert.equal(state.body.reasoning_effort, undefined);
 });
 
-test("patched runtime keeps the DeepSeek option out of other providers", async () => {
+test("controlled runtime keeps the DeepSeek option out of other providers", async () => {
 	const { state, fetchImpl } = jsonResponseCapture({
 		...COMPLETION_BODY,
 		model: "mistral-large-latest",
@@ -134,7 +131,7 @@ test("patched runtime keeps the DeepSeek option out of other providers", async (
 	assert.equal(state.body.reasoning_effort, undefined);
 });
 
-test("patched runtime bounds a stalled response body by the attempt timeout", async () => {
+test("controlled runtime bounds a stalled response body by the attempt timeout", async () => {
 	const adapter = createOpenAICompatibleAdapter({
 		provider: "deepseek",
 		model: "deepseek-flash",

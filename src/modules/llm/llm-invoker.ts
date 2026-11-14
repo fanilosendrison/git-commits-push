@@ -76,7 +76,7 @@ export async function invokeLlm(
 			stripJsonFence: payload.stripJsonFence ?? true,
 		},
 		providerOptions: { ...context.providerOptions, fetch: dispatch.fetch },
-		// Pinned runtime 0.1.3 policy, but extra attempts are shared by the whole job.
+		// Pinned runtime policy; extra attempts remain shared by the whole job.
 		...(attempts === undefined
 			? {}
 			: {
