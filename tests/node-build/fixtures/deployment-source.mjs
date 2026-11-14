@@ -9,7 +9,7 @@ export async function copyDeploymentSource(sourceDirectory, targetDirectory) {
 		"bin",
 		"dist",
 		"package.json",
-		"patches",
+		"vendor",
 		"pnpm-lock.yaml",
 		"pnpm-workspace.yaml",
 	])
