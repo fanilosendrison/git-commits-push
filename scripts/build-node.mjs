@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyAssets, runProcess } from "@git-commits-push/node-runtime";
+import { verifyVendoredRuntimeTarball } from "../src/modules/installation/runtime-package-provenance.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const skillDirectory = path.resolve(scriptDirectory, "..");
@@ -10,6 +11,7 @@ const outputDirectory = path.join(skillDirectory, "dist");
 const require = createRequire(import.meta.url);
 const typescriptCliPath = require.resolve("typescript/bin/tsc");
 
+await verifyVendoredRuntimeTarball(skillDirectory);
 await rm(outputDirectory, { force: true, recursive: true });
 
 const compileResult = await runProcess(
@@ -33,6 +35,10 @@ if (compileResult.exitCode !== 0) {
 
 await copyAssets({
 	assets: [
+		{
+			sourcePath: "vendor/llm-runtime/provenance.json",
+			destinationPath: "dependency-provenance/llm-runtime.json",
+		},
 		{
 			sourcePath: "src/config/settings.json",
 			destinationPath: "src/config/settings.json",
