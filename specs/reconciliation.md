@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "specification"
 name: "git-commits-push-reconciliation"
-version: "4.3.0"
+version: "4.4.0"
 status: "Active"
 summary: "Normative contract for SQLite reconciliation ownership, invocation modes, and durable single-live Git execution."
 domain: "git-commits-push"
@@ -134,6 +134,24 @@ before schema, candidate-cleanup, or owner-record effects. SQLite availability
 after another install finishes does not authorize the superseded request.
 Timeouts and owner records never independently grant ownership. Owner-record
 format and installer database schema are unchanged.
+
+### Exact release selection
+
+An optional operator-supplied `expectedReleaseName` binds a complete supported
+version and64-character lowercase SHA256. The official source CLI exposes it as
+`--expected-release`. When supplied, installation MUST snapshot this identity
+before asynchronous work and MUST refuse a different deployed identity before
+promotion or activation. It MUST NOT replace the pin with a newly computed name.
+Malformed/unknown/repeated CLI input MUST refuse. Absence preserves generic
+installation; it does not satisfy an externally exact-pinned activation mandate.
+
+The actual named release selected for activation MUST match its complete digest
+and package manifest version. Keep provenance, containment and content validation
+and the lifecycle-held installer lock. Revalidate the private owner record before
+promotion/activation. This does not establish protection against arbitrary
+same-user filesystem mutation or replace cooperative release immutability and
+external offline coordination. It adds no reconciler schema, target payload,
+cutover-completion evidence or WAL-inspection relaxation.
 
 ### Invocation authority
 

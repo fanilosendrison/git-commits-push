@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "documentation"
 name: "git-commits-push-readme"
-version: "3.7.0"
+version: "3.8.0"
 status: "Active"
 summary: "User guide for the standalone SQLite-reconciled, Turnlock-driven git-commits-push CLI."
 domain: "git-commits-push"
@@ -46,8 +46,8 @@ checkout, original tarball nor pnpm. DeepSeek thinking control and whole-respons
 timeouts are inherited from this dependency, not a downstream patch.
 
 This controlled route is limited to the accepted package; changed artifacts need
-new comparison, qualification and review. Source version0.13.1 does not activate
-an installed release or qualify a real provider. See [contributor directives](AGENTS.md).
+new comparison, qualification and review. Source integration alone does not
+activate an installed release or qualify a real provider. See [contributor directives](AGENTS.md).
 
 ## Installation
 
@@ -56,11 +56,12 @@ retire every legacy global run:
 
 ```bash
 pnpm run cutover:legacy-global-runs
-pnpm run cutover:legacy-global-runs --apply --confirm-no-live-execution
 ```
 
-The first command is read-only. The apply form is an offline operation: stop all
-launchers and historical resume processes first. It moves only `global` or
+Inspection is read-only. If already ready, perform no historical maintenance.
+The separately authorized apply form is an offline operation: stop all launch
+sources and historical resume processes first, and retain operational exclusion
+through postflight. Follow the [preactivation runbook](docs/preactivation-maintenance.md). It moves only `global` or
 missing-scope runs to a same-filesystem quarantine and leaves a durable regular
 file at each canonical run path, so an absolute resume command from an old
 release cannot reopen that run. Exact `worktree` and `targeted` runs are not
@@ -71,6 +72,19 @@ Then install or upgrade the production CLI:
 ```bash
 pnpm run install:standalone
 ```
+
+For an operator-authorized exact artifact, version0.14.0 also accepts:
+
+```text
+pnpm run install:standalone --expected-release <ACCEPTED_VERSION-FULL_SHA256>
+```
+
+Supply the complete version and lowercase64-character SHA256 from independent
+candidate qualification. A mismatch refuses under the installer lock before
+activation; the actual named release is verified again before switching `current`.
+Unknown, repeated or malformed flags refuse. Omitting the option retains generic
+installation but does not satisfy an exact-release mandate. A changed package
+requires a new candidate identity and qualification, not reuse of an old GO.
 
 Installation builds the workspace and deploys a self-contained Node application
 to

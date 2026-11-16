@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "directive"
 name: "git-commits-push-agent-directives"
-version: "3.7.0"
+version: "3.8.0"
 status: "Active"
 summary: "Architecture, safety, and validation directives for contributors to git-commits-push."
 domain: "git-commits-push"
@@ -355,6 +355,16 @@ queue execution path. Telemetry failures must never block reconciliation.
 - Activate only the relative `current` symlink atomically. The public executable
   symlink is stable and may be created only when absent or already equal to the
   managed target.
+- For an exact-release activation mandate, use `pnpm run install:standalone
+  --expected-release <accepted-version-and-full-digest>`. Preserve generic
+  unpinned installation only for authority that does not require an exact image.
+  Snapshot supplied intent before asynchronous work; compare the complete built
+  identity under the lifecycle lock before promotion and verify the actual named
+  artifact's digest and manifest version before activation. Never derive a new
+  authorization from a mismatching output. Revalidate the installer owner before
+  promotion/activation without reading its held SQLite file through unrelated
+  descriptors. Follow `docs/preactivation-maintenance.md` for separately
+  authorized offline coordination; no process snapshot opens a maintenance window.
 - Release names bind semantic version and a deterministic tree digest. Reject
   escaping or broken symlinks, special files, hostile destination entries, and
   mismatched existing release content.

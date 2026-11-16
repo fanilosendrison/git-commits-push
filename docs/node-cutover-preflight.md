@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "procedure"
 name: "git-commits-push-reconciliation-preflight"
-version: "4.4.0"
+version: "4.5.0"
 status: "Active"
 summary: "Read-only inspection and recovery procedure for durable git-commits-push reconciliation state."
 domain: "git-commits-push"
@@ -322,6 +322,29 @@ This owner-authorized route does not publish npm, qualify a real provider, remov
 legacy-global/WAL gates, or authorize activation of a candidate release. Keep
 source integration, dependency distribution, operational requalification and host
 activation as distinct decisions. Do not modify immutable historical releases.
+
+## Exact target and offline coordination
+
+For a separately authorized exact-image installation, use the existing installer
+with `--expected-release <accepted-version-and-full-digest>`. Package0.14.0
+refuses a different version/digest before promotion/activation under its native
+lock, then verifies the named artifact's bytes and manifest version. An unpinned
+installation or post-activation comparison is not equivalent to that condition.
+The changed deployment has a new identity and does not inherit old operational GO.
+
+Follow [preactivation maintenance](preactivation-maintenance.md) to inventory and
+inhibit fresh/historical launch sources, maintain accountable external exclusion,
+prepare complete verified preimages and distinguish the two official locks.
+The runbook is not an authorization or an open maintenance window. Do not infer
+exact scope for WAL-blocked runs or replace SQLite authority with recovery from
+a possibly incomplete WAL prefix. No automatic checkpoint is introduced.
+
+Retain the historical39 `ctime` differences and their failed metadata comparison.
+Their cause remains undetermined; equal endpoint byte hashes do not prove metadata
+preservation or continuous authority. Release identity excludes timestamps, while
+the existing SQLite inspector's within-inspection fingerprint checks, including
+`ctime`, remain unchanged. Assess the actual fresh installation/preimage guarantee
+rather than declaring the old metadata difference corruption or silently erasing it.
 
 ## Evidence to retain
 

@@ -3,7 +3,7 @@ okf_version: "1.0"
 kind: "KnowledgeAsset"
 asset_type: "migration-guide"
 name: "git-commits-push-sqlite-reconciliation-migration"
-version: "4.4.0"
+version: "4.5.0"
 status: "Active"
 summary: "Migration record for replacing per-request file queues with SQLite generation reconciliation."
 domain: "git-commits-push"
@@ -271,6 +271,18 @@ application's `current` symlink, and exposes the stable harness entrypoint at
 `~/.local/bin/git-commits-push`. Production invocations do not run `pnpm` or
 compile source. Older releases remain available so compatible non-global
 Turnlock runs can resume against the exact entrypoints recorded when they began.
+
+Package0.14.0 adds an optional exact release pin to the existing installer:
+`pnpm run install:standalone --expected-release <accepted-version-and-full-digest>`.
+The pin is copied before asynchronous deployment, compared under the installer
+lock before promotion and never replaced by a computed output identity. Activation
+revalidates the actual named tree and its manifest version. Owner records are
+rechecked before promotion/activation; lock formats and native arbitration are
+unchanged. Generic unpinned installation remains compatible but is not qualified
+exact selection. These deployed code/manifest changes require a new release
+digest; the prior0.13.1 operational GO remains attached only to its old image.
+See the [separately authorized maintenance runbook](preactivation-maintenance.md).
+No historical database, coordinator schema or #14 inspection rule is migrated.
 
 Package 0.10.2 corrects installer stale-lock arbitration without migrating
 reconciler or installer state. Two zero-wait SQLite lock promotions can both
