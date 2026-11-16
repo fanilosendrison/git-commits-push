@@ -11,7 +11,11 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { buildStandaloneDeployment } from "./deployment-builder.ts";
-import { acquireInstallLock, releaseInstallLock } from "./install-lock.ts";
+import {
+	acquireInstallLock,
+	assertInstallLockOwnership,
+	releaseInstallLock,
+} from "./install-lock.ts";
 import {
 	type ResolveStandaloneInstallPathsOptions,
 	requireAbsolutePath,
@@ -22,7 +26,7 @@ import {
 	createStandaloneReleaseName,
 	isStandaloneReleaseName,
 } from "./release-identity.ts";
-import { digestReleaseTree } from "./release-tree.ts";
+import { verifyStandaloneReleaseIdentity } from "./release-verification.ts";
 
 export {
 	resolveStandaloneInstallPaths,
@@ -33,6 +37,8 @@ export interface InstallStandaloneOptions
 	extends ResolveStandaloneInstallPathsOptions {
 	readonly pnpmCliPath: string;
 	readonly sourceDirectory: string;
+	/** Exact operator-authorized version and full tree digest; absence retains generic installation. */
+	readonly expectedReleaseName?: string;
 }
 
 export interface InstallStandaloneResult {
@@ -96,19 +102,14 @@ async function removeStaleStagingDirectories(
 
 async function verifyExistingRelease(
 	releaseDirectory: string,
-	expectedDigest: string,
+	expectedReleaseName: string,
 ): Promise<void> {
 	if ((await pathKind(releaseDirectory)) !== "directory") {
 		throw new Error(
 			`Content-addressed release path is not a directory: ${releaseDirectory}`,
 		);
 	}
-	const observedDigest = await digestReleaseTree(releaseDirectory);
-	if (observedDigest !== expectedDigest) {
-		throw new Error(
-			`Content-addressed release failed digest verification: ${releaseDirectory}`,
-		);
-	}
+	await verifyStandaloneReleaseIdentity(releaseDirectory, expectedReleaseName);
 }
 
 function isReleaseTarget(target: string): boolean {
@@ -191,6 +192,7 @@ export async function activateStandaloneRelease(
 		throw new Error(`Invalid standalone release name: ${releaseName}`);
 	}
 	const releaseDirectory = path.join(paths.releasesDirectory, releaseName);
+	await verifyExistingRelease(releaseDirectory, releaseName);
 	const releaseExecutable = path.join(
 		releaseDirectory,
 		"bin",
@@ -217,6 +219,15 @@ export async function activateStandaloneRelease(
 export async function installStandalone(
 	options: InstallStandaloneOptions,
 ): Promise<InstallStandaloneResult> {
+	// Snapshot caller intent before any await; mutable caller objects cannot erase a pin.
+	const expectedReleaseName = options.expectedReleaseName;
+	if (
+		expectedReleaseName !== undefined &&
+		(typeof expectedReleaseName !== "string" ||
+			!isStandaloneReleaseName(expectedReleaseName))
+	) {
+		throw new Error("Invalid expected standalone release name.");
+	}
 	const sourceDirectory = requireAbsolutePath(
 		options.sourceDirectory,
 		"Source directory",
@@ -249,15 +260,25 @@ export async function installStandalone(
 			deployment.version,
 			deployment.digest,
 		);
+		if (
+			expectedReleaseName !== undefined &&
+			releaseName !== expectedReleaseName
+		) {
+			throw new Error(
+				"Deployed standalone release does not match the expected release.",
+			);
+		}
+		assertInstallLockOwnership(paths.installLockPath, lockOwner);
 		const releaseDirectory = path.join(paths.releasesDirectory, releaseName);
 		let reusedRelease = false;
 		if ((await pathKind(releaseDirectory)) === "absent") {
 			await rename(stagingDirectory, releaseDirectory);
 		} else {
-			await verifyExistingRelease(releaseDirectory, deployment.digest);
+			await verifyExistingRelease(releaseDirectory, releaseName);
 			reusedRelease = true;
 			await rm(stagingDirectory, { force: true, recursive: true });
 		}
+		assertInstallLockOwnership(paths.installLockPath, lockOwner);
 		await activateStandaloneRelease(paths, releaseName);
 		operationResult = {
 			paths,

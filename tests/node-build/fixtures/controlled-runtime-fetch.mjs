@@ -5,21 +5,19 @@ import promises from "node:fs/promises";
 import { registerHooks, syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertInstalledReadPath } from "./controlled-runtime-paths.mjs";
 
 const release = process.env.GCP_CONTROLLED_RELEASE;
 const source = process.env.GCP_FORBIDDEN_SOURCE;
 const stateFile = process.env.GCP_CONTROLLED_STATE;
-assert.ok(release && source && stateFile);
+const fixture = process.env.GCP_CONTROLLED_FIXTURE_ROOT;
+assert.ok(release && source && stateFile && fixture);
 const read = fs.readFileSync;
 const write = fs.writeFileSync;
 const realpath = fs.realpathSync;
 const config = JSON.parse(read(stateFile, "utf8"));
 function rejectSource(file) {
-	const name = file instanceof URL ? fileURLToPath(file) : String(file);
-	if (name === source || name.startsWith(`${source}${path.sep}`))
-		throw new Error(
-			"Installed runtime attempted to read its unavailable source/distribution checkout",
-		);
+	assertInstalledReadPath(file, { source, release, fixture }, realpath);
 }
 fs.readFileSync = (file, ...args) => {
 	rejectSource(file);

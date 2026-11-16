@@ -312,15 +312,23 @@ export function acquireInstallLock(lockPath: string): InstallLockOwner {
 	}
 }
 
-/** Release the SQLite lock only while its durable owner record still matches. */
-export function releaseInstallLock(
+/** Revalidate the private owner record without opening the held SQLite file. */
+export function assertInstallLockOwnership(
 	lockPath: string,
 	owner: InstallLockOwner,
 ): void {
 	const currentOwner = readOwnerRecord(lockPath);
 	if (!sameOwnerRecord(currentOwner, owner)) {
-		throw new Error("Install lock ownership changed before release.");
+		throw new Error("Install lock ownership changed.");
 	}
+}
+
+/** Release the SQLite lock only while its durable owner record still matches. */
+export function releaseInstallLock(
+	lockPath: string,
+	owner: InstallLockOwner,
+): void {
+	assertInstallLockOwnership(lockPath, owner);
 	unlinkSync(ownerRecordPath(lockPath));
 	let commitError: unknown;
 	try {

@@ -6,6 +6,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readlink,
+	rename,
 	rm,
 	symlink,
 	unlink,
@@ -34,6 +35,27 @@ async function makeTemporaryDirectory(prefix: string): Promise<string> {
 	const directory = await mkdtemp(path.join(tmpdir(), prefix));
 	temporaryDirectories.push(directory);
 	return directory;
+}
+
+/** Valid named trees keep pointer-safety tests independent of identity refusal. */
+async function makeActivationRelease(
+	paths: ReturnType<typeof resolveStandaloneInstallPaths>,
+	label: string,
+): Promise<string> {
+	const directory = path.join(paths.releasesDirectory, `.fixture-${label}`);
+	await mkdir(path.join(directory, "bin"), { recursive: true });
+	await writeFile(
+		path.join(directory, "bin", "git-commits-push.mjs"),
+		`#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(label)});\n`,
+		{ mode: 0o755 },
+	);
+	await writeFile(
+		path.join(directory, "package.json"),
+		JSON.stringify({ name: "git-commits-push", version: "0.4.0" }),
+	);
+	const name = `0.4.0-${await digestReleaseTree(directory)}`;
+	await rename(directory, path.join(paths.releasesDirectory, name));
+	return name;
 }
 
 afterEach(async () => {
@@ -238,21 +260,8 @@ describe("release activation", () => {
 			environment: { XDG_DATA_HOME: path.join(root, "data") },
 			homeDirectory: path.join(root, "home"),
 		});
-		const releaseC = `0.4.0-${"c".repeat(64)}`;
-		const releaseD = `0.4.0-${"d".repeat(64)}`;
-		for (const releaseName of [releaseC, releaseD]) {
-			const binDirectory = path.join(
-				paths.releasesDirectory,
-				releaseName,
-				"bin",
-			);
-			await mkdir(binDirectory, { recursive: true });
-			await writeFile(
-				path.join(binDirectory, "git-commits-push.mjs"),
-				"#!/usr/bin/env node\n",
-				{ mode: 0o755 },
-			);
-		}
+		const releaseC = await makeActivationRelease(paths, "release-c");
+		const releaseD = await makeActivationRelease(paths, "release-d");
 		await activateStandaloneRelease(paths, releaseC);
 		await unlink(paths.publicExecutablePath);
 		await writeFile(paths.publicExecutablePath, "hostile\n");
@@ -274,21 +283,8 @@ describe("release activation", () => {
 			environment: { XDG_DATA_HOME: dataHome },
 			homeDirectory,
 		});
-		const releaseA = `0.4.0-${"a".repeat(64)}`;
-		const releaseB = `0.4.0-${"b".repeat(64)}`;
-		for (const releaseName of [releaseA, releaseB]) {
-			const binDirectory = path.join(
-				paths.releasesDirectory,
-				releaseName,
-				"bin",
-			);
-			await mkdir(binDirectory, { recursive: true });
-			await writeFile(
-				path.join(binDirectory, "git-commits-push.mjs"),
-				`#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(releaseName)});\n`,
-				{ mode: 0o755 },
-			);
-		}
+		const releaseA = await makeActivationRelease(paths, "release-a");
+		const releaseB = await makeActivationRelease(paths, "release-b");
 		await activateStandaloneRelease(paths, releaseA);
 		const releaseAExecutable = path.join(
 			paths.releasesDirectory,
@@ -312,11 +308,11 @@ describe("release activation", () => {
 		);
 		assert.equal(
 			spawnSync(releaseAExecutable, [], { encoding: "utf8" }).stdout,
-			releaseA,
+			"release-a",
 		);
 		assert.equal(
 			spawnSync(paths.publicExecutablePath, [], { encoding: "utf8" }).stdout,
-			releaseB,
+			"release-b",
 		);
 	});
 });

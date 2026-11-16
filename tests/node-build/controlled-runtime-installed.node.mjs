@@ -132,6 +132,7 @@ for (const scenario of [
 				MISTRAL_API_KEY: "synthetic",
 				GCP_CONTROLLED_RELEASE: candidate.releaseDirectory,
 				GCP_FORBIDDEN_SOURCE: root,
+				GCP_CONTROLLED_FIXTURE_ROOT: f.root,
 				GCP_CONTROLLED_STATE: stateFile,
 			}).done();
 			const state = JSON.parse(readFileSync(stateFile, "utf8"));
