@@ -71,6 +71,7 @@ test("compiled qualification retains controlled runtime provenance and installed
 	for (const file of [
 		"runtime-vendoring.node.mjs",
 		"controlled-runtime-installed.node.mjs",
+		"controlled-runtime-paths.node.mjs",
 		"deepseek-thinking-patch.node.mjs",
 	])
 		assert.equal(
@@ -79,6 +80,21 @@ test("compiled qualification retains controlled runtime provenance and installed
 				.filter((argument) => argument === `tests/node-build/${file}`).length,
 			1,
 		);
+});
+
+test("compiled qualification retains API and official CLI release-pin oracles", () => {
+	const manifest = JSON.parse(
+		readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+	);
+	for (const name of ["standalone-release-pin", "standalone-release-pin-cli"]) {
+		assert.equal(
+			manifest.scripts["test:node:build"]
+				.split(" ")
+				.filter((argument) => argument === `tests/node-build/${name}.node.mjs`)
+				.length,
+			1,
+		);
+	}
 });
 
 test("compiled qualification retains the F2 controller observation oracle", () => {
